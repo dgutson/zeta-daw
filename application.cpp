@@ -222,10 +222,13 @@ Application::Application(
     midi_input_->start([this](MidiEvent event) {
         handleMidiEvent(std::move(event));
     });
+    impl_->allNotesOff();
+    midi_ready_.store(true, std::memory_order_release);
     impl_->startPlaybackWorker();
 }
 
 Application::~Application() {
+    midi_ready_.store(false, std::memory_order_release);
     midi_input_->stop();
     shutdownRequested();
 }
@@ -247,6 +250,10 @@ void Application::shutdownRequested() {
 }
 
 void Application::handleMidiEvent(MidiEvent event) noexcept {
+    if (!midi_ready_.load(std::memory_order_acquire)) {
+        return;
+    }
+
     try {
         const auto type = event.type;
         const auto& message = event.message;

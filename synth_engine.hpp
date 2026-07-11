@@ -1,7 +1,7 @@
 #pragma once
 
 #include "configuration.hpp"
-#include "midi.hpp"
+#include "midi_event.hpp"
 
 #include <memory>
 

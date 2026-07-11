@@ -4,6 +4,7 @@
 #include "looper_fsm.hpp"
 #include "midi_input.hpp"
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -29,6 +30,7 @@ private:
     LooperStateRegistry states_;
     LooperFsm fsm_;
     std::unique_ptr<MidiInput> midi_input_;
+    std::atomic<bool> midi_ready_{false};
 
     void handleMidiEvent(MidiEvent event) noexcept;
 

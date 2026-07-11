@@ -55,11 +55,11 @@ endif()
 
 add_executable(
     midi_looper
-    midi2.cpp
+    main.cpp
     application.cpp
     configuration.cpp
     looper_fsm.cpp
-    midi.cpp
+    midi_event.cpp
     midi_input.cpp
     synth_engine.cpp
 )
@@ -99,7 +99,7 @@ if(BUILD_TESTING)
         application.cpp
         configuration.cpp
         looper_fsm.cpp
-        midi.cpp
+        midi_event.cpp
         midi_input.cpp
         synth_engine.cpp
     )
@@ -134,15 +134,15 @@ if(BUILD_TESTING)
         looper_fsm_tests
         tests/looper_fsm_test.cpp
         looper_fsm.cpp
-        midi.cpp
+        midi_event.cpp
     )
     target_compile_options(looper_fsm_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(looper_fsm_tests PRIVATE GTest::gmock_main Threads::Threads)
 
     add_executable(
         midi_tests
-        tests/midi_test.cpp
-        midi.cpp
+        tests/midi_event_test.cpp
+        midi_event.cpp
     )
     target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(midi_tests PRIVATE GTest::gtest_main)

@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <streambuf>
@@ -25,6 +26,8 @@ using zeta::Application;
 using zeta::ApplicationConfig;
 using zeta::MidiControlBinding;
 using zeta::MidiControlType;
+using zeta::MidiEvent;
+using zeta::MidiInput;
 using zeta::MidiMessageType;
 using zeta::SoundFontDefinition;
 
@@ -182,6 +185,33 @@ protected:
         fake_midi_input::reset();
     }
 };
+
+class StartupNoteMidiInput final : public MidiInput {
+public:
+    void start(Handler handler) override {
+        handler(MidiEvent{
+            .type = MidiMessageType::NoteOn,
+            .message = {
+                .raw_type = raw(MidiMessageType::NoteOn),
+                .channel = 0,
+                .key = 67,
+                .velocity = 100,
+            },
+        });
+    }
+
+    void stop() noexcept override {}
+};
+
+TEST_F(CurrentBehaviorTest, IgnoresMidiDeliveredWhileInputIsStarting) {
+    Application application{
+        testConfig(),
+        std::make_unique<StartupNoteMidiInput>()
+    };
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn, 0, 67));
+}
 
 TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
     {

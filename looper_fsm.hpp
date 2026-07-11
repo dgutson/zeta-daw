@@ -1,6 +1,6 @@
 #pragma once
 
-#include "midi.hpp"
+#include "midi_event.hpp"
 
 #include <array>
 #include <chrono>
