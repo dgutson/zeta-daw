@@ -1,0 +1,119 @@
+direction: right
+
+title: {
+  label: "MIDI Looper — behavioral state machine"
+  shape: text
+  near: top-center
+}
+
+start: {
+  label: ""
+  shape: circle
+  width: 18
+  height: 18
+  style: {
+    fill: "#333333"
+    stroke: "#333333"
+  }
+}
+
+ready: {
+  label: "Ready\nLive monitoring; no take armed"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#e8f1ff"
+    stroke: "#285f9e"
+  }
+}
+
+armed: {
+  label: "Armed\nWaiting for the first NoteOn"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#fff4d6"
+    stroke: "#9b6a00"
+  }
+}
+
+recording: {
+  label: "Recording\nCapturing timestamped note events"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#ffe5e5"
+    stroke: "#a33a3a"
+  }
+}
+
+looping: {
+  label: "Looping\nPlaying the completed take"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#e8f8e8"
+    stroke: "#317a3b"
+  }
+}
+
+stopped: {
+  label: "Stopped\nTerminal state"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#eeeeee"
+    stroke: "#555555"
+    stroke-width: 3
+  }
+}
+
+start -> ready
+
+ready -> armed: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); resetTake(); showRecordingArmed()"
+ready -> ready: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel)"
+
+armed -> recording: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ monitorMidi(message, LoopChannel); recordNote(NoteOn, message, 0ms)"
+armed -> armed: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
+armed -> stopped: "primaryControlPressed(now)\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+
+recording -> recording: "midiMessage(NoteOn | NoteOff, message, now)\n/ monitorMidi(message, LoopChannel); recordNote(kind, message, now - recordingStartedAt)"
+recording -> recording: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
+recording -> looping: "primaryControlPressed(now) [elapsed milliseconds > 0]\n/ commitTake(duration); startLoopPlayback(); showLooping()"
+recording -> stopped: "primaryControlPressed(now) [elapsed milliseconds == 0]\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+
+looping -> looping: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel) [unless suppressed]"
+looping -> stopped: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+
+ready -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+armed -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+recording -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+looping -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+
+stopped -> stopped: "any stimulus\n/ no action"
+
+legend: {
+  label: "Alphabets"
+  direction: down
+  style: {
+    fill: "#fafafa"
+    stroke: "#888888"
+    border-radius: 6
+  }
+
+  inputs: {
+    label: "Stimuli (virtual State methods)\n• primaryControlPressed(now)\n• midiMessage(type, message, now)\n• shutdownRequested()"
+    shape: rectangle
+  }
+
+  outputs: {
+    label: "Actions (abstract LooperOutput methods)\n• monitorMidi / silenceAllChannels\n• resetTake / recordNote / commitTake\n• startLoopPlayback / stopLoopPlayback\n• showRecordingArmed / showLooping / showNoTake\n• stopPlaybackWorker"
+    shape: rectangle
+  }
+}
+
+looping -> legend: {
+  style: {
+    opacity: 0
+  }
+}
