@@ -12,13 +12,38 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
 find_package(Threads REQUIRED)
 
+find_package(yaml-cpp CONFIG QUIET)
+if(NOT TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
+    include(FetchContent)
+    set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
+    set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+    set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        yaml-cpp
+        URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(yaml-cpp)
+endif()
+
+if(TARGET yaml-cpp::yaml-cpp)
+    set(ZETA_YAML_TARGET yaml-cpp::yaml-cpp)
+else()
+    set(ZETA_YAML_TARGET yaml-cpp)
+endif()
+
 add_executable(
     midi_looper
     midi2.cpp
     application.cpp
+    configuration.cpp
     looper_fsm.cpp
 )
-target_link_libraries(midi_looper PRIVATE PkgConfig::FLUIDSYNTH Threads::Threads)
+target_link_libraries(
+    midi_looper
+    PRIVATE PkgConfig::FLUIDSYNTH Threads::Threads ${ZETA_YAML_TARGET}
+)
 target_compile_options(midi_looper PRIVATE -Wall -Wextra -Wpedantic)
 if(ZETA_MIDI_TRACE)
     target_compile_definitions(midi_looper PRIVATE ZETA_MIDI_TRACE)
@@ -44,6 +69,7 @@ if(BUILD_TESTING)
         tests/current_behavior_test.cpp
         tests/fake_fluidsynth.cpp
         application.cpp
+        configuration.cpp
         looper_fsm.cpp
     )
     target_include_directories(
@@ -53,7 +79,21 @@ if(BUILD_TESTING)
             ${FLUIDSYNTH_INCLUDE_DIRS}
     )
     target_compile_options(current_behavior_tests PRIVATE -Wall -Wextra -Wpedantic)
-    target_link_libraries(current_behavior_tests PRIVATE GTest::gmock_main Threads::Threads)
+    target_link_libraries(
+        current_behavior_tests
+        PRIVATE GTest::gmock_main Threads::Threads ${ZETA_YAML_TARGET}
+    )
+
+    add_executable(
+        configuration_tests
+        tests/configuration_test.cpp
+        configuration.cpp
+    )
+    target_compile_options(configuration_tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(
+        configuration_tests
+        PRIVATE GTest::gtest_main ${ZETA_YAML_TARGET}
+    )
 
     add_executable(
         looper_fsm_tests
@@ -65,5 +105,6 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
+    gtest_discover_tests(configuration_tests)
     gtest_discover_tests(looper_fsm_tests)
 endif()

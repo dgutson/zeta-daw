@@ -280,7 +280,13 @@ int fluid_midi_event_get_pitch(const fluid_midi_event_t* event) {
     return event->pitch;
 }
 
-int fluid_synth_handle_midi_event(void*, fluid_midi_event_t* event) {
+int fluid_synth_handle_midi_event(void* data, fluid_midi_event_t* event) {
+    auto* synth = static_cast<fluid_synth_t*>(data);
+    if (event->type == 0xC0) {
+        synth->programs.at(static_cast<std::size_t>(event->channel)).preset =
+            event->program;
+    }
+
     record({
         .kind = fake_fluidsynth::CallKind::HandleMidi,
         .type = event->type,

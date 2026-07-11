@@ -1,5 +1,6 @@
 #include "application.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <string>
 #include <syncstream>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -79,6 +81,7 @@ struct Application::Impl {
     FluidSynth synth;
     FluidAudioDriver audio_driver;
     FluidMidiDriver midi_driver;
+    std::unordered_map<std::string, int> soundfont_ids;
 
     std::vector<RecordedNoteEvent> events;
     uint64_t loop_length_ms{};
@@ -89,18 +92,15 @@ struct Application::Impl {
     std::optional<PlaybackTake> requested_take;
     uint64_t playback_generation{};
 
-    Impl(
-        const std::string& loop_soundfont_path,
-        const std::string& live_soundfont_path
-    ) {
-        initializeFluidSynth(loop_soundfont_path, live_soundfont_path);
+    std::mutex lifecycle_mutex;
+    std::condition_variable lifecycle_changed;
+
+    explicit Impl(const ApplicationConfig& config) {
+        initializeFluidSynth(config);
         events.reserve(max_recorded_events);
     }
 
-    void initializeFluidSynth(
-        const std::string& loop_soundfont_path,
-        const std::string& live_soundfont_path
-    ) {
+    void initializeFluidSynth(const ApplicationConfig& config) {
         settings.reset(new_fluid_settings());
         if (!settings) {
             throw std::runtime_error("Could not create FluidSynth settings");
@@ -117,8 +117,18 @@ struct Application::Impl {
             throw std::runtime_error("Could not create FluidSynth synth");
         }
 
-        loadSoundFont(loop_soundfont_path, loop_channel, 0, 34);
-        loadSoundFont(live_soundfont_path, live_channel, 0, 0);
+        std::unordered_map<std::string, int> loaded_files;
+        for (const auto& definition : config.soundfonts) {
+            const auto path = definition.file.string();
+            auto [loaded, inserted] = loaded_files.try_emplace(path, -1);
+            if (inserted) {
+                loaded->second = loadSoundFont(path);
+            }
+            soundfont_ids.emplace(definition.id, loaded->second);
+        }
+
+        selectConfiguredSoundFont(config, config.loop_soundfont, loop_channel);
+        selectConfiguredSoundFont(config, config.live_soundfont, live_channel);
 
         audio_driver.reset(new_fluid_audio_driver(settings.get(), synth.get()));
         if (!audio_driver) {
@@ -142,12 +152,21 @@ struct Application::Impl {
         });
     }
 
-    void loadSoundFont(const std::string& path, int channel, int bank, int preset) {
+    int loadSoundFont(const std::string& path) {
         const int soundfont_id = fluid_synth_sfload(synth.get(), path.c_str(), 0);
         if (soundfont_id == -1) {
             throw std::runtime_error("Could not load SoundFont: " + path);
         }
+        return soundfont_id;
+    }
 
+    void selectSoundFont(
+        const std::string& path,
+        int channel,
+        int soundfont_id,
+        int bank,
+        int preset
+    ) {
         const int result = fluid_synth_program_select(
             synth.get(),
             channel,
@@ -175,6 +194,25 @@ struct Application::Impl {
                 " in SoundFont: " + path
             );
         }
+    }
+
+    void selectConfiguredSoundFont(
+        const ApplicationConfig& config,
+        std::string_view id,
+        int channel
+    ) {
+        const auto& definition = config.soundfont(id);
+        selectSoundFont(
+            definition.file.string(),
+            channel,
+            soundfont_ids.at(definition.id),
+            definition.bank,
+            definition.preset
+        );
+    }
+
+    void notifyLifecycleChanged() {
+        lifecycle_changed.notify_all();
     }
 
     void stopLoopPlayback() {
@@ -324,33 +362,33 @@ struct Application::Impl {
     }
 };
 
-Application::Application(
-    std::string loop_soundfont_path,
-    std::string live_soundfont_path
-)
-    : impl_(std::make_unique<Impl>(loop_soundfont_path, live_soundfont_path)),
+Application::Application(ApplicationConfig config)
+    : config_(std::move(config)),
+      impl_(std::make_unique<Impl>(config_)),
       states_(),
       fsm_(states_, *this) {
     impl_->start(*this);
 }
 
 Application::~Application() {
-    fsm_.shutdownRequested();
+    shutdownRequested();
     impl_->releaseResources();
 }
 
-void Application::runInteractive() {
+void Application::run() {
     std::cout << "\nMIDI looper ready.\n";
     std::cout << "Play your controller: it should sound live.\n\n";
-    std::cout << "Press ENTER to start recording.\n";
+    std::cout << "Use the configured MIDI recording control to start.\n";
 
-    while (fsm_.shouldRun()) {
-        if (!std::cin.get()) {
-            fsm_.shutdownRequested();
-            return;
-        }
-        fsm_.primaryControlPressed(LooperClock::now());
-    }
+    std::unique_lock lock(impl_->lifecycle_mutex);
+    impl_->lifecycle_changed.wait(lock, [this] {
+        return !fsm_.shouldRun();
+    });
+}
+
+void Application::shutdownRequested() {
+    fsm_.shutdownRequested();
+    impl_->notifyLifecycleChanged();
 }
 
 int Application::midiCallback(void* data, fluid_midi_event_t* event) noexcept {
@@ -377,6 +415,16 @@ int Application::handleMidiEvent(fluid_midi_event_t* event) {
         .program = fluid_midi_event_get_program(event),
         .pitch = fluid_midi_event_get_pitch(event),
     };
+
+    if (std::ranges::any_of(config_.recording_controls, [&](const auto& control) {
+        return control.matches(type, message);
+    })) {
+        const auto state = fsm_.primaryControlPressed(LooperClock::now());
+        if (isTerminal(state)) {
+            impl_->notifyLifecycleChanged();
+        }
+        return FLUID_OK;
+    }
 
     if (type == MidiMessageType::ControlChange
         && message.control == expression_controller
@@ -475,16 +523,18 @@ void Application::commitTake(Milliseconds duration) {
 }
 
 void Application::startLoopPlayback() {
+    impl_->selectConfiguredSoundFont(config_, config_.live_soundfont, live_channel);
     impl_->startLoopPlayback();
 }
 
 void Application::showRecordingArmed() {
-    std::cout << "Recording... press ENTER to stop recording and start looping.\n";
+    std::cout
+        << "Recording... use the configured MIDI control to stop and start looping.\n";
 }
 
 void Application::showLooping() {
     std::cout << "Looping. You can still play live over the loop.\n";
-    std::cout << "Press ENTER to stop and quit.\n";
+    std::cout << "Use the configured MIDI control to stop and quit.\n";
 }
 
 void Application::showNoTake() {
