@@ -61,8 +61,8 @@ void arm(LooperFsm& fsm, StrictMock<MockOutput>& output) {
 
 TEST(LooperFsmTest, ReadyMonitorsMidiOnTheDedicatedLiveChannel) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
     MidiMessage message{.channel = 7, .key = 64, .velocity = 90};
 
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
@@ -79,8 +79,8 @@ TEST(LooperFsmTest, ReadyMonitorsMidiOnTheDedicatedLiveChannel) {
 
 TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
     arm(fsm, output);
 
     MidiMessage note_off{.channel = 0, .key = 60, .velocity = 0};
@@ -119,8 +119,8 @@ TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
 
 TEST(LooperFsmTest, CompletedRecordingLoopsAndReturnsMidiToLiveChannel) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
     arm(fsm, output);
 
     MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
@@ -172,8 +172,8 @@ TEST(LooperFsmTest, CompletedRecordingLoopsAndReturnsMidiToLiveChannel) {
 
 TEST(LooperFsmTest, PressingControlWhileArmedReportsNoTakeAndStops) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
     arm(fsm, output);
 
     {
@@ -193,8 +193,8 @@ TEST(LooperFsmTest, PressingControlWhileArmedReportsNoTakeAndStops) {
 
 TEST(LooperFsmTest, ZeroDurationTakeReportsNoTakeAndStops) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
     arm(fsm, output);
 
     MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
@@ -216,8 +216,8 @@ TEST(LooperFsmTest, ZeroDurationTakeReportsNoTakeAndStops) {
 
 TEST(LooperFsmTest, ShutdownFromReadyIsTerminalAndIdempotent) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states;
-    LooperFsm fsm{states, output};
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
 
     {
         InSequence sequence;

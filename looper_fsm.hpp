@@ -88,31 +88,30 @@ public:
 
 class LooperState {
 public:
+    explicit LooperState(LooperOutput& output) noexcept;
     virtual ~LooperState() = default;
 
     virtual StateId primaryControlPressed(
         LooperStateData& data,
-        LooperOutput& output,
         TimePoint now
     ) const = 0;
 
     virtual MidiHandlingResult midiMessage(
         LooperStateData& data,
-        LooperOutput& output,
         MidiMessageType type,
         MidiMessage& message,
         TimePoint received_at
     ) const = 0;
 
-    virtual StateId shutdownRequested(
-        LooperStateData& data,
-        LooperOutput& output
-    ) const = 0;
+    virtual StateId shutdownRequested(LooperStateData& data) const = 0;
+
+protected:
+    LooperOutput& output_;
 };
 
 class LooperStateRegistry {
 public:
-    LooperStateRegistry();
+    explicit LooperStateRegistry(LooperOutput& output);
     ~LooperStateRegistry();
 
     LooperStateRegistry(const LooperStateRegistry&) = delete;
@@ -129,7 +128,7 @@ private:
 
 class LooperFsm {
 public:
-    LooperFsm(LooperStateRegistry& states, LooperOutput& output) noexcept;
+    explicit LooperFsm(LooperStateRegistry& states) noexcept;
 
     LooperFsm(const LooperFsm&) = delete;
     LooperFsm& operator=(const LooperFsm&) = delete;
@@ -145,7 +144,6 @@ private:
     void install(StateId next_state);
 
     LooperStateRegistry& states_;
-    LooperOutput& output_;
     LooperStateData data_;
     StateId current_state_{StateId::Ready};
     mutable std::mutex mutex_;

@@ -365,8 +365,8 @@ struct Application::Impl {
 Application::Application(ApplicationConfig config)
     : config_(std::move(config)),
       impl_(std::make_unique<Impl>(config_)),
-      states_(),
-      fsm_(states_, *this) {
+      states_(*this),
+      fsm_(states_) {
     impl_->start(*this);
 }
 
