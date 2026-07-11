@@ -1,5 +1,7 @@
 #pragma once
 
+#include "midi.hpp"
+
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -11,15 +13,6 @@ namespace zeta {
 using LooperClock = std::chrono::steady_clock;
 using TimePoint = LooperClock::time_point;
 using Milliseconds = std::chrono::milliseconds;
-
-enum class MidiMessageType : int {
-    Other = -1,
-    NoteOff = 0x80,
-    NoteOn = 0x90,
-    ControlChange = 0xB0,
-    ProgramChange = 0xC0,
-    PitchBend = 0xE0,
-};
 
 enum class MidiRoute {
     LiveChannel,
@@ -40,18 +33,6 @@ enum class StateId : std::size_t {
     Count,
 };
 
-struct MidiMessage {
-    void* native_event{};
-    int raw_type{};
-    int channel{};
-    int key{};
-    int velocity{};
-    int control{};
-    int value{};
-    int program{};
-    int pitch{};
-};
-
 struct MidiHandlingResult {
     StateId next_state{StateId::Ready};
     int native_result{};
@@ -65,7 +46,7 @@ class LooperOutput {
 public:
     virtual ~LooperOutput() = default;
 
-    virtual int monitorMidi(MidiMessage& message, MidiRoute route) = 0;
+    virtual int monitorMidi(const MidiMessage& message, MidiRoute route) = 0;
 
     virtual void stopLoopPlayback() = 0;
     virtual void silenceAllChannels() = 0;
@@ -149,7 +130,6 @@ private:
     mutable std::mutex mutex_;
 };
 
-MidiMessageType classifyMidiMessage(int raw_type) noexcept;
 bool isTerminal(StateId id) noexcept;
 
 } // namespace zeta

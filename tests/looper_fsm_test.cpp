@@ -25,7 +25,7 @@ using zeta::TimePoint;
 
 class MockOutput : public LooperOutput {
 public:
-    MOCK_METHOD(int, monitorMidi, (MidiMessage&, MidiRoute), (override));
+    MOCK_METHOD(int, monitorMidi, (const MidiMessage&, MidiRoute), (override));
     MOCK_METHOD(void, stopLoopPlayback, (), (override));
     MOCK_METHOD(void, silenceAllChannels, (), (override));
     MOCK_METHOD(void, resetTake, (), (override));

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "looper_fsm.hpp"
+#include "midi.hpp"
 
 #include <filesystem>
 #include <stdexcept>

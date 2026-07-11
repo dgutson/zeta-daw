@@ -1,4 +1,5 @@
 #include "fake_fluidsynth.hpp"
+#include "fake_midi_input.hpp"
 #include "../application.hpp"
 
 #include <gmock/gmock.h>
@@ -147,7 +148,7 @@ ApplicationConfig testConfig() {
 }
 
 int pressRecordingControl() {
-    return fake_fluidsynth::emitMidi({
+    return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::ProgramChange),
         .channel = 0,
         .program = 12,
@@ -178,12 +179,13 @@ class CurrentBehaviorTest : public ::testing::Test {
 protected:
     void SetUp() override {
         fake_fluidsynth::reset();
+        fake_midi_input::reset();
     }
 };
 
 TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
     {
-        Application application{testConfig()};
+        Application application{testConfig(), fake_midi_input::makeInput()};
 
         const auto calls = fake_fluidsynth::calls();
         ASSERT_GE(calls.size(), 4U);
@@ -205,12 +207,10 @@ TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
     }
 
     const auto calls = fake_fluidsynth::calls();
-    const auto midi_deleted = firstIndexOf(calls, CallKind::DeleteMidiDriver);
     const auto audio_deleted = firstIndexOf(calls, CallKind::DeleteAudioDriver);
     const auto synth_deleted = firstIndexOf(calls, CallKind::DeleteSynth);
     const auto settings_deleted = firstIndexOf(calls, CallKind::DeleteSettings);
 
-    EXPECT_LT(midi_deleted, audio_deleted);
     EXPECT_LT(audio_deleted, synth_deleted);
     EXPECT_LT(synth_deleted, settings_deleted);
 }
@@ -230,7 +230,10 @@ TEST_F(CurrentBehaviorTest, EagerlyLoadsEveryUniqueConfiguredSoundFont) {
         .preset = 16,
     });
 
-    Application application{std::move(config)};
+    Application application{
+        std::move(config),
+        fake_midi_input::makeInput()
+    };
 
     const auto calls = fake_fluidsynth::calls();
     EXPECT_EQ(
@@ -243,7 +246,7 @@ TEST_F(CurrentBehaviorTest, EagerlyLoadsEveryUniqueConfiguredSoundFont) {
 }
 
 TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
@@ -260,7 +263,7 @@ TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
 }
 
 TEST_F(CurrentBehaviorTest, ShutdownRequestWakesTheApplicationRunLoop) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
     ASSERT_TRUE(session.waitForOutput("MIDI looper ready."));
 
@@ -269,9 +272,9 @@ TEST_F(CurrentBehaviorTest, ShutdownRequestWakesTheApplicationRunLoop) {
 }
 
 TEST_F(CurrentBehaviorTest, ReadyRoutesMidiToDedicatedLiveChannel) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 7,
         .key = 64,
@@ -281,16 +284,16 @@ TEST_F(CurrentBehaviorTest, ReadyRoutesMidiToDedicatedLiveChannel) {
     const auto calls = fake_fluidsynth::calls();
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 0, 64));
     EXPECT_FALSE(hasCall(calls, CallKind::HandleMidi, 7, 64));
-    EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 0, 64));
 }
 
 TEST_F(CurrentBehaviorTest, SuppressesZeroExpressionBeforeItReachesTheSynth) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
 
     const auto before = fake_fluidsynth::calls();
     const auto handled_before = std::ranges::count(before, CallKind::HandleMidi, &Call::kind);
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::ControlChange),
         .channel = 1,
         .control = 11,
@@ -303,7 +306,7 @@ TEST_F(CurrentBehaviorTest, SuppressesZeroExpressionBeforeItReachesTheSynth) {
         handled_before
     );
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::ControlChange),
         .channel = 0,
         .control = 11,
@@ -315,24 +318,24 @@ TEST_F(CurrentBehaviorTest, SuppressesZeroExpressionBeforeItReachesTheSynth) {
 }
 
 TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOff),
         .channel = 0,
         .key = 60,
     }), FLUID_OK);
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 0,
         .key = 60,
         .velocity = 0,
     }), FLUID_OK);
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::ControlChange),
         .channel = 0,
         .control = 7,
@@ -345,18 +348,17 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
     const auto calls = fake_fluidsynth::calls();
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 60));
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, std::nullopt, 99));
-    EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn));
     EXPECT_THAT(session.output(), ::testing::HasSubstr("No notes were recorded. Exiting."));
 }
 
 TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChannelOne) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 0,
         .key = 60,
@@ -365,7 +367,7 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
 
     std::this_thread::sleep_for(15ms);
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOff),
         .channel = 0,
         .key = 60,
@@ -380,13 +382,13 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
             && hasCall(calls, CallKind::SynthNoteOff, 1, 60);
     }));
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 1,
         .key = 72,
         .velocity = 80,
     }), FLUID_OK);
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::PitchBend),
         .channel = 1,
         .pitch = 16383,
@@ -418,10 +420,10 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
 }
 
 TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresConfiguredLiveProgram) {
-    Application application{testConfig()};
+    Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::ProgramChange),
         .channel = 0,
         .program = 99,
@@ -429,7 +431,7 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresConfiguredLiveProgram) {
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
-    EXPECT_EQ(fake_fluidsynth::emitMidi({
+    EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 0,
         .key = 60,

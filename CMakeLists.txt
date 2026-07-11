@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 
 project(zeta_daw LANGUAGES CXX)
 
@@ -10,11 +10,31 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FLUIDSYNTH REQUIRED IMPORTED_TARGET fluidsynth)
+find_package(ALSA REQUIRED)
 find_package(Threads REQUIRED)
+
+include(FetchContent)
+
+find_package(libremidi 5.4.3 EXACT CONFIG QUIET)
+if(NOT TARGET libremidi::libremidi)
+    set(LIBREMIDI_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LIBREMIDI_TESTS OFF CACHE BOOL "" FORCE)
+    set(LIBREMIDI_NO_JACK ON CACHE BOOL "" FORCE)
+    set(LIBREMIDI_NO_PIPEWIRE ON CACHE BOOL "" FORCE)
+    set(LIBREMIDI_NO_NETWORK ON CACHE BOOL "" FORCE)
+    set(LIBREMIDI_NO_KEYBOARD ON CACHE BOOL "" FORCE)
+    set(LIBREMIDI_NO_UDEV ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        libremidi
+        URL https://github.com/celtera/libremidi/archive/refs/tags/v5.4.3.tar.gz
+        URL_HASH SHA256=a1c369c6aab01c80f1506345d1c099a167b330d1d59159aa7583f7b0b9f966b9
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(libremidi)
+endif()
 
 find_package(yaml-cpp CONFIG QUIET)
 if(NOT TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
-    include(FetchContent)
     set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
     set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
@@ -39,10 +59,17 @@ add_executable(
     application.cpp
     configuration.cpp
     looper_fsm.cpp
+    midi.cpp
+    midi_input.cpp
+    synth_engine.cpp
 )
 target_link_libraries(
     midi_looper
-    PRIVATE PkgConfig::FLUIDSYNTH Threads::Threads ${ZETA_YAML_TARGET}
+    PRIVATE
+        PkgConfig::FLUIDSYNTH
+        Threads::Threads
+        ${ZETA_YAML_TARGET}
+        libremidi::libremidi
 )
 target_compile_options(midi_looper PRIVATE -Wall -Wextra -Wpedantic)
 if(ZETA_MIDI_TRACE)
@@ -68,9 +95,13 @@ if(BUILD_TESTING)
         current_behavior_tests
         tests/current_behavior_test.cpp
         tests/fake_fluidsynth.cpp
+        tests/fake_midi_input.cpp
         application.cpp
         configuration.cpp
         looper_fsm.cpp
+        midi.cpp
+        midi_input.cpp
+        synth_engine.cpp
     )
     target_include_directories(
         current_behavior_tests
@@ -81,7 +112,11 @@ if(BUILD_TESTING)
     target_compile_options(current_behavior_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(
         current_behavior_tests
-        PRIVATE GTest::gmock_main Threads::Threads ${ZETA_YAML_TARGET}
+        PRIVATE
+            GTest::gmock_main
+            Threads::Threads
+            ${ZETA_YAML_TARGET}
+            libremidi::libremidi
     )
 
     add_executable(
@@ -99,12 +134,22 @@ if(BUILD_TESTING)
         looper_fsm_tests
         tests/looper_fsm_test.cpp
         looper_fsm.cpp
+        midi.cpp
     )
     target_compile_options(looper_fsm_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(looper_fsm_tests PRIVATE GTest::gmock_main Threads::Threads)
+
+    add_executable(
+        midi_tests
+        tests/midi_test.cpp
+        midi.cpp
+    )
+    target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(midi_tests PRIVATE GTest::gtest_main)
 
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
     gtest_discover_tests(looper_fsm_tests)
+    gtest_discover_tests(midi_tests)
 endif()

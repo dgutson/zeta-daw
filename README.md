@@ -1,6 +1,7 @@
 # Zeta DAW MIDI Looper
 
-Zeta DAW is a small C++20 MIDI looper built around FluidSynth. It is intended
+Zeta DAW is a small C++20 MIDI looper using libremidi for controller input and
+FluidSynth for SoundFont synthesis. It is intended
 to run either as a normal Linux desktop process or as a headless service on a
 Raspberry Pi 5. Once started, performance control comes entirely from a MIDI
 controller.
@@ -23,9 +24,10 @@ separate behavioral change.
 
 - Linux, including Raspberry Pi OS or Ubuntu
 - A C++20 compiler
-- CMake 3.20 or newer
+- CMake 3.22 or newer
 - pkg-config
 - FluidSynth development files
+- ALSA development files
 - yaml-cpp development files, recommended
 - An ALSA-compatible audio output and MIDI controller
 - One or more SoundFont files selected before the performance
@@ -38,13 +40,15 @@ sudo apt install \
     build-essential \
     cmake \
     pkg-config \
+    libasound2-dev \
     libfluidsynth-dev \
     libyaml-cpp-dev
 ```
 
-The repository has a pinned CMake fallback for yaml-cpp when the system
-package is unavailable. The fallback requires network access during the first
-CMake configuration.
+The repository has pinned CMake fallbacks for libremidi and yaml-cpp when
+matching system packages are unavailable. These fallbacks require network
+access during the first CMake configuration. libremidi receives MIDI and MMC
+SysEx through ALSA Sequencer; FluidSynth is used only for synthesis and audio.
 
 These optional packages are useful when setting up a machine:
 
@@ -349,9 +353,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now zeta-daw.service
 ```
 
-Keep the MIDI controller connected while the Pi boots. Automatic recovery
-when a controller is connected after Zeta has already started is not yet
-guaranteed; restart the service if the controller was enumerated late.
+The MIDI controller may be connected before or after Zeta starts. Hardware
+MIDI inputs are connected automatically, and libremidi observes disconnects
+and reconnects without restarting the service.
 
 Inspect status and logs with:
 

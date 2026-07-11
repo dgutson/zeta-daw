@@ -16,7 +16,6 @@ enum class CallKind {
     SynthNoteOn,
     SynthNoteOff,
     SynthControlChange,
-    DeleteMidiDriver,
     DeleteAudioDriver,
     DeleteSynth,
     DeleteSettings,
@@ -36,19 +35,7 @@ struct Call {
     std::string text;
 };
 
-struct MidiEvent {
-    int type{};
-    int channel{};
-    int key{};
-    int velocity{};
-    int control{};
-    int value{};
-    int program{};
-    int pitch{};
-};
-
 void reset();
-int emitMidi(const MidiEvent& event);
 std::vector<Call> calls();
 
 bool waitUntil(
