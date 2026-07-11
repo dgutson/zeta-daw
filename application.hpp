@@ -1,5 +1,6 @@
 #pragma once
 
+#include "configuration.hpp"
 #include "looper_fsm.hpp"
 
 #include <fluidsynth.h>
@@ -11,17 +12,19 @@ namespace zeta {
 
 class Application final : private LooperOutput {
 public:
-    Application(std::string loop_soundfont_path, std::string live_soundfont_path);
+    explicit Application(ApplicationConfig config);
     ~Application();
 
     Application(const Application&) = delete;
     Application& operator=(const Application&) = delete;
 
-    void runInteractive();
+    void run();
+    void shutdownRequested();
 
 private:
     struct Impl;
 
+    ApplicationConfig config_;
     std::unique_ptr<Impl> impl_;
     LooperStateRegistry states_;
     LooperFsm fsm_;

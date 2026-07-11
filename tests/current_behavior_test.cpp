@@ -8,7 +8,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
-#include <deque>
 #include <iostream>
 #include <mutex>
 #include <optional>
@@ -22,58 +21,15 @@ using namespace std::chrono_literals;
 using fake_fluidsynth::Call;
 using fake_fluidsynth::CallKind;
 using zeta::Application;
+using zeta::ApplicationConfig;
+using zeta::MidiControlBinding;
+using zeta::MidiControlType;
 using zeta::MidiMessageType;
+using zeta::SoundFontDefinition;
 
 constexpr int raw(MidiMessageType type) {
     return static_cast<int>(type);
 }
-
-class BlockingInputBuffer final : public std::streambuf {
-public:
-    void push(char character) {
-        {
-            std::lock_guard lock(mutex_);
-            characters_.push_back(character);
-        }
-        changed_.notify_all();
-    }
-
-    void close() {
-        {
-            std::lock_guard lock(mutex_);
-            closed_ = true;
-        }
-        changed_.notify_all();
-    }
-
-protected:
-    int_type underflow() override {
-        if (gptr() && gptr() < egptr()) {
-            return traits_type::to_int_type(*gptr());
-        }
-
-        std::unique_lock lock(mutex_);
-        changed_.wait(lock, [&] {
-            return closed_ || !characters_.empty();
-        });
-
-        if (characters_.empty()) {
-            return traits_type::eof();
-        }
-
-        current_ = characters_.front();
-        characters_.pop_front();
-        setg(&current_, &current_, &current_ + 1);
-        return traits_type::to_int_type(current_);
-    }
-
-private:
-    std::mutex mutex_;
-    std::condition_variable changed_;
-    std::deque<char> characters_;
-    char current_{};
-    bool closed_{};
-};
 
 class CapturingOutputBuffer final : public std::streambuf {
 public:
@@ -121,34 +77,25 @@ private:
 class InteractiveSession final {
 public:
     explicit InteractiveSession(Application& application)
-        : old_input_(std::cin.rdbuf(&input_)),
+        : application_(application),
           old_output_(std::cout.rdbuf(&output_)),
           old_error_(std::cerr.rdbuf(&error_)),
           thread_([&application] {
-              application.runInteractive();
-          })
-    {
-        std::cin.clear();
-    }
+              application.run();
+          }) {}
 
     ~InteractiveSession() {
-        input_.close();
+        application_.shutdownRequested();
         if (thread_.joinable()) {
             thread_.join();
         }
 
-        std::cin.rdbuf(old_input_);
         std::cout.rdbuf(old_output_);
         std::cerr.rdbuf(old_error_);
-        std::cin.clear();
     }
 
     InteractiveSession(const InteractiveSession&) = delete;
     InteractiveSession& operator=(const InteractiveSession&) = delete;
-
-    void pressEnter() {
-        input_.push('\n');
-    }
 
     bool waitForOutput(std::string_view text) {
         return output_.waitFor(text);
@@ -163,14 +110,49 @@ public:
     }
 
 private:
-    BlockingInputBuffer input_;
+    Application& application_;
     CapturingOutputBuffer output_;
     CapturingOutputBuffer error_;
-    std::streambuf* old_input_;
     std::streambuf* old_output_;
     std::streambuf* old_error_;
     std::jthread thread_;
 };
+
+ApplicationConfig testConfig() {
+    return {
+        .soundfonts = {
+            SoundFontDefinition{
+                .id = "loop",
+                .file = "loop.sf2",
+                .bank = 0,
+                .preset = 34,
+            },
+            SoundFontDefinition{
+                .id = "live",
+                .file = "live.sf2",
+                .bank = 0,
+                .preset = 0,
+            },
+        },
+        .live_soundfont = "live",
+        .loop_soundfont = "loop",
+        .recording_controls = {
+            MidiControlBinding{
+                .type = MidiControlType::ProgramChange,
+                .channel = 0,
+                .number = 12,
+            },
+        },
+    };
+}
+
+int pressRecordingControl() {
+    return fake_fluidsynth::emitMidi({
+        .type = raw(MidiMessageType::ProgramChange),
+        .channel = 0,
+        .program = 12,
+    });
+}
 
 bool hasCall(
     const std::vector<Call>& calls,
@@ -201,20 +183,21 @@ protected:
 
 TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
     {
-        Application application{"loop.sf2", "live.sf2"};
+        Application application{testConfig()};
 
         const auto calls = fake_fluidsynth::calls();
         ASSERT_GE(calls.size(), 4U);
 
         EXPECT_EQ(calls[0].kind, CallKind::LoadSoundFont);
         EXPECT_EQ(calls[0].text, "loop.sf2");
-        EXPECT_EQ(calls[1].kind, CallKind::SelectProgram);
-        EXPECT_EQ(calls[1].channel, 1);
-        EXPECT_EQ(calls[1].bank, 0);
-        EXPECT_EQ(calls[1].preset, 34);
+        EXPECT_EQ(calls[1].kind, CallKind::LoadSoundFont);
+        EXPECT_EQ(calls[1].text, "live.sf2");
 
-        EXPECT_EQ(calls[2].kind, CallKind::LoadSoundFont);
-        EXPECT_EQ(calls[2].text, "live.sf2");
+        EXPECT_EQ(calls[2].kind, CallKind::SelectProgram);
+        EXPECT_EQ(calls[2].channel, 1);
+        EXPECT_EQ(calls[2].bank, 0);
+        EXPECT_EQ(calls[2].preset, 34);
+
         EXPECT_EQ(calls[3].kind, CallKind::SelectProgram);
         EXPECT_EQ(calls[3].channel, 0);
         EXPECT_EQ(calls[3].bank, 0);
@@ -232,8 +215,61 @@ TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
     EXPECT_LT(synth_deleted, settings_deleted);
 }
 
+TEST_F(CurrentBehaviorTest, EagerlyLoadsEveryUniqueConfiguredSoundFont) {
+    auto config = testConfig();
+    config.soundfonts.push_back({
+        .id = "alternate-live-preset",
+        .file = "live.sf2",
+        .bank = 0,
+        .preset = 8,
+    });
+    config.soundfonts.push_back({
+        .id = "organ",
+        .file = "organ.sf2",
+        .bank = 0,
+        .preset = 16,
+    });
+
+    Application application{std::move(config)};
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_EQ(
+        std::ranges::count(calls, CallKind::LoadSoundFont, &Call::kind),
+        3
+    );
+    EXPECT_TRUE(std::ranges::any_of(calls, [](const Call& call) {
+        return call.kind == CallKind::LoadSoundFont && call.text == "organ.sf2";
+    }));
+}
+
+TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
+    Application application{testConfig()};
+    InteractiveSession session{application};
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Recording..."));
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_FALSE(std::ranges::any_of(calls, [](const Call& call) {
+        return call.kind == CallKind::HandleMidi
+            && call.type == raw(MidiMessageType::ProgramChange);
+    }));
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    session.join();
+}
+
+TEST_F(CurrentBehaviorTest, ShutdownRequestWakesTheApplicationRunLoop) {
+    Application application{testConfig()};
+    InteractiveSession session{application};
+    ASSERT_TRUE(session.waitForOutput("MIDI looper ready."));
+
+    application.shutdownRequested();
+    session.join();
+}
+
 TEST_F(CurrentBehaviorTest, ReadyRoutesMidiToDedicatedLiveChannel) {
-    Application application{"loop.sf2", "live.sf2"};
+    Application application{testConfig()};
 
     EXPECT_EQ(fake_fluidsynth::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
@@ -249,7 +285,7 @@ TEST_F(CurrentBehaviorTest, ReadyRoutesMidiToDedicatedLiveChannel) {
 }
 
 TEST_F(CurrentBehaviorTest, SuppressesZeroExpressionBeforeItReachesTheSynth) {
-    Application application{"loop.sf2", "live.sf2"};
+    Application application{testConfig()};
 
     const auto before = fake_fluidsynth::calls();
     const auto handled_before = std::ranges::count(before, CallKind::HandleMidi, &Call::kind);
@@ -279,10 +315,10 @@ TEST_F(CurrentBehaviorTest, SuppressesZeroExpressionBeforeItReachesTheSynth) {
 }
 
 TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) {
-    Application application{"loop.sf2", "live.sf2"};
+    Application application{testConfig()};
     InteractiveSession session{application};
 
-    session.pressEnter();
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     EXPECT_EQ(fake_fluidsynth::emitMidi({
@@ -303,7 +339,7 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
         .value = 99,
     }), FLUID_OK);
 
-    session.pressEnter();
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     session.join();
 
     const auto calls = fake_fluidsynth::calls();
@@ -314,10 +350,10 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
 }
 
 TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChannelOne) {
-    Application application{"loop.sf2", "live.sf2"};
+    Application application{testConfig()};
     InteractiveSession session{application};
 
-    session.pressEnter();
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     EXPECT_EQ(fake_fluidsynth::emitMidi({
@@ -336,7 +372,7 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
     }), FLUID_OK);
 
     std::this_thread::sleep_for(10ms);
-    session.pressEnter();
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Looping."));
 
     ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
@@ -356,7 +392,7 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
         .pitch = 16383,
     }), FLUID_OK);
 
-    session.pressEnter();
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     session.join();
 
     const auto calls = fake_fluidsynth::calls();
@@ -375,7 +411,45 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
             && call.type == raw(MidiMessageType::PitchBend)
             && call.channel == 1;
     }));
-    EXPECT_THAT(session.output(), ::testing::HasSubstr("Press ENTER to stop and quit."));
+    EXPECT_THAT(
+        session.output(),
+        ::testing::HasSubstr("Use the configured MIDI control to stop and quit.")
+    );
+}
+
+TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresConfiguredLiveProgram) {
+    Application application{testConfig()};
+    InteractiveSession session{application};
+
+    EXPECT_EQ(fake_fluidsynth::emitMidi({
+        .type = raw(MidiMessageType::ProgramChange),
+        .channel = 0,
+        .program = 99,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Recording..."));
+    EXPECT_EQ(fake_fluidsynth::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 60,
+        .velocity = 100,
+    }), FLUID_OK);
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Looping."));
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_EQ(std::ranges::count_if(calls, [](const Call& call) {
+        return call.kind == CallKind::SelectProgram
+            && call.channel == 0
+            && call.soundfont_id == 2
+            && call.bank == 0
+            && call.preset == 0;
+    }), 2);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    session.join();
 }
 
 } // namespace
