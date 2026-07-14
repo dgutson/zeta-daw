@@ -191,7 +191,16 @@ controls:
   octave_down: { type: machine_control, command: play }
   octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
-    EXPECT_THROW(zeta::loadConfiguration(old_schema.path()), ConfigurationError);
+    try {
+        zeta::loadConfiguration(old_schema.path());
+        FAIL() << "Expected the old schema version to be rejected";
+    } catch (const ConfigurationError& error) {
+        EXPECT_STREQ(
+            error.what(),
+            "configuration.schema_version: unsupported schema version 3; "
+            "expected 4"
+        );
+    }
 
     TemporaryConfig removed_parts{R"yaml(
 schema_version: 4

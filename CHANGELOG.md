@@ -19,6 +19,7 @@ All notable changes to Zeta DAW are documented in this file.
   affect only live playing.
 - Octave transposition leaves a key unchanged when shifting it would exceed the
   MIDI range instead of requiring special handling from callers.
+- Schema-version errors report both the provided and required versions.
 
 ## [0.1.0] - 2026-07-14
 

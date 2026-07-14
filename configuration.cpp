@@ -278,9 +278,17 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         "controls",
     });
 
-    if (required<int>(root, "schema_version", "configuration")
-        != required_schema_version) {
-        fail("configuration.schema_version", "unsupported schema version");
+    const int schema_version = required<int>(
+        root,
+        "schema_version",
+        "configuration"
+    );
+    if (schema_version != required_schema_version) {
+        fail(
+            "configuration.schema_version",
+            "unsupported schema version " + std::to_string(schema_version)
+                + "; expected " + std::to_string(required_schema_version)
+        );
     }
 
     ApplicationConfig config;
