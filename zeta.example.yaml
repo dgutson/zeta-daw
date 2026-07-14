@@ -1,4 +1,4 @@
-schema_version: 2
+schema_version: 3
 
 # Entries are loaded eagerly, in this order, before MIDI input starts.
 soundfonts:
@@ -16,16 +16,16 @@ soundfonts:
 # Rewind, and Transpose Up sends Stop. Zeta maps those messages to actions.
 controls:
   recording:
-    - type: machine_control
-      command: rewind
+    type: machine_control
+    command: rewind
 
   next_soundfont:
-    - type: machine_control
-      command: stop
+    type: machine_control
+    command: stop
 
-# A momentary footswitch is a convenient hands-free alternative. Add this
-# entry to controls.recording if desired:
-#    - type: control_change
-#      channel: 1
-#      controller: 64
-#      value: 127
+# A momentary footswitch is a convenient hands-free alternative. Replace the
+# controls.recording binding with this mapping if desired:
+#    type: control_change
+#    channel: 1
+#    controller: 64
+#    value: 127

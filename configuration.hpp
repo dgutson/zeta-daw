@@ -36,8 +36,8 @@ struct SoundFontDefinition {
 
 struct ApplicationConfig {
     std::vector<SoundFontDefinition> soundfonts;
-    std::vector<MidiControlBinding> recording_controls;
-    std::vector<MidiControlBinding> next_soundfont_controls;
+    MidiControlBinding recording_control;
+    MidiControlBinding next_soundfont_control;
 };
 
 class ConfigurationError : public std::runtime_error {

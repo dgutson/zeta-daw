@@ -138,17 +138,13 @@ ApplicationConfig testConfig() {
                 .preset = 0,
             },
         },
-        .recording_controls = {
-            MidiControlBinding{
-                .type = MidiControlType::MachineControl,
-                .number = 0x05,
-            },
+        .recording_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x05,
         },
-        .next_soundfont_controls = {
-            MidiControlBinding{
-                .type = MidiControlType::MachineControl,
-                .number = 0x01,
-            },
+        .next_soundfont_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x01,
         },
     };
 }

@@ -1,7 +1,6 @@
 #include "application.hpp"
 #include "synth_engine.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -26,16 +25,6 @@ constexpr std::size_t max_recorded_events = 16384;
 
 int channelFor(MidiRoute route) noexcept {
     return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
-}
-
-bool matchesAnyControl(
-    const std::vector<MidiControlBinding>& controls,
-    MidiMessageType type,
-    const MidiMessage& message
-) {
-    return std::ranges::any_of(controls, [&](const auto& control) {
-        return control.matches(type, message);
-    });
 }
 
 } // namespace
@@ -291,7 +280,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto type = event.type;
         const auto& message = event.message;
 
-        if (matchesAnyControl(config_.recording_controls, type, message)) {
+        if (config_.recording_control.matches(type, message)) {
             const auto state = fsm_.primaryControlPressed(LooperClock::now());
             if (isTerminal(state)) {
                 impl_->notifyLifecycleChanged();
@@ -299,7 +288,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
             return;
         }
 
-        if (matchesAnyControl(config_.next_soundfont_controls, type, message)) {
+        if (config_.next_soundfont_control.matches(type, message)) {
             fsm_.nextSoundFontPressed();
             return;
         }

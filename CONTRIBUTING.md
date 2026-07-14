@@ -162,7 +162,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 2.
+required version is 3.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -174,9 +174,10 @@ required version is 2.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- `controls.recording` and `controls.next_soundfont` are non-empty binding
-  lists. Supported binding types are Note On, exact Control Change, exact or
-  any Program Change, and named MMC commands.
+- `controls.recording` and `controls.next_soundfont` each contain exactly one
+  required binding. Performance setup changes are made by editing that binding
+  before startup. Supported binding types are Note On, exact Control Change,
+  exact or any Program Change, and named MMC commands.
 - A schema shape change requires incrementing the exact version constant,
   updating `zeta.example.yaml` and README usage, and adding positive and
   negative parser tests.

@@ -11,7 +11,7 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 2;
+constexpr int required_schema_version = 3;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -193,26 +193,12 @@ MidiControlBinding parseControl(
     };
 }
 
-std::vector<MidiControlBinding> parseControls(
+MidiControlBinding parseActionControl(
     const YAML::Node& controls,
     const char* name
 ) {
     const std::string location = "controls." + std::string{name};
-    const auto nodes = controls[name];
-    requireSequence(nodes, location);
-    if (nodes.size() == 0) {
-        fail(location, "must contain at least one binding");
-    }
-
-    std::vector<MidiControlBinding> bindings;
-    bindings.reserve(nodes.size());
-    for (std::size_t index = 0; index < nodes.size(); ++index) {
-        bindings.push_back(parseControl(
-            nodes[index],
-            location + "[" + std::to_string(index) + "]"
-        ));
-    }
-    return bindings;
+    return parseControl(controls[name], location);
 }
 
 std::filesystem::path resolveSoundFontPath(
@@ -328,22 +314,17 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
     const auto controls = root["controls"];
     rejectUnknownKeys(controls, "controls", {"recording", "next_soundfont"});
-    config.recording_controls = parseControls(controls, "recording");
-    config.next_soundfont_controls = parseControls(controls, "next_soundfont");
+    config.recording_control = parseActionControl(controls, "recording");
+    config.next_soundfont_control = parseActionControl(
+        controls,
+        "next_soundfont"
+    );
 
-    for (const auto& recording : config.recording_controls) {
-        const bool ambiguous = std::ranges::any_of(
-            config.next_soundfont_controls,
-            [&](const auto& next) {
-                return recording.overlaps(next);
-            }
+    if (config.recording_control.overlaps(config.next_soundfont_control)) {
+        fail(
+            "controls",
+            "recording and next_soundfont bindings must not overlap"
         );
-        if (ambiguous) {
-            fail(
-                "controls",
-                "recording and next_soundfont bindings must not overlap"
-            );
-        }
     }
 
     return config;

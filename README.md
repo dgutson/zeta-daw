@@ -73,7 +73,7 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 2
+schema_version: 3
 
 soundfonts:
   - id: piano
@@ -88,15 +88,15 @@ soundfonts:
 
 controls:
   recording:
-    - type: machine_control
-      command: rewind
+    type: machine_control
+    command: rewind
 
   next_soundfont:
-    - type: machine_control
-      command: stop
+    type: machine_control
+    command: stop
 ```
 
-Only schema version 2 is accepted. A configuration error stops startup and
+Only schema version 3 is accepted. A configuration error stops startup and
 reports the invalid field.
 
 ### SoundFonts
@@ -123,19 +123,21 @@ FluidSynth documentation because command-line audio options differ by system.
 
 ### Controller bindings
 
-Both `controls.recording` and `controls.next_soundfont` require at least one
+Both `controls.recording` and `controls.next_soundfont` require exactly one
 binding. A matched control event is reserved for the action: it does not sound
-and is not recorded. The two actions may not use overlapping bindings.
+and is not recorded. The two actions may not use overlapping bindings. Edit a
+binding before the performance when the physical control setup changes.
 
-Multiple bindings can be listed for either action. YAML MIDI channels use the
-human-facing range 1 through 16.
+YAML MIDI channels use the human-facing range 1 through 16.
 
 MIDI note:
 
 ```yaml
-- type: note
-  channel: 1
-  key: 84
+controls:
+  recording:
+    type: note
+    channel: 1
+    key: 84
 ```
 
 This matches a positive-velocity Note On. That piano key becomes a dedicated
@@ -145,10 +147,12 @@ playable.
 Control Change:
 
 ```yaml
-- type: control_change
-  channel: 1
-  controller: 64
-  value: 127
+controls:
+  recording:
+    type: control_change
+    channel: 1
+    controller: 64
+    value: 127
 ```
 
 Do not bind CC64 when the sustain pedal must remain available.
@@ -156,24 +160,30 @@ Do not bind CC64 when the sustain pedal must remain available.
 Exact Program Change:
 
 ```yaml
-- type: program_change
-  channel: 1
-  program: 12
+controls:
+  recording:
+    type: program_change
+    channel: 1
+    program: 12
 ```
 
 Any Program Change on a channel:
 
 ```yaml
-- type: program_change
-  channel: 1
-  program: any
+controls:
+  recording:
+    type: program_change
+    channel: 1
+    program: any
 ```
 
 MIDI Machine Control (MMC):
 
 ```yaml
-- type: machine_control
-  command: rewind
+controls:
+  recording:
+    type: machine_control
+    command: rewind
 ```
 
 MMC bindings have no MIDI channel. Supported command names are `stop`, `play`,

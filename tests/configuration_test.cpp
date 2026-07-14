@@ -44,7 +44,7 @@ private:
 
 TEST(ConfigurationTest, ParsesOrderedCatalogAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - id: piano
     file: sounds/piano.sf2
@@ -56,21 +56,12 @@ soundfonts:
     preset: 34
 controls:
   recording:
-    - type: note
-      channel: 1
-      key: 24
-    - type: control_change
-      channel: 2
-      controller: 64
-      value: 127
-    - type: program_change
-      channel: 16
-      program: any
-    - type: machine_control
-      command: rewind
+    type: note
+    channel: 1
+    key: 24
   next_soundfont:
-    - type: machine_control
-      command: stop
+    type: machine_control
+    command: stop
 )yaml"};
 
     const auto config = zeta::loadConfiguration(source.path());
@@ -84,31 +75,19 @@ controls:
     EXPECT_EQ(config.soundfonts[1].id, "bass");
     EXPECT_EQ(config.soundfonts[1].bank, 128);
 
-    ASSERT_EQ(config.recording_controls.size(), 4U);
-    EXPECT_EQ(config.recording_controls[0].type, MidiControlType::Note);
-    EXPECT_EQ(config.recording_controls[0].channel, 0);
-    EXPECT_EQ(config.recording_controls[0].number, 24);
-    EXPECT_EQ(config.recording_controls[1].type, MidiControlType::ControlChange);
-    EXPECT_EQ(config.recording_controls[1].channel, 1);
-    EXPECT_EQ(config.recording_controls[1].number, 64);
-    EXPECT_EQ(config.recording_controls[1].value, 127);
-    EXPECT_EQ(config.recording_controls[2].type, MidiControlType::ProgramChange);
-    EXPECT_EQ(config.recording_controls[2].channel, 15);
-    EXPECT_TRUE(config.recording_controls[2].match_any_program);
-    EXPECT_EQ(config.recording_controls[3].type, MidiControlType::MachineControl);
-    EXPECT_EQ(config.recording_controls[3].number, 0x05);
-
-    ASSERT_EQ(config.next_soundfont_controls.size(), 1U);
+    EXPECT_EQ(config.recording_control.type, MidiControlType::Note);
+    EXPECT_EQ(config.recording_control.channel, 0);
+    EXPECT_EQ(config.recording_control.number, 24);
     EXPECT_EQ(
-        config.next_soundfont_controls[0].type,
+        config.next_soundfont_control.type,
         MidiControlType::MachineControl
     );
-    EXPECT_EQ(config.next_soundfont_controls[0].number, 0x01);
+    EXPECT_EQ(config.next_soundfont_control.number, 0x01);
 }
 
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - id: piano
     file: piano.sf2
@@ -117,11 +96,10 @@ soundfonts:
     typo: true
 controls:
   recording:
-    - type: program_change
-      channel: 1
-      program: 1
-  next_soundfont:
-    - { type: machine_control, command: stop }
+    type: program_change
+    channel: 1
+    program: 1
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
@@ -129,15 +107,13 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
   - { id: piano, file: other.sf2, bank: 0, preset: 1 }
 controls:
-  recording:
-    - { type: note, channel: 1, key: 24 }
-  next_soundfont:
-    - { type: machine_control, command: stop }
+  recording: { type: note, channel: 1, key: 24 }
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
@@ -145,53 +121,45 @@ controls:
 
 TEST(ConfigurationTest, RejectsOldSchemaAndRemovedParts) {
     TemporaryConfig old_schema{R"yaml(
-schema_version: 1
+schema_version: 2
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
-  recording:
-    - { type: note, channel: 1, key: 24 }
-  next_soundfont:
-    - { type: machine_control, command: stop }
+  recording: { type: note, channel: 1, key: 24 }
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(old_schema.path()), ConfigurationError);
 
     TemporaryConfig removed_parts{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 parts: { live: piano, loop: piano }
 controls:
-  recording:
-    - { type: note, channel: 1, key: 24 }
-  next_soundfont:
-    - { type: machine_control, command: stop }
+  recording: { type: note, channel: 1, key: 24 }
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(removed_parts.path()), ConfigurationError);
 }
 
 TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
-  recording:
-    - { type: program_change, channel: 0, program: 1 }
-  next_soundfont:
-    - { type: machine_control, command: stop }
+  recording: { type: program_change, channel: 0, program: 1 }
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
 
     TemporaryConfig bad_mmc_command{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
-  recording:
-    - { type: machine_control, command: rewind }
-  next_soundfont:
-    - { type: machine_control, command: dance }
+  recording: { type: machine_control, command: rewind }
+  next_soundfont: { type: machine_control, command: dance }
 )yaml"};
     EXPECT_THROW(
         zeta::loadConfiguration(bad_mmc_command.path()),
@@ -201,14 +169,27 @@ controls:
 
 TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
     TemporaryConfig source{R"yaml(
-schema_version: 2
+schema_version: 3
+soundfonts:
+  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
+controls:
+  recording: { type: program_change, channel: 1, program: any }
+  next_soundfont: { type: program_change, channel: 1, program: 12 }
+)yaml"};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
+    TemporaryConfig source{R"yaml(
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
   recording:
-    - { type: program_change, channel: 1, program: any }
-  next_soundfont:
-    - { type: program_change, channel: 1, program: 12 }
+    - { type: machine_control, command: rewind }
+    - { type: control_change, channel: 1, controller: 20, value: 127 }
+  next_soundfont: { type: machine_control, command: stop }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);

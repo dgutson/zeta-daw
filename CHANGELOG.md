@@ -33,6 +33,7 @@ All notable changes to Zeta DAW are documented in this file.
   explicit (`main.cpp` and `midi_event.*`).
 - Constructor-injected the invariant `LooperOutput` dependency into every FSM
   state, keeping stimulus signatures focused on event data.
+- Simplified each configured controller action to one required binding.
 
 ### Fixed
 
