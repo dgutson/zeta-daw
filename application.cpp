@@ -22,7 +22,6 @@ namespace {
 constexpr int live_channel = 0;
 constexpr int loop_channel = 1;
 constexpr int expression_controller = 11;
-constexpr int midi_ok = 0;
 constexpr std::size_t max_recorded_events = 16384;
 
 int channelFor(MidiRoute route) noexcept {
@@ -331,22 +330,11 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
 int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
     const int output_channel = channelFor(route);
     const auto transposed = impl_->transposerFor(route).transpose(message);
-    if (!transposed) {
-        #ifdef ZETA_MIDI_TRACE
-        std::osyncstream{std::cerr}
-            << "[midi ignored] transposed key outside MIDI range"
-            << " route="
-            << (route == MidiRoute::LoopChannel ? "loop" : "live")
-            << " key=" << message.key
-            << '\n';
-        #endif
-        return midi_ok;
-    }
 
-    const int result = impl_->synth_engine.send(*transposed, output_channel);
+    const int result = impl_->synth_engine.send(transposed, output_channel);
 
     #ifdef ZETA_MIDI_TRACE
-    const auto type = classifyMidiMessage(transposed->raw_type);
+    const auto type = classifyMidiMessage(transposed.raw_type);
     std::osyncstream log{std::cerr};
     log
         << "[midi monitor]"
@@ -359,30 +347,30 @@ int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
     case MidiMessageType::NoteOn:
     case MidiMessageType::NoteOff:
         log
-            << " key=" << transposed->key
-            << " velocity=" << transposed->velocity;
+            << " key=" << transposed.key
+            << " velocity=" << transposed.velocity;
         break;
     case MidiMessageType::ControlChange:
         log
-            << " control=" << transposed->control
-            << " value=" << transposed->value;
+            << " control=" << transposed.control
+            << " value=" << transposed.value;
         break;
     case MidiMessageType::ProgramChange:
-        log << " program=" << transposed->program;
+        log << " program=" << transposed.program;
         break;
     case MidiMessageType::PitchBend:
-        log << " pitch=" << transposed->pitch;
+        log << " pitch=" << transposed.pitch;
         break;
     case MidiMessageType::PolyphonicKeyPressure:
         log
-            << " key=" << transposed->key
-            << " pressure=" << transposed->pressure;
+            << " key=" << transposed.key
+            << " pressure=" << transposed.pressure;
         break;
     case MidiMessageType::ChannelPressure:
-        log << " pressure=" << transposed->pressure;
+        log << " pressure=" << transposed.pressure;
         break;
     case MidiMessageType::MachineControl:
-        log << " mmc_command=" << transposed->machine_control_command;
+        log << " mmc_command=" << transposed.machine_control_command;
         break;
     case MidiMessageType::Other:
         break;
@@ -433,15 +421,12 @@ void Application::recordNote(
     }
 
     const auto transposed = impl_->loop_transposer.transpose(message);
-    if (!transposed) {
-        return;
-    }
 
     impl_->events.push_back(Impl::RecordedNoteEvent{
         .time_ms = static_cast<uint64_t>(offset.count()),
         .channel = message.channel,
-        .key = transposed->key,
-        .velocity = transposed->velocity,
+        .key = transposed.key,
+        .velocity = transposed.velocity,
         .kind = kind,
     });
 }

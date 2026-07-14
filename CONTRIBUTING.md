@@ -143,9 +143,9 @@ Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
-Key-bearing messages transposed outside MIDI key range 0 through 127 are
-suppressed. Recorded keys are transposed before storage, so the playback worker
-does not share octave state and the loop pitch stays locked.
+Key-bearing messages whose shifted key would fall outside MIDI range 0 through
+127 are left unchanged. Recorded keys are transposed before storage, so the
+playback worker does not share octave state and the loop pitch stays locked.
 
 Control events are matched before ordinary MIDI reaches the FSM. A matched
 event is consumed, so it is neither synthesized nor recorded. Configuration

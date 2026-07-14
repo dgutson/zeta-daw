@@ -17,6 +17,8 @@ All notable changes to Zeta DAW are documented in this file.
 - Live and pending-loop octave selection stay synchronized until recording
   starts; recorded loops retain their selected octave while later changes
   affect only live playing.
+- Octave transposition leaves a key unchanged when shifting it would exceed the
+  MIDI range instead of requiring special handling from callers.
 
 ## [0.1.0] - 2026-07-14
 

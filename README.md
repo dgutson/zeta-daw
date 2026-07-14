@@ -230,8 +230,8 @@ During a performance:
 The octave range is three octaves down through four octaves up and does not
 wrap. Before recording, octave changes affect both live playing and the pending
 loop. Octave changes are ignored while recording. Once looping, they affect
-only live playing, so the recorded loop keeps its pitch. Transposed notes
-outside the MIDI key range 0 through 127 are suppressed.
+only live playing, so the recorded loop keeps its pitch. Notes whose shifted
+key would fall outside MIDI range 0 through 127 retain their original key.
 
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**

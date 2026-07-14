@@ -23,15 +23,14 @@ MidiMessage noteOn(int key) {
 TEST(OctaveTransposerTest, StartsAtZeroAndMovesByTwelveSemitones) {
     OctaveTransposer transposer;
 
-    ASSERT_TRUE(transposer.transpose(noteOn(60)));
-    EXPECT_EQ(transposer.transpose(noteOn(60))->key, 60);
+    EXPECT_EQ(transposer.transpose(noteOn(60)).key, 60);
 
     transposer.octaveUp();
-    EXPECT_EQ(transposer.transpose(noteOn(60))->key, 72);
+    EXPECT_EQ(transposer.transpose(noteOn(60)).key, 72);
 
     transposer.octaveDown();
     transposer.octaveDown();
-    EXPECT_EQ(transposer.transpose(noteOn(60))->key, 48);
+    EXPECT_EQ(transposer.transpose(noteOn(60)).key, 48);
 }
 
 TEST(OctaveTransposerTest, ClampsOctavesFromMinusThreeThroughPlusFour) {
@@ -40,12 +39,12 @@ TEST(OctaveTransposerTest, ClampsOctavesFromMinusThreeThroughPlusFour) {
     for (int press = 0; press < 5; ++press) {
         transposer.octaveUp();
     }
-    EXPECT_EQ(transposer.transpose(noteOn(60))->key, 108);
+    EXPECT_EQ(transposer.transpose(noteOn(60)).key, 108);
 
     for (int press = 0; press < 8; ++press) {
         transposer.octaveDown();
     }
-    EXPECT_EQ(transposer.transpose(noteOn(60))->key, 24);
+    EXPECT_EQ(transposer.transpose(noteOn(60)).key, 24);
 }
 
 TEST(OctaveTransposerTest, TransposesEveryKeyBearingMessage) {
@@ -62,11 +61,9 @@ TEST(OctaveTransposerTest, TransposesEveryKeyBearingMessage) {
         .pressure = 90,
     };
 
-    ASSERT_TRUE(transposer.transpose(note_off));
-    ASSERT_TRUE(transposer.transpose(key_pressure));
-    EXPECT_EQ(transposer.transpose(note_off)->key, 72);
-    EXPECT_EQ(transposer.transpose(key_pressure)->key, 73);
-    EXPECT_EQ(transposer.transpose(key_pressure)->pressure, 90);
+    EXPECT_EQ(transposer.transpose(note_off).key, 72);
+    EXPECT_EQ(transposer.transpose(key_pressure).key, 73);
+    EXPECT_EQ(transposer.transpose(key_pressure).pressure, 90);
 }
 
 TEST(OctaveTransposerTest, LeavesMessagesWithoutKeysUnchanged) {
@@ -80,20 +77,19 @@ TEST(OctaveTransposerTest, LeavesMessagesWithoutKeysUnchanged) {
 
     const auto transposed = transposer.transpose(sustain);
 
-    ASSERT_TRUE(transposed);
-    EXPECT_EQ(transposed->control, 64);
-    EXPECT_EQ(transposed->value, 127);
+    EXPECT_EQ(transposed.control, 64);
+    EXPECT_EQ(transposed.value, 127);
 }
 
-TEST(OctaveTransposerTest, SuppressesKeysOutsideTheMidiRange) {
+TEST(OctaveTransposerTest, LeavesKeysOutsideTheMidiRangeUnchanged) {
     OctaveTransposer transposer;
     transposer.octaveUp();
 
-    EXPECT_FALSE(transposer.transpose(noteOn(120)));
+    EXPECT_EQ(transposer.transpose(noteOn(120)).key, 120);
 
     transposer.octaveDown();
     transposer.octaveDown();
-    EXPECT_FALSE(transposer.transpose(noteOn(0)));
+    EXPECT_EQ(transposer.transpose(noteOn(0)).key, 0);
 }
 
 } // namespace
