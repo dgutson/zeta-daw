@@ -1,38 +1,32 @@
 # Zeta DAW MIDI Looper
 
-Zeta DAW is a small C++20 MIDI looper using libremidi for controller input and
-FluidSynth for SoundFont synthesis. It is intended
-to run either as a normal Linux desktop process or as a headless service on a
-Raspberry Pi 5. Once started, performance control comes entirely from a MIDI
-controller.
+Zeta DAW is a C++20 MIDI looper for Linux, including Raspberry Pi 5. It can
+run as a desktop process or start automatically as a headless service and be
+controlled entirely from a MIDI controller.
 
-The current workflow records one take and repeats it while routing subsequent
-playing through a separate live SoundFont:
+The performance workflow is:
 
-1. Press a configured MIDI recording control to arm the looper.
-2. Play the first note. Recording begins at that note, avoiding leading
+1. Use the configured Next control to select a SoundFont.
+2. Press the configured recording control to arm the looper.
+3. Play the first note. Recording starts on that note, with no leading
    silence.
-3. Press a configured recording control again to finish the take and start
-   looping.
-4. Continue playing live over the loop.
+4. Press the recording control again to finish the take and start looping.
+5. Keep playing live and select other SoundFonts without changing the loop.
 
-Currently, pressing the recording control a third time stops playback and
-exits the application. Returning to the initial state instead is planned as a
-separate behavioral change.
+Pressing the recording control a third time currently stops playback and exits
+the application.
 
-## Requirements
+## Requirements and installation
 
 - Linux, including Raspberry Pi OS or Ubuntu
 - A C++20 compiler
 - CMake 3.22 or newer
 - pkg-config
-- FluidSynth development files
-- ALSA development files
-- yaml-cpp development files, recommended
+- FluidSynth and ALSA development files
 - An ALSA-compatible audio output and MIDI controller
-- One or more SoundFont files selected before the performance
+- One or more `.sf2` or `.sf3` SoundFont files
 
-On Raspberry Pi OS, Debian, or Ubuntu, install the build dependencies with:
+On Raspberry Pi OS, Debian, or Ubuntu:
 
 ```bash
 sudo apt update
@@ -45,55 +39,30 @@ sudo apt install \
     libyaml-cpp-dev
 ```
 
-The repository has pinned CMake fallbacks for libremidi and yaml-cpp when
-matching system packages are unavailable. These fallbacks require network
-access during the first CMake configuration. libremidi receives MIDI and MMC
-SysEx through ALSA Sequencer; FluidSynth is used only for synthesis and audio.
+CMake downloads pinned copies of libremidi and, when it is not installed,
+yaml-cpp during the first configuration. That step requires network access.
 
-These optional packages are useful when setting up a machine:
+These optional packages provide MIDI diagnostic tools and a General MIDI
+SoundFont suitable for an initial test:
 
 ```bash
 sudo apt install alsa-utils fluid-soundfont-gm
 ```
 
-`alsa-utils` supplies tools such as `aconnect` and `aseqdump`. The
-`fluid-soundfont-gm` package supplies a General MIDI SoundFont for initial
-testing; use the SoundFonts chosen for the actual performance afterward.
-
 ## Build
 
-For a release build without the test suite:
-
-```bash
-./build.sh
-```
-
-The executable is written to `build/midi_looper`.
-
-To build and run all tests:
+Configure and build a release executable:
 
 ```bash
 cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Debug \
-    -DBUILD_TESTING=ON
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
-
-GoogleTest is downloaded through CMake FetchContent the first time tests are
-configured, so that configuration requires network access.
-
-To include detailed MIDI routing logs in a diagnostic build:
-
-```bash
-cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Debug \
-    -DBUILD_TESTING=ON \
-    -DZETA_MIDI_TRACE=ON
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
 cmake --build build --parallel
 ```
 
-## Configuration file
+The executable is `build/midi_looper`.
+
+## Configuration
 
 Copy the example and edit it for the available SoundFonts and controller:
 
@@ -101,33 +70,10 @@ Copy the example and edit it for the available SoundFonts and controller:
 cp zeta.example.yaml zeta.yaml
 ```
 
-Run with an explicit configuration path during development:
-
-```bash
-./build/midi_looper ./zeta.yaml
-```
-
-When no argument is given, the application reads:
-
-```text
-/etc/zeta-daw/zeta.yaml
-```
-
-Install a finished configuration there with:
-
-```bash
-sudo install -d /etc/zeta-daw
-sudo install -m 0644 zeta.yaml /etc/zeta-daw/zeta.yaml
-```
-
-Relative SoundFont paths are resolved relative to the configuration file, not
-the process working directory. Absolute paths are recommended for a system
-service.
-
-### Complete example
+A complete configuration looks like this:
 
 ```yaml
-schema_version: 1
+schema_version: 2
 
 soundfonts:
   - id: piano
@@ -140,172 +86,145 @@ soundfonts:
     bank: 0
     preset: 34
 
-parts:
-  live: piano
-  loop: bass
-
 controls:
   recording:
-    - type: program_change
-      channel: 1
-      program: any
+    - type: machine_control
+      command: rewind
+
+  next_soundfont:
+    - type: machine_control
+      command: stop
 ```
 
-The parser rejects missing fields, unknown fields, duplicate SoundFont IDs,
-invalid references, and out-of-range MIDI values. Configuration errors stop
-startup before the audio or MIDI drivers are created.
+Only schema version 2 is accepted. A configuration error stops startup and
+reports the invalid field.
 
-### SoundFonts and parts
+### SoundFonts
 
-`soundfonts` is an ordered list. Every entry has:
+`soundfonts` is an ordered, non-empty list. Every entry has:
 
-- `id`: a unique name used elsewhere in the configuration
+- `id`: a unique name shown in the selection log
 - `file`: an absolute path or a path relative to the YAML file
 - `bank`: the SoundFont bank, from 0 through 16383
 - `preset`: the preset, from 0 through 127
 
-Every configured SoundFont is loaded eagerly before MIDI input starts. This
-avoids disk-loading delays during a performance. If multiple entries reference
-the same file, the file is loaded once and can still be used with different
-banks or presets.
+Only include the sounds needed for the performance. They are prepared during
+startup, and the first entry is selected initially. Next advances through the
+list and wraps to the first entry.
 
-`parts.live` selects the SoundFont used for playing over a completed loop.
-`parts.loop` selects the SoundFont used while recording and for loop playback.
-The configured live program is restored when loop playback begins.
+The SoundFont selected when recording is armed is used for the loop. Next may
+change that selection while armed but before the first note. During recording,
+Next is ignored. During loop playback, Next changes the live sound without
+changing the recorded loop.
 
-Only list SoundFonts required for the performance, because all listed files
-remain resident in memory.
+To inspect the banks and presets in a SoundFont, start FluidSynth with the
+file, then use its `fonts` and `inst` shell commands. Consult your distribution's
+FluidSynth documentation because command-line audio options differ by system.
 
-### Recording controls
+### Controller bindings
 
-All entries under `controls.recording` behave like the original Enter-key
-control. A matched event is consumed: it is not sent to FluidSynth and is not
-recorded in the loop.
+Both `controls.recording` and `controls.next_soundfont` require at least one
+binding. A matched control event is reserved for the action: it does not sound
+and is not recorded. The two actions may not use overlapping bindings.
 
-YAML MIDI channels use the human-facing range 1 through 16.
+Multiple bindings can be listed for either action. YAML MIDI channels use the
+human-facing range 1 through 16.
 
-#### MIDI note
-
-```yaml
-controls:
-  recording:
-    - type: note
-      channel: 1
-      key: 84
-```
-
-The binding matches a positive-velocity Note On. The selected key becomes a
-dedicated control and does not sound. Octave or transpose changes on the
-controller can change the MIDI note number.
-
-#### Control Change
+MIDI note:
 
 ```yaml
-controls:
-  recording:
-    - type: control_change
-      channel: 1
-      controller: 64
-      value: 127
+- type: note
+  channel: 1
+  key: 84
 ```
 
-This is useful for a momentary footswitch. When CC64 is consumed as a recording
-control, that pedal cannot simultaneously provide sustain.
+This matches a positive-velocity Note On. That piano key becomes a dedicated
+control, so it is not recommended when the complete keyboard must remain
+playable.
 
-#### Exact Program Change
+Control Change:
 
 ```yaml
-controls:
-  recording:
-    - type: program_change
-      channel: 1
-      program: 12
+- type: control_change
+  channel: 1
+  controller: 64
+  value: 127
 ```
 
-Only Program Change 12 on channel 1 matches.
+Do not bind CC64 when the sustain pedal must remain available.
 
-#### Any Program Change
+Exact Program Change:
 
 ```yaml
-controls:
-  recording:
-    - type: program_change
-      channel: 1
-      program: any
+- type: program_change
+  channel: 1
+  program: 12
 ```
 
-Every Program Change on channel 1 matches and is consumed. This is useful for
-increment/decrement buttons such as the repurposed Transpose buttons on a
-Nektar SE49. Do not use this form if other Program Changes on the same channel
-must reach the synthesizer or control another feature.
+Any Program Change on a channel:
 
-Multiple recording bindings may be listed. Any matching binding activates the
-same state-dependent recording control.
+```yaml
+- type: program_change
+  channel: 1
+  program: any
+```
+
+MIDI Machine Control (MMC):
+
+```yaml
+- type: machine_control
+  command: rewind
+```
+
+MMC bindings have no MIDI channel. Supported command names are `stop`, `play`,
+`deferred_play`, `fast_forward`, `rewind`, `record_strobe`, `record_exit`,
+`record_pause`, `pause`, `eject`, `chase`, and `reset`.
 
 ## Nektar SE49 example
 
-The SE49 Transpose buttons normally transpose the keyboard. They can instead
-be assigned once to send Program Change messages. The assignment is stored by
-the controller across power cycles.
+The SE49 can assign its four Octave and Transpose buttons to MMC transport
+commands. In that mode, Transpose Down sends Rewind and Transpose Up sends
+Stop, matching `zeta.example.yaml`.
 
-Perform this one-time controller setup:
+Configure MMC and enable transport mode:
 
 1. Press **Octave Up + Transpose Up** simultaneously. The Setup LED should
    blink orange.
-2. Press the keyboard key labeled **D2 / MIDI Program Change** in the
-   Transpose-button assignment section.
-3. Press the keyboard key labeled **Enter (C5)** to save and leave Setup.
-
-Do not enter a program number. This procedure assigns the function of the two
-Transpose buttons; it does not send a particular Program Change.
-
-Use this Zeta configuration:
-
-```yaml
-controls:
-  recording:
-    - type: program_change
-      channel: 1
-      program: any
-```
+2. Press the musical **A2** piano key. `A2` is the note name; it may not have a
+   printed setup action on the controller.
+3. Press the numeric key **3**.
+4. Press **Enter (C5)** to save and leave Setup.
+5. Press **Octave Down + Transpose Down** simultaneously to enable MMC
+   transport mode.
 
 During a performance:
 
-1. Press **Transpose Up** to arm recording.
-2. Play the first note to begin recording.
-3. Press **Transpose Down** to finish the take and start the loop.
+1. Press **Transpose Up** to select the next SoundFont.
+2. Press **Transpose Down** to arm recording with the current SoundFont.
+3. Play the first note to begin recording.
+4. Press **Transpose Down** again to finish the take and start the loop.
+5. Press **Transpose Up** while looping to change the live SoundFont.
 
-Alternating Up and Down prevents the controller's program counter from
-eventually reaching its limit. Both buttons send Program Change messages and
-are equivalent from Zeta's perspective; the current FSM state determines what
-the press does.
+Both Octave LEDs remain on in MMC transport mode. The mode currently
+repurposes the Octave buttons, so native octave shifting is unavailable. Press
+**Octave Down + Transpose Down** together again to restore the buttons' normal
+functions.
 
-If the buttons do not activate Zeta, check that the controller's MIDI channel
-matches the `channel` value in the YAML. To inspect the actual messages, stop
-Zeta and use ALSA's diagnostic tools:
+The setup procedure and control assignments are documented in the
+[Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/my-downloads/Owners_Manuals/SE49_61_printed_guide_v1_3_ENGLISH.pdf).
 
-```bash
-aconnect -l
-aseqdump -l
-aseqdump -p CLIENT:PORT
-```
+## Desktop usage
 
-Replace `CLIENT:PORT` with the SE49 input shown by `aseqdump -l`, then press
-the Transpose buttons. The output should contain Program Change events.
-
-The official setup procedure and control assignments are documented in the
-[Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/2023/05/SE49_61_printed_guide_v1_3_ENGLISH.pdf).
-
-## Running on the desktop
-
-Connect the audio interface and MIDI controller before starting Zeta, then
-run:
+Connect the audio interface and MIDI controller, then run with an explicit
+configuration path:
 
 ```bash
 ./build/midi_looper /path/to/zeta.yaml
 ```
 
 Press Ctrl-C to shut down gracefully. SIGTERM is handled the same way.
+
+With no argument, Zeta reads `/etc/zeta-daw/zeta.yaml`.
 
 ## Starting automatically on Raspberry Pi
 
@@ -317,7 +236,8 @@ sudo install -d /etc/zeta-daw
 sudo install -m 0644 zeta.yaml /etc/zeta-daw/zeta.yaml
 ```
 
-Make sure the service user can access ALSA devices. On Raspberry Pi OS this
+Use absolute SoundFont paths for a service and ensure the service account can
+read them. Give that account access to ALSA devices; on Raspberry Pi OS this
 normally means membership in the `audio` group:
 
 ```bash
@@ -343,62 +263,43 @@ RestartSec=2
 WantedBy=multi-user.target
 ```
 
-Replace `YOUR_USER` with the account that owns the performance setup. Ensure
-that account can read every configured SoundFont path.
-
-Enable and start the service:
+Replace `YOUR_USER`, then enable the service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now zeta-daw.service
 ```
 
-The MIDI controller may be connected before or after Zeta starts. Hardware
-MIDI inputs are connected automatically, and libremidi observes disconnects
-and reconnects without restarting the service.
-
-Inspect status and logs with:
+The MIDI controller may be connected before or after Zeta starts. Inspect and
+control the service with:
 
 ```bash
 systemctl status zeta-daw.service
 journalctl -u zeta-daw.service -f
-```
-
-Stop or restart it with:
-
-```bash
-sudo systemctl stop zeta-daw.service
 sudo systemctl restart zeta-daw.service
+sudo systemctl stop zeta-daw.service
 ```
-
-`systemd` sends SIGTERM when stopping the service, allowing Zeta to silence
-active notes and release its MIDI and audio resources cleanly.
 
 ## Troubleshooting
 
-### Configuration fails at startup
+If configuration fails, follow the reported YAML location and field name. For
+a SoundFont error, verify the path and its readability by the desktop or
+service user.
 
-Read the reported YAML location and field name. The schema is intentionally
-strict; misspelled or unsupported fields are errors rather than ignored
-settings.
+If controller actions do not work, stop Zeta and inspect the actual events:
 
-### A SoundFont cannot be loaded
+```bash
+aseqdump -l
+aseqdump -p CLIENT:PORT
+```
 
-Verify that the path exists and is readable by the desktop or service user.
-For a system service, prefer absolute paths and avoid files inside a user's
-private home directory.
+Replace `CLIENT:PORT` with the controller port shown by `aseqdump -l`. For the
+SE49 example, the Transpose buttons should emit MMC SysEx messages. If they do
+not, confirm that MMC transport mode is enabled.
 
-### The controller does not trigger recording
+Selection is also reported as `SoundFont selected: ID`. If live notes or the
+loop use an unexpected sound, compare that log with the order and bank/preset
+values under `soundfonts`.
 
-- Confirm that the controller is connected before Zeta starts.
-- Check its events with `aseqdump` while Zeta is stopped.
-- Verify the MIDI channel and event values against the YAML.
-- For the SE49, confirm that its Transpose buttons emit Program Change rather
-  than changing the keyboard transpose setting.
-
-### Notes use the wrong SoundFont after recording
-
-Confirm that `parts.live` and `parts.loop` reference the intended IDs. Zeta
-restores the configured live SoundFont, bank, and preset when loop playback
-begins. A controller event intended for another purpose should be configured
-as a consumed recording control if it must not reach FluidSynth.
+Development workflow and architecture are documented in
+[CONTRIBUTING.md](CONTRIBUTING.md).
