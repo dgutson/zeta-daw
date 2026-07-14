@@ -1,7 +1,7 @@
 #include "application.hpp"
+#include "octave_transposer.hpp"
 #include "synth_engine.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -28,16 +28,6 @@ int channelFor(MidiRoute route) noexcept {
     return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
 }
 
-bool matchesAnyControl(
-    const std::vector<MidiControlBinding>& controls,
-    MidiMessageType type,
-    const MidiMessage& message
-) {
-    return std::ranges::any_of(controls, [&](const auto& control) {
-        return control.matches(type, message);
-    });
-}
-
 } // namespace
 
 struct Application::Impl {
@@ -57,6 +47,8 @@ struct Application::Impl {
     SynthEngine synth_engine;
     const ApplicationConfig& config;
     std::size_t current_soundfont{};
+    OctaveTransposer live_transposer;
+    OctaveTransposer loop_transposer;
 
     std::vector<RecordedNoteEvent> events;
     uint64_t loop_length_ms{};
@@ -90,6 +82,12 @@ struct Application::Impl {
         selectCurrentSoundFont(route);
         std::cout << "SoundFont selected: "
                   << config.soundfonts[current_soundfont].id << '\n';
+    }
+
+    OctaveTransposer& transposerFor(MidiRoute route) noexcept {
+        return route == MidiRoute::LoopChannel
+            ? loop_transposer
+            : live_transposer;
     }
 
     void startPlaybackWorker() {
@@ -291,7 +289,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto type = event.type;
         const auto& message = event.message;
 
-        if (matchesAnyControl(config_.recording_controls, type, message)) {
+        if (config_.recording_control.matches(type, message)) {
             const auto state = fsm_.primaryControlPressed(LooperClock::now());
             if (isTerminal(state)) {
                 impl_->notifyLifecycleChanged();
@@ -299,8 +297,18 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
             return;
         }
 
-        if (matchesAnyControl(config_.next_soundfont_controls, type, message)) {
+        if (config_.next_soundfont_control.matches(type, message)) {
             fsm_.nextSoundFontPressed();
+            return;
+        }
+
+        if (config_.octave_down_control.matches(type, message)) {
+            fsm_.octaveDownPressed();
+            return;
+        }
+
+        if (config_.octave_up_control.matches(type, message)) {
+            fsm_.octaveUpPressed();
             return;
         }
 
@@ -321,11 +329,12 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
 
 int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
     const int output_channel = channelFor(route);
+    const auto transposed = impl_->transposerFor(route).transpose(message);
 
-    const int result = impl_->synth_engine.send(message, output_channel);
+    const int result = impl_->synth_engine.send(transposed, output_channel);
 
     #ifdef ZETA_MIDI_TRACE
-    const auto type = classifyMidiMessage(message.raw_type);
+    const auto type = classifyMidiMessage(transposed.raw_type);
     std::osyncstream log{std::cerr};
     log
         << "[midi monitor]"
@@ -338,28 +347,30 @@ int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
     case MidiMessageType::NoteOn:
     case MidiMessageType::NoteOff:
         log
-            << " key=" << message.key
-            << " velocity=" << message.velocity;
+            << " key=" << transposed.key
+            << " velocity=" << transposed.velocity;
         break;
     case MidiMessageType::ControlChange:
         log
-            << " control=" << message.control
-            << " value=" << message.value;
+            << " control=" << transposed.control
+            << " value=" << transposed.value;
         break;
     case MidiMessageType::ProgramChange:
-        log << " program=" << message.program;
+        log << " program=" << transposed.program;
         break;
     case MidiMessageType::PitchBend:
-        log << " pitch=" << message.pitch;
+        log << " pitch=" << transposed.pitch;
         break;
     case MidiMessageType::PolyphonicKeyPressure:
-        log << " key=" << message.key << " pressure=" << message.pressure;
+        log
+            << " key=" << transposed.key
+            << " pressure=" << transposed.pressure;
         break;
     case MidiMessageType::ChannelPressure:
-        log << " pressure=" << message.pressure;
+        log << " pressure=" << transposed.pressure;
         break;
     case MidiMessageType::MachineControl:
-        log << " mmc_command=" << message.machine_control_command;
+        log << " mmc_command=" << transposed.machine_control_command;
         break;
     case MidiMessageType::Other:
         break;
@@ -377,6 +388,14 @@ void Application::selectCurrentSoundFont(MidiRoute route) {
 
 void Application::selectNextSoundFont(MidiRoute route) {
     impl_->selectNextSoundFont(route);
+}
+
+void Application::octaveDown(MidiRoute route) {
+    impl_->transposerFor(route).octaveDown();
+}
+
+void Application::octaveUp(MidiRoute route) {
+    impl_->transposerFor(route).octaveUp();
 }
 
 void Application::stopLoopPlayback() {
@@ -401,11 +420,13 @@ void Application::recordNote(
         return;
     }
 
+    const auto transposed = impl_->loop_transposer.transpose(message);
+
     impl_->events.push_back(Impl::RecordedNoteEvent{
         .time_ms = static_cast<uint64_t>(offset.count()),
         .channel = message.channel,
-        .key = message.key,
-        .velocity = message.velocity,
+        .key = transposed.key,
+        .velocity = transposed.velocity,
         .kind = kind,
     });
 }

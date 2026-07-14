@@ -2,6 +2,27 @@
 
 All notable changes to Zeta DAW are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Restored the SE49 Octave Down and Octave Up controls while MMC transport mode
+  is active, with arithmetic transposition from three octaves down through four
+  octaves up.
+
+### Changed
+
+- Configuration schema 4 requires dedicated `octave_down` and `octave_up`
+  bindings and rejects overlaps among all four application actions.
+- Live and pending-loop octave selection stay synchronized until recording
+  starts; recorded loops retain their selected octave while later changes
+  affect only live playing.
+- Octave transposition leaves a key unchanged when shifting it would exceed the
+  MIDI range instead of requiring special handling from callers.
+- Schema-version errors report both the provided and required versions.
+- Contributor guidance now requires remote-base and complete PR-range audits so
+  unpublished work is not silently mixed into a ticket branch.
+
 ## [0.1.0] - 2026-07-14
 
 ### Added
@@ -31,8 +52,10 @@ All notable changes to Zeta DAW are documented in this file.
   and audio.
 - Renamed the entry point and MIDI source files to make their responsibilities
   explicit (`main.cpp` and `midi_event.*`).
-- Constructor-injected the invariant `LooperOutput` dependency into every FSM
-  state, keeping stimulus signatures focused on event data.
+- Constructor-injected the invariant `LooperOutput` and shared `LooperStateData`
+  dependencies into every FSM state, keeping stimulus signatures focused on
+  event data.
+- Simplified each configured controller action to one required binding.
 
 ### Fixed
 

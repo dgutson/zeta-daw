@@ -138,17 +138,21 @@ ApplicationConfig testConfig() {
                 .preset = 0,
             },
         },
-        .recording_controls = {
-            MidiControlBinding{
-                .type = MidiControlType::MachineControl,
-                .number = 0x05,
-            },
+        .recording_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x05,
         },
-        .next_soundfont_controls = {
-            MidiControlBinding{
-                .type = MidiControlType::MachineControl,
-                .number = 0x01,
-            },
+        .next_soundfont_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x01,
+        },
+        .octave_down_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x02,
+        },
+        .octave_up_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x06,
         },
     };
 }
@@ -164,6 +168,20 @@ int pressNextSoundFontControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
         .machine_control_command = 0x01,
+    });
+}
+
+int pressOctaveDownControl() {
+    return fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x02,
+    });
+}
+
+int pressOctaveUpControl() {
+    return fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x06,
     });
 }
 
@@ -554,6 +572,73 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     session.join();
+}
+
+TEST_F(CurrentBehaviorTest, TransposesLivePlayingAndLocksTheRecordedLoop) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+    InteractiveSession session{application};
+
+    ASSERT_EQ(pressOctaveUpControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 48,
+        .velocity = 100,
+    }), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 48,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Recording..."));
+    ASSERT_EQ(pressOctaveUpControl(), FLUID_OK);
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 48,
+        .velocity = 100,
+    }), FLUID_OK);
+    std::this_thread::sleep_for(2ms);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 48,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressOctaveDownControl(), FLUID_OK);
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Looping."));
+    ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
+        return hasCall(calls, CallKind::SynthNoteOn, 1, 72)
+            && hasCall(calls, CallKind::SynthNoteOff, 1, 72);
+    }));
+
+    ASSERT_EQ(pressOctaveDownControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 48,
+        .velocity = 90,
+    }), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 48,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    session.join();
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 0, 60));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOff, 0, 60));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 1, 72));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOff, 1, 72));
+    EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn, 1, 60));
 }
 
 } // namespace

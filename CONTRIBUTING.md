@@ -23,8 +23,9 @@ decisions must preserve these constraints:
   are not an acceptable built-in solution for the SE49 or the default setup.
 - Sustain must remain ordinary CC64 input unless the user explicitly chooses
   to bind it. A feature must not consume or emulate sustain incidentally.
-- Preserve expressive MIDI behavior. Avoid rewriting note streams when a
-  channel-level synthesizer operation can implement the same musical effect.
+- Preserve expressive MIDI behavior. Arithmetic octave transposition is the
+  deliberate exception to otherwise avoiding note-stream rewriting; keep that
+  exception inside the project-owned octave transposer rather than FluidSynth.
 - The first positive-velocity Note On after arming starts the take at offset
   zero. This deliberate behavior removes leading silence and must not regress.
 - SoundFonts needed on stage are selected in configuration before the
@@ -64,6 +65,8 @@ The main layers and ownership boundaries are:
   libremidi, configuration parsing, or the playback thread.
 - `application.*` composes the system, matches configured controls, implements
   the FSM output alphabet, stores a take, and owns the loop worker.
+- `octave_transposer.*` owns octave bounds and arithmetic transposition for one
+  MIDI route. `Application` owns independent live and loop instances.
 - `synth_engine.*` is the narrow RAII wrapper around the FluidSynth C API.
 
 Keep dependency-specific types at their adapters. libremidi types must not
@@ -80,24 +83,24 @@ The looper deliberately uses a GoF State pattern. Preserve that style.
 - Do not replace this design with `std::variant`, visitation, a switch-based
   state machine, function tables, or a third-party FSM framework.
 - The virtual methods on `LooperState` are the FSM input alphabet: currently
-  `primaryControlPressed`, `nextSoundFontPressed`, `midiMessage`, and
-  `shutdownRequested`. Add a virtual method when an agreed feature introduces
-  a genuinely new stimulus.
+  `primaryControlPressed`, `nextSoundFontPressed`, `octaveDownPressed`,
+  `octaveUpPressed`, `midiMessage`, and `shutdownRequested`. Add a virtual
+  method when an agreed feature introduces a genuinely new stimulus.
 - The virtual methods on `LooperOutput` are the output alphabet. State objects
   request effects through this interface; they must not reach into
   `Application`, `SynthEngine`, libremidi, or FluidSynth.
-- `LooperOutput&` is invariant for the FSM lifetime and is constructor-injected
-  into the `LooperState` base. Do not pass it repeatedly through stimulus
-  methods or replace it with a setter.
+- `LooperOutput&` and `LooperStateData&` are invariant for the FSM lifetime and
+  are constructor-injected into the `LooperState` base. Do not pass them
+  repeatedly through stimulus methods or replace them with setters.
 - A stimulus should take only event-specific information. A button stimulus
   such as `nextSoundFontPressed()` needs no argument. Persistent transition
   data belongs in `LooperStateData`; effects belong in `LooperOutput`.
 - State methods return the next `StateId`. `midiMessage` returns
   `MidiHandlingResult` because it must also propagate the synthesizer's native
   result. Do not generalize that special case without a concrete need.
-- `LooperFsm` serializes stimuli with its mutex and validates every installed
-  `StateId` through the registry. Keep state objects free of independent
-  mutable lifecycle state.
+- `LooperFsm` serializes stimuli and access to the registry-owned shared state
+  data with its mutex, and validates every installed `StateId` through the
+  registry. Keep state objects free of independent mutable lifecycle state.
 - Common state behavior belongs in a shared state base or a small helper when
   that is clearer and DRYer than repetition.
 
@@ -111,16 +114,18 @@ The states are `Ready`, `Armed`, `Recording`, `Looping`, and `Stopped`.
 
 - `Ready`: MIDI is monitored on the live channel. Primary control arms a new
   take and assigns the current SoundFont to the loop channel. Next changes the
-  live SoundFont.
+  live SoundFont. Octave controls change both live and loop transposition.
 - `Armed`: MIDI is monitored on the loop channel. The first positive-velocity
   Note On enters `Recording` and is stored at offset zero. Next may change the
-  pending loop SoundFont before that first note.
+  pending loop SoundFont before that first note. Octave controls change both
+  live and loop transposition.
 - `Recording`: Note On and Note Off events are timestamped and stored. Next is
-  consumed without effect. Primary control commits the duration and starts
-  loop playback.
+  consumed without effect, as are both octave controls. Primary control commits
+  the duration and starts loop playback.
 - `Looping`: recorded notes repeat on the loop channel while incoming MIDI is
-  monitored on the live channel. Next changes only the live SoundFont. Primary
-  control currently stops playback and enters `Stopped`.
+  monitored on the live channel. Next changes only the live SoundFont. Octave
+  controls change only live transposition. Primary control currently stops
+  playback and enters `Stopped`.
 - `Stopped`: all stimuli are inert and the application terminates.
 
 The same configured primary control arms and finishes recording. The current
@@ -128,14 +133,23 @@ third-press behavior—stop and exit—is known and is intended to change in a
 separate ticket, not incidentally in another feature.
 
 Live and loop output use fixed FluidSynth channels 0 and 1 respectively.
-Recorded notes retain their original key and velocity but play on the loop
-channel. Once recording begins, the loop channel's SoundFont is locked. When a
-take starts looping, live output is synchronized to the current selection;
-later Next events affect only live output.
+Recorded notes retain their original velocity and store the key produced by
+the pending loop transposer. They play on the loop channel. Once recording
+begins, the loop channel's SoundFont and octave are locked. When a take starts
+looping, live output is synchronized to the current selection; later Next
+events affect only live output.
+
+Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
+from three octaves down through four octaves up. The performer changes octaves
+only while no notes are playing. Do not add held-note tracking or behavior for
+octave changes during active notes without changing this contract explicitly.
+Key-bearing messages whose shifted key would fall outside MIDI range 0 through
+127 are left unchanged. Recorded keys are transposed before storage, so the
+playback worker does not share octave state and the loop pitch stays locked.
 
 Control events are matched before ordinary MIDI reaches the FSM. A matched
 event is consumed, so it is neither synthesized nor recorded. Configuration
-must reject bindings that make two application actions ambiguous.
+must reject bindings that make any application actions ambiguous.
 
 ## libremidi and FluidSynth are both intentional
 
@@ -162,7 +176,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 2.
+required version is 4.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -174,9 +188,11 @@ required version is 2.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- `controls.recording` and `controls.next_soundfont` are non-empty binding
-  lists. Supported binding types are Note On, exact Control Change, exact or
-  any Program Change, and named MMC commands.
+- `controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
+  `controls.octave_up` each contain exactly one required binding. Performance
+  setup changes are made by editing that binding before startup. Supported
+  binding types are Note On, exact Control Change, exact or any Program Change,
+  and named MMC commands.
 - A schema shape change requires incrementing the exact version constant,
   updating `zeta.example.yaml` and README usage, and adding positive and
   negative parser tests.
@@ -219,6 +235,8 @@ required version is 2.
 - Preserve user changes in a dirty worktree and avoid unrelated formatting or
   cleanup.
 - Update tests and documentation in the same change as behavior or schema.
+- Update `CHANGELOG.md` in every change, placing pending entries under
+  `Unreleased`.
 - Push back on complexity that does not serve a demonstrated live-performance
   requirement. Architectural layering changes require prior agreement.
 
@@ -259,6 +277,8 @@ The test suites divide responsibilities as follows:
 - `configuration_tests`: strict schema, ranges, path resolution, and binding
   ambiguity.
 - `midi_tests`: library-independent byte decoding and MMC recognition.
+- `octave_transposer_tests`: octave bounds, arithmetic key transposition, and
+  non-key MIDI passthrough.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
 - `current_behavior_tests`: application-level behavior with fake MIDI and
   FluidSynth boundaries.
@@ -274,6 +294,8 @@ Configuration changes need rejection tests, not only a happy path. Run
   the synthesizer.
 - Confirm that the first played note still defines recording time zero.
 - Confirm that live and loop channel behavior remain independent.
+- Confirm octave changes preserve the recorded loop's pitch after recording
+  starts.
 - Confirm clean Ctrl-C/SIGTERM shutdown and no stuck notes.
 - Confirm the change is usable without a screen or computer keyboard.
 - Confirm the complete test suite passes in both normal and, when routing is

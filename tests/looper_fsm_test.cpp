@@ -28,6 +28,8 @@ public:
     MOCK_METHOD(int, monitorMidi, (const MidiMessage&, MidiRoute), (override));
     MOCK_METHOD(void, selectCurrentSoundFont, (MidiRoute), (override));
     MOCK_METHOD(void, selectNextSoundFont, (MidiRoute), (override));
+    MOCK_METHOD(void, octaveDown, (MidiRoute), (override));
+    MOCK_METHOD(void, octaveUp, (MidiRoute), (override));
     MOCK_METHOD(void, stopLoopPlayback, (), (override));
     MOCK_METHOD(void, silenceAllChannels, (), (override));
     MOCK_METHOD(void, resetTake, (), (override));
@@ -93,7 +95,8 @@ TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
     EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
 
     MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel))
+        .WillOnce(Return(0));
     EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
     fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time + 1ms);
 
@@ -109,6 +112,71 @@ TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
 
     EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
     EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
+}
+
+TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
+    StrictMock<MockOutput> output;
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
+
+    arm(fsm, output);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Armed);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Armed);
+
+    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
+    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
+    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time);
+
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Recording);
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Recording);
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(1ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
+    }
+    fsm.primaryControlPressed(start_time + 1ms);
+
+    EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Looping);
+    EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Looping);
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, stopLoopPlayback());
+        EXPECT_CALL(output, silenceAllChannels());
+        EXPECT_CALL(output, stopPlaybackWorker());
+    }
+    fsm.primaryControlPressed(start_time + 2ms);
+
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Stopped);
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Stopped);
 }
 
 TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
