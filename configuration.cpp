@@ -11,7 +11,7 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 3;
+constexpr int required_schema_version = 4;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -313,18 +313,42 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     }
 
     const auto controls = root["controls"];
-    rejectUnknownKeys(controls, "controls", {"recording", "next_soundfont"});
+    rejectUnknownKeys(controls, "controls", {
+        "recording",
+        "next_soundfont",
+        "octave_down",
+        "octave_up",
+    });
     config.recording_control = parseActionControl(controls, "recording");
     config.next_soundfont_control = parseActionControl(
         controls,
         "next_soundfont"
     );
+    config.octave_down_control = parseActionControl(controls, "octave_down");
+    config.octave_up_control = parseActionControl(controls, "octave_up");
 
-    if (config.recording_control.overlaps(config.next_soundfont_control)) {
-        fail(
-            "controls",
-            "recording and next_soundfont bindings must not overlap"
-        );
+    struct NamedControl {
+        std::string_view name;
+        const MidiControlBinding& binding;
+    };
+    const std::array actions{
+        NamedControl{"recording", config.recording_control},
+        NamedControl{"next_soundfont", config.next_soundfont_control},
+        NamedControl{"octave_down", config.octave_down_control},
+        NamedControl{"octave_up", config.octave_up_control},
+    };
+
+    for (std::size_t first = 0; first < actions.size(); ++first) {
+        for (std::size_t second = first + 1; second < actions.size(); ++second) {
+            if (actions[first].binding.overlaps(actions[second].binding)) {
+                fail(
+                    "controls",
+                    std::string{actions[first].name} + " and "
+                        + std::string{actions[second].name}
+                        + " bindings must not overlap"
+                );
+            }
+        }
     }
 
     return config;

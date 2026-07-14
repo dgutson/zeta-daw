@@ -38,6 +38,8 @@ struct ApplicationConfig {
     std::vector<SoundFontDefinition> soundfonts;
     MidiControlBinding recording_control;
     MidiControlBinding next_soundfont_control;
+    MidiControlBinding octave_down_control;
+    MidiControlBinding octave_up_control;
 };
 
 class ConfigurationError : public std::runtime_error {

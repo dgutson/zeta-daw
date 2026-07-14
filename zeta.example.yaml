@@ -1,4 +1,4 @@
-schema_version: 3
+schema_version: 4
 
 # Entries are loaded eagerly, in this order, before MIDI input starts.
 soundfonts:
@@ -13,7 +13,8 @@ soundfonts:
     preset: 34
 
 # Put the SE49 in MMC transport mode. In that mode Transpose Down sends
-# Rewind, and Transpose Up sends Stop. Zeta maps those messages to actions.
+# Rewind, Transpose Up sends Stop, Octave Down sends Play, and Octave Up sends
+# Record Strobe. Zeta maps those messages to actions.
 controls:
   recording:
     type: machine_control
@@ -22,6 +23,14 @@ controls:
   next_soundfont:
     type: machine_control
     command: stop
+
+  octave_down:
+    type: machine_control
+    command: play
+
+  octave_up:
+    type: machine_control
+    command: record_strobe
 
 # A momentary footswitch is a convenient hands-free alternative. Replace the
 # controls.recording binding with this mapping if desired:

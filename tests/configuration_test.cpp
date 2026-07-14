@@ -2,10 +2,13 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -42,9 +45,29 @@ private:
     std::filesystem::path path_;
 };
 
+std::string configWithMmcCommands(
+    const std::array<std::string_view, 4>& commands
+) {
+    std::ostringstream config;
+    config
+        << "schema_version: 4\n"
+        << "soundfonts:\n"
+        << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
+        << "controls:\n"
+        << "  recording: { type: machine_control, command: "
+        << commands[0] << " }\n"
+        << "  next_soundfont: { type: machine_control, command: "
+        << commands[1] << " }\n"
+        << "  octave_down: { type: machine_control, command: "
+        << commands[2] << " }\n"
+        << "  octave_up: { type: machine_control, command: "
+        << commands[3] << " }\n";
+    return config.str();
+}
+
 TEST(ConfigurationTest, ParsesOrderedCatalogAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - id: piano
     file: sounds/piano.sf2
@@ -62,6 +85,8 @@ controls:
   next_soundfont:
     type: machine_control
     command: stop
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
 
     const auto config = zeta::loadConfiguration(source.path());
@@ -83,11 +108,43 @@ controls:
         MidiControlType::MachineControl
     );
     EXPECT_EQ(config.next_soundfont_control.number, 0x01);
+    EXPECT_EQ(config.octave_down_control.number, 0x02);
+    EXPECT_EQ(config.octave_up_control.number, 0x06);
+}
+
+TEST(ConfigurationTest, RejectsEveryMissingActionControl) {
+    constexpr std::array action_names{
+        std::string_view{"recording"},
+        std::string_view{"next_soundfont"},
+        std::string_view{"octave_down"},
+        std::string_view{"octave_up"},
+    };
+    constexpr std::array commands{
+        std::string_view{"rewind"},
+        std::string_view{"stop"},
+        std::string_view{"play"},
+        std::string_view{"record_strobe"},
+    };
+
+    for (const auto action : action_names) {
+        auto contents = configWithMmcCommands(commands);
+        const std::string prefix = "  " + std::string{action} + ":";
+        const auto start = contents.find(prefix);
+        const auto finish = contents.find('\n', start);
+        contents.erase(start, finish - start + 1);
+
+        TemporaryConfig source{std::move(contents)};
+        SCOPED_TRACE(action);
+        EXPECT_THROW(
+            zeta::loadConfiguration(source.path()),
+            ConfigurationError
+        );
+    }
 }
 
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - id: piano
     file: piano.sf2
@@ -100,6 +157,8 @@ controls:
     channel: 1
     program: 1
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
@@ -107,13 +166,15 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
   - { id: piano, file: other.sf2, bank: 0, preset: 1 }
 controls:
   recording: { type: note, channel: 1, key: 24 }
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
@@ -121,45 +182,53 @@ controls:
 
 TEST(ConfigurationTest, RejectsOldSchemaAndRemovedParts) {
     TemporaryConfig old_schema{R"yaml(
-schema_version: 2
+schema_version: 3
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
   recording: { type: note, channel: 1, key: 24 }
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(old_schema.path()), ConfigurationError);
 
     TemporaryConfig removed_parts{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 parts: { live: piano, loop: piano }
 controls:
   recording: { type: note, channel: 1, key: 24 }
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(removed_parts.path()), ConfigurationError);
 }
 
 TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
   recording: { type: program_change, channel: 0, program: 1 }
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
 
     TemporaryConfig bad_mmc_command{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
   recording: { type: machine_control, command: rewind }
   next_soundfont: { type: machine_control, command: dance }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
     EXPECT_THROW(
         zeta::loadConfiguration(bad_mmc_command.path()),
@@ -168,21 +237,43 @@ controls:
 }
 
 TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
-    TemporaryConfig source{R"yaml(
-schema_version: 3
-soundfonts:
-  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
-controls:
-  recording: { type: program_change, channel: 1, program: any }
-  next_soundfont: { type: program_change, channel: 1, program: 12 }
-)yaml"};
+    constexpr std::array action_names{
+        std::string_view{"recording"},
+        std::string_view{"next_soundfont"},
+        std::string_view{"octave_down"},
+        std::string_view{"octave_up"},
+    };
 
-    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+    for (std::size_t first = 0; first < action_names.size(); ++first) {
+        for (
+            std::size_t second = first + 1;
+            second < action_names.size();
+            ++second
+        ) {
+            auto commands = std::array<std::string_view, 4>{
+                "rewind",
+                "stop",
+                "play",
+                "record_strobe",
+            };
+            commands[first] = "pause";
+            commands[second] = "pause";
+            TemporaryConfig source{configWithMmcCommands(commands)};
+            SCOPED_TRACE(
+                std::string{action_names[first]} + " and "
+                    + std::string{action_names[second]}
+            );
+            EXPECT_THROW(
+                zeta::loadConfiguration(source.path()),
+                ConfigurationError
+            );
+        }
+    }
 }
 
 TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
     TemporaryConfig source{R"yaml(
-schema_version: 3
+schema_version: 4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -190,6 +281,8 @@ controls:
     - { type: machine_control, command: rewind }
     - { type: control_change, channel: 1, controller: 20, value: 127 }
   next_soundfont: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);

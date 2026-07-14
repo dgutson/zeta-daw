@@ -73,7 +73,7 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 3
+schema_version: 4
 
 soundfonts:
   - id: piano
@@ -94,9 +94,17 @@ controls:
   next_soundfont:
     type: machine_control
     command: stop
+
+  octave_down:
+    type: machine_control
+    command: play
+
+  octave_up:
+    type: machine_control
+    command: record_strobe
 ```
 
-Only schema version 3 is accepted. A configuration error stops startup and
+Only schema version 4 is accepted. A configuration error stops startup and
 reports the invalid field.
 
 ### SoundFonts
@@ -123,10 +131,11 @@ FluidSynth documentation because command-line audio options differ by system.
 
 ### Controller bindings
 
-Both `controls.recording` and `controls.next_soundfont` require exactly one
-binding. A matched control event is reserved for the action: it does not sound
-and is not recorded. The two actions may not use overlapping bindings. Edit a
-binding before the performance when the physical control setup changes.
+`controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
+`controls.octave_up` each require exactly one binding. A matched control event
+is reserved for the action: it does not sound and is not recorded. Actions may
+not use overlapping bindings. Edit a binding before the performance when the
+physical control setup changes.
 
 YAML MIDI channels use the human-facing range 1 through 16.
 
@@ -193,8 +202,9 @@ MMC bindings have no MIDI channel. Supported command names are `stop`, `play`,
 ## Nektar SE49 example
 
 The SE49 can assign its four Octave and Transpose buttons to MMC transport
-commands. In that mode, Transpose Down sends Rewind and Transpose Up sends
-Stop, matching `zeta.example.yaml`.
+commands. In that mode, Transpose Down sends Rewind, Transpose Up sends Stop,
+Octave Down sends Play, and Octave Up sends Record Strobe, matching
+`zeta.example.yaml`.
 
 Configure MMC and enable transport mode:
 
@@ -214,11 +224,18 @@ During a performance:
 3. Play the first note to begin recording.
 4. Press **Transpose Down** again to finish the take and start the loop.
 5. Press **Transpose Up** while looping to change the live SoundFont.
+6. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
+   twelve semitones.
 
-Both Octave LEDs remain on in MMC transport mode. The mode currently
-repurposes the Octave buttons, so native octave shifting is unavailable. Press
-**Octave Down + Transpose Down** together again to restore the buttons' normal
-functions.
+The octave range is three octaves down through four octaves up and does not
+wrap. Before recording, octave changes affect both live playing and the pending
+loop. Octave changes are ignored while recording. Once looping, they affect
+only live playing, so the recorded loop keeps its pitch. Transposed notes
+outside the MIDI key range 0 through 127 are suppressed.
+
+Both Octave LEDs remain on in MMC transport mode because shifting is performed
+by Zeta rather than by the controller. Press **Octave Down + Transpose Down**
+together again to restore the buttons' native functions.
 
 The setup procedure and control assignments are documented in the
 [Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/my-downloads/Owners_Manuals/SE49_61_printed_guide_v1_3_ENGLISH.pdf).
@@ -304,8 +321,8 @@ aseqdump -p CLIENT:PORT
 ```
 
 Replace `CLIENT:PORT` with the controller port shown by `aseqdump -l`. For the
-SE49 example, the Transpose buttons should emit MMC SysEx messages. If they do
-not, confirm that MMC transport mode is enabled.
+SE49 example, all four Octave and Transpose buttons should emit MMC SysEx
+messages. If they do not, confirm that MMC transport mode is enabled.
 
 Selection is also reported as `SoundFont selected: ID`. If live notes or the
 loop use an unexpected sound, compare that log with the order and bank/preset

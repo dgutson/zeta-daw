@@ -37,6 +37,8 @@ private:
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;
     void selectCurrentSoundFont(MidiRoute route) override;
     void selectNextSoundFont(MidiRoute route) override;
+    void octaveDown(MidiRoute route) override;
+    void octaveUp(MidiRoute route) override;
 
     void stopLoopPlayback() override;
     void silenceAllChannels() override;

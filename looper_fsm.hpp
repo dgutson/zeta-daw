@@ -49,6 +49,8 @@ public:
     virtual int monitorMidi(const MidiMessage& message, MidiRoute route) = 0;
     virtual void selectCurrentSoundFont(MidiRoute route) = 0;
     virtual void selectNextSoundFont(MidiRoute route) = 0;
+    virtual void octaveDown(MidiRoute route) = 0;
+    virtual void octaveUp(MidiRoute route) = 0;
 
     virtual void stopLoopPlayback() = 0;
     virtual void silenceAllChannels() = 0;
@@ -77,6 +79,9 @@ public:
     virtual StateId primaryControlPressed(TimePoint now) const = 0;
 
     virtual StateId nextSoundFontPressed() const = 0;
+
+    virtual StateId octaveDownPressed() const = 0;
+    virtual StateId octaveUpPressed() const = 0;
 
     virtual MidiHandlingResult midiMessage(
         MidiMessageType type,
@@ -118,6 +123,8 @@ public:
 
     StateId primaryControlPressed(TimePoint now);
     StateId nextSoundFontPressed();
+    StateId octaveDownPressed();
+    StateId octaveUpPressed();
     int midiMessage(MidiMessageType type, MidiMessage message, TimePoint received_at);
     StateId shutdownRequested();
 

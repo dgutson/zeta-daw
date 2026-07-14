@@ -61,6 +61,7 @@ add_executable(
     looper_fsm.cpp
     midi_event.cpp
     midi_input.cpp
+    octave_transposer.cpp
     synth_engine.cpp
 )
 target_link_libraries(
@@ -101,6 +102,7 @@ if(BUILD_TESTING)
         looper_fsm.cpp
         midi_event.cpp
         midi_input.cpp
+        octave_transposer.cpp
         synth_engine.cpp
     )
     target_include_directories(
@@ -147,9 +149,22 @@ if(BUILD_TESTING)
     target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(midi_tests PRIVATE GTest::gtest_main)
 
+    add_executable(
+        octave_transposer_tests
+        tests/octave_transposer_test.cpp
+        octave_transposer.cpp
+        midi_event.cpp
+    )
+    target_compile_options(
+        octave_transposer_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(octave_transposer_tests PRIVATE GTest::gtest_main)
+
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
     gtest_discover_tests(looper_fsm_tests)
     gtest_discover_tests(midi_tests)
+    gtest_discover_tests(octave_transposer_tests)
 endif()

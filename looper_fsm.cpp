@@ -54,6 +54,18 @@ public:
         return StateId::Ready;
     }
 
+    StateId octaveDownPressed() const override {
+        output_.octaveDown(MidiRoute::LiveChannel);
+        output_.octaveDown(MidiRoute::LoopChannel);
+        return StateId::Ready;
+    }
+
+    StateId octaveUpPressed() const override {
+        output_.octaveUp(MidiRoute::LiveChannel);
+        output_.octaveUp(MidiRoute::LoopChannel);
+        return StateId::Ready;
+    }
+
     MidiHandlingResult midiMessage(
         MidiMessageType,
         MidiMessage& message,
@@ -80,6 +92,18 @@ public:
 
     StateId nextSoundFontPressed() const override {
         output_.selectNextSoundFont(MidiRoute::LoopChannel);
+        return StateId::Armed;
+    }
+
+    StateId octaveDownPressed() const override {
+        output_.octaveDown(MidiRoute::LiveChannel);
+        output_.octaveDown(MidiRoute::LoopChannel);
+        return StateId::Armed;
+    }
+
+    StateId octaveUpPressed() const override {
+        output_.octaveUp(MidiRoute::LiveChannel);
+        output_.octaveUp(MidiRoute::LoopChannel);
         return StateId::Armed;
     }
 
@@ -134,6 +158,14 @@ public:
         return StateId::Recording;
     }
 
+    StateId octaveDownPressed() const override {
+        return StateId::Recording;
+    }
+
+    StateId octaveUpPressed() const override {
+        return StateId::Recording;
+    }
+
     MidiHandlingResult midiMessage(
         MidiMessageType type,
         MidiMessage& message,
@@ -174,6 +206,16 @@ public:
         return StateId::Looping;
     }
 
+    StateId octaveDownPressed() const override {
+        output_.octaveDown(MidiRoute::LiveChannel);
+        return StateId::Looping;
+    }
+
+    StateId octaveUpPressed() const override {
+        output_.octaveUp(MidiRoute::LiveChannel);
+        return StateId::Looping;
+    }
+
     MidiHandlingResult midiMessage(
         MidiMessageType,
         MidiMessage& message,
@@ -198,6 +240,14 @@ public:
     }
 
     StateId nextSoundFontPressed() const override {
+        return StateId::Stopped;
+    }
+
+    StateId octaveDownPressed() const override {
+        return StateId::Stopped;
+    }
+
+    StateId octaveUpPressed() const override {
         return StateId::Stopped;
     }
 
@@ -259,6 +309,20 @@ StateId LooperFsm::primaryControlPressed(TimePoint now) {
 StateId LooperFsm::nextSoundFontPressed() {
     std::lock_guard lock(mutex_);
     const StateId next = states_.at(current_state_).nextSoundFontPressed();
+    install(next);
+    return current_state_;
+}
+
+StateId LooperFsm::octaveDownPressed() {
+    std::lock_guard lock(mutex_);
+    const StateId next = states_.at(current_state_).octaveDownPressed();
+    install(next);
+    return current_state_;
+}
+
+StateId LooperFsm::octaveUpPressed() {
+    std::lock_guard lock(mutex_);
+    const StateId next = states_.at(current_state_).octaveUpPressed();
     install(next);
     return current_state_;
 }
