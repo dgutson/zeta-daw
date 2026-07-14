@@ -1,4 +1,5 @@
 #include "application.hpp"
+#include "synth_engine.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -12,7 +13,6 @@
 #include <string>
 #include <syncstream>
 #include <thread>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -24,42 +24,19 @@ constexpr int loop_channel = 1;
 constexpr int expression_controller = 11;
 constexpr std::size_t max_recorded_events = 16384;
 
-struct SettingsDeleter {
-    void operator()(fluid_settings_t* settings) const noexcept {
-        if (settings) {
-            delete_fluid_settings(settings);
-        }
-    }
-};
+int channelFor(MidiRoute route) noexcept {
+    return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
+}
 
-struct SynthDeleter {
-    void operator()(fluid_synth_t* synth) const noexcept {
-        if (synth) {
-            delete_fluid_synth(synth);
-        }
-    }
-};
-
-struct AudioDriverDeleter {
-    void operator()(fluid_audio_driver_t* driver) const noexcept {
-        if (driver) {
-            delete_fluid_audio_driver(driver);
-        }
-    }
-};
-
-struct MidiDriverDeleter {
-    void operator()(fluid_midi_driver_t* driver) const noexcept {
-        if (driver) {
-            delete_fluid_midi_driver(driver);
-        }
-    }
-};
-
-using FluidSettings = std::unique_ptr<fluid_settings_t, SettingsDeleter>;
-using FluidSynth = std::unique_ptr<fluid_synth_t, SynthDeleter>;
-using FluidAudioDriver = std::unique_ptr<fluid_audio_driver_t, AudioDriverDeleter>;
-using FluidMidiDriver = std::unique_ptr<fluid_midi_driver_t, MidiDriverDeleter>;
+bool matchesAnyControl(
+    const std::vector<MidiControlBinding>& controls,
+    MidiMessageType type,
+    const MidiMessage& message
+) {
+    return std::ranges::any_of(controls, [&](const auto& control) {
+        return control.matches(type, message);
+    });
+}
 
 } // namespace
 
@@ -77,11 +54,9 @@ struct Application::Impl {
         uint64_t length_ms{};
     };
 
-    FluidSettings settings;
-    FluidSynth synth;
-    FluidAudioDriver audio_driver;
-    FluidMidiDriver midi_driver;
-    std::unordered_map<std::string, int> soundfont_ids;
+    SynthEngine synth_engine;
+    const ApplicationConfig& config;
+    std::size_t current_soundfont{};
 
     std::vector<RecordedNoteEvent> events;
     uint64_t loop_length_ms{};
@@ -95,120 +70,32 @@ struct Application::Impl {
     std::mutex lifecycle_mutex;
     std::condition_variable lifecycle_changed;
 
-    explicit Impl(const ApplicationConfig& config) {
-        initializeFluidSynth(config);
+    explicit Impl(const ApplicationConfig& application_config)
+        : synth_engine(application_config),
+          config(application_config) {
+        selectCurrentSoundFont(MidiRoute::LoopChannel);
+        selectCurrentSoundFont(MidiRoute::LiveChannel);
         events.reserve(max_recorded_events);
     }
 
-    void initializeFluidSynth(const ApplicationConfig& config) {
-        settings.reset(new_fluid_settings());
-        if (!settings) {
-            throw std::runtime_error("Could not create FluidSynth settings");
-        }
-
-        fluid_settings_setint(settings.get(), "synth.threadsafe-api", 1);
-        fluid_settings_setnum(settings.get(), "synth.gain", 0.5);
-        fluid_settings_setstr(settings.get(), "midi.portname", "cpp-midi-looper");
-        fluid_settings_setint(settings.get(), "midi.autoconnect", 1);
-        fluid_settings_setint(settings.get(), "midi.realtime-prio", 50);
-
-        synth.reset(new_fluid_synth(settings.get()));
-        if (!synth) {
-            throw std::runtime_error("Could not create FluidSynth synth");
-        }
-
-        std::unordered_map<std::string, int> loaded_files;
-        for (const auto& definition : config.soundfonts) {
-            const auto path = definition.file.string();
-            auto [loaded, inserted] = loaded_files.try_emplace(path, -1);
-            if (inserted) {
-                loaded->second = loadSoundFont(path);
-            }
-            soundfont_ids.emplace(definition.id, loaded->second);
-        }
-
-        selectConfiguredSoundFont(config, config.loop_soundfont, loop_channel);
-        selectConfiguredSoundFont(config, config.live_soundfont, live_channel);
-
-        audio_driver.reset(new_fluid_audio_driver(settings.get(), synth.get()));
-        if (!audio_driver) {
-            throw std::runtime_error("Could not create FluidSynth audio driver");
-        }
-
+    void selectCurrentSoundFont(MidiRoute route) {
+        synth_engine.select(
+            config.soundfonts.at(current_soundfont),
+            channelFor(route)
+        );
     }
 
-    void start(Application& owner) {
-        midi_driver.reset(new_fluid_midi_driver(
-            settings.get(),
-            &Application::midiCallback,
-            &owner
-        ));
-        if (!midi_driver) {
-            throw std::runtime_error("Could not create FluidSynth MIDI driver");
-        }
+    void selectNextSoundFont(MidiRoute route) {
+        current_soundfont = (current_soundfont + 1) % config.soundfonts.size();
+        selectCurrentSoundFont(route);
+        std::cout << "SoundFont selected: "
+                  << config.soundfonts[current_soundfont].id << '\n';
+    }
 
+    void startPlaybackWorker() {
         looper_thread = std::jthread([this](std::stop_token stop_token) {
             looperMain(stop_token);
         });
-    }
-
-    int loadSoundFont(const std::string& path) {
-        const int soundfont_id = fluid_synth_sfload(synth.get(), path.c_str(), 0);
-        if (soundfont_id == -1) {
-            throw std::runtime_error("Could not load SoundFont: " + path);
-        }
-        return soundfont_id;
-    }
-
-    void selectSoundFont(
-        const std::string& path,
-        int channel,
-        int soundfont_id,
-        int bank,
-        int preset
-    ) {
-        const int result = fluid_synth_program_select(
-            synth.get(),
-            channel,
-            soundfont_id,
-            bank,
-            preset
-        );
-
-        #ifdef ZETA_MIDI_TRACE
-        std::osyncstream{std::cerr}
-            << "[program_select]"
-            << " path=" << path
-            << " sfid=" << soundfont_id
-            << " channel=" << channel
-            << " bank=" << bank
-            << " preset=" << preset
-            << " rc=" << result
-            << "\n";
-        #endif
-
-        if (result != FLUID_OK) {
-            throw std::runtime_error(
-                "Could not select preset bank=" + std::to_string(bank) +
-                " preset=" + std::to_string(preset) +
-                " in SoundFont: " + path
-            );
-        }
-    }
-
-    void selectConfiguredSoundFont(
-        const ApplicationConfig& config,
-        std::string_view id,
-        int channel
-    ) {
-        const auto& definition = config.soundfont(id);
-        selectSoundFont(
-            definition.file.string(),
-            channel,
-            soundfont_ids.at(definition.id),
-            definition.bank,
-            definition.preset
-        );
     }
 
     void notifyLifecycleChanged() {
@@ -249,13 +136,6 @@ struct Application::Impl {
         }
         playback_changed.notify_all();
         looper_thread.join();
-    }
-
-    void releaseResources() {
-        midi_driver.reset();
-        audio_driver.reset();
-        synth.reset();
-        settings.reset();
     }
 
     void looperMain(std::stop_token stop_token) {
@@ -344,40 +224,51 @@ struct Application::Impl {
         #endif
 
         if (event.kind == RecordedNoteKind::NoteOn) {
-            fluid_synth_noteon(synth.get(), loop_channel, event.key, event.velocity);
+            synth_engine.noteOn(loop_channel, event.key, event.velocity);
         } else {
-            fluid_synth_noteoff(synth.get(), loop_channel, event.key);
+            synth_engine.noteOff(loop_channel, event.key);
         }
     }
 
     void allNotesOff() {
-        if (!synth) {
-            return;
-        }
-
-        for (int channel = 0; channel < 16; ++channel) {
-            fluid_synth_cc(synth.get(), channel, 64, 0);
-            fluid_synth_cc(synth.get(), channel, 123, 0);
-        }
+        synth_engine.allNotesOff();
     }
 };
 
 Application::Application(ApplicationConfig config)
+    : Application(std::move(config), makeMidiInput()) {}
+
+Application::Application(
+    ApplicationConfig config,
+    std::unique_ptr<MidiInput> midi_input
+)
     : config_(std::move(config)),
       impl_(std::make_unique<Impl>(config_)),
-      states_(),
-      fsm_(states_, *this) {
-    impl_->start(*this);
+      states_(*this),
+      fsm_(states_),
+      midi_input_(std::move(midi_input)) {
+    if (!midi_input_) {
+        throw std::invalid_argument("MIDI input must not be null");
+    }
+
+    midi_input_->start([this](MidiEvent event) {
+        handleMidiEvent(std::move(event));
+    });
+    impl_->allNotesOff();
+    midi_ready_.store(true, std::memory_order_release);
+    impl_->startPlaybackWorker();
 }
 
 Application::~Application() {
+    midi_ready_.store(false, std::memory_order_release);
+    midi_input_->stop();
     shutdownRequested();
-    impl_->releaseResources();
 }
 
 void Application::run() {
     std::cout << "\nMIDI looper ready.\n";
     std::cout << "Play your controller: it should sound live.\n\n";
+    std::cout << "Use the configured Next control to select a SoundFont.\n";
     std::cout << "Use the configured MIDI recording control to start.\n";
 
     std::unique_lock lock(impl_->lifecycle_mutex);
@@ -391,75 +282,59 @@ void Application::shutdownRequested() {
     impl_->notifyLifecycleChanged();
 }
 
-int Application::midiCallback(void* data, fluid_midi_event_t* event) noexcept {
-    auto* application = static_cast<Application*>(data);
+void Application::handleMidiEvent(MidiEvent event) noexcept {
+    if (!midi_ready_.load(std::memory_order_acquire)) {
+        return;
+    }
+
     try {
-        return application->handleMidiEvent(event);
-    } catch (...) {
-        return FLUID_FAILED;
-    }
-}
+        const auto type = event.type;
+        const auto& message = event.message;
 
-int Application::handleMidiEvent(fluid_midi_event_t* event) {
-    const int raw_type = fluid_midi_event_get_type(event);
-    const auto type = classifyMidiMessage(raw_type);
-
-    MidiMessage message{
-        .native_event = event,
-        .raw_type = raw_type,
-        .channel = fluid_midi_event_get_channel(event),
-        .key = fluid_midi_event_get_key(event),
-        .velocity = fluid_midi_event_get_velocity(event),
-        .control = fluid_midi_event_get_control(event),
-        .value = fluid_midi_event_get_value(event),
-        .program = fluid_midi_event_get_program(event),
-        .pitch = fluid_midi_event_get_pitch(event),
-    };
-
-    if (std::ranges::any_of(config_.recording_controls, [&](const auto& control) {
-        return control.matches(type, message);
-    })) {
-        const auto state = fsm_.primaryControlPressed(LooperClock::now());
-        if (isTerminal(state)) {
-            impl_->notifyLifecycleChanged();
+        if (matchesAnyControl(config_.recording_controls, type, message)) {
+            const auto state = fsm_.primaryControlPressed(LooperClock::now());
+            if (isTerminal(state)) {
+                impl_->notifyLifecycleChanged();
+            }
+            return;
         }
-        return FLUID_OK;
-    }
 
-    if (type == MidiMessageType::ControlChange
-        && message.control == expression_controller
-        && message.value == 0) {
-        std::cerr << "[midi ignored] CC 11 expression value 0\n";
-        return FLUID_OK;
-    }
+        if (matchesAnyControl(config_.next_soundfont_controls, type, message)) {
+            fsm_.nextSoundFontPressed();
+            return;
+        }
 
-    return fsm_.midiMessage(type, message, LooperClock::now());
+        if (type == MidiMessageType::ControlChange
+            && message.control == expression_controller
+            && message.value == 0) {
+            std::cerr << "[midi ignored] CC 11 expression value 0\n";
+            return;
+        }
+
+        fsm_.midiMessage(type, message, LooperClock::now());
+    } catch (const std::exception& error) {
+        std::cerr << "[MIDI handling error] " << error.what() << '\n';
+    } catch (...) {
+        std::cerr << "[MIDI handling error] unknown failure\n";
+    }
 }
 
-int Application::monitorMidi(MidiMessage& message, MidiRoute route) {
-    auto* event = static_cast<fluid_midi_event_t*>(message.native_event);
-    #ifdef ZETA_MIDI_TRACE
-    const int input_channel = message.channel;
-    #endif
-    const int output_channel = route == MidiRoute::LoopChannel
-        ? loop_channel
-        : live_channel;
+int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
+    const int output_channel = channelFor(route);
 
-    fluid_midi_event_set_channel(event, output_channel);
-    message.channel = output_channel;
-
-    const int result = fluid_synth_handle_midi_event(impl_->synth.get(), event);
+    const int result = impl_->synth_engine.send(message, output_channel);
 
     #ifdef ZETA_MIDI_TRACE
+    const auto type = classifyMidiMessage(message.raw_type);
     std::osyncstream log{std::cerr};
     log
         << "[midi monitor]"
         << " route=" << (route == MidiRoute::LoopChannel ? "loop" : "live")
-        << " input_channel=" << input_channel
+        << " input_channel=" << message.channel
         << " output_channel=" << output_channel
         << " type=0x" << std::hex << message.raw_type << std::dec;
 
-    switch (classifyMidiMessage(message.raw_type)) {
+    switch (type) {
     case MidiMessageType::NoteOn:
     case MidiMessageType::NoteOff:
         log
@@ -477,6 +352,15 @@ int Application::monitorMidi(MidiMessage& message, MidiRoute route) {
     case MidiMessageType::PitchBend:
         log << " pitch=" << message.pitch;
         break;
+    case MidiMessageType::PolyphonicKeyPressure:
+        log << " key=" << message.key << " pressure=" << message.pressure;
+        break;
+    case MidiMessageType::ChannelPressure:
+        log << " pressure=" << message.pressure;
+        break;
+    case MidiMessageType::MachineControl:
+        log << " mmc_command=" << message.machine_control_command;
+        break;
     case MidiMessageType::Other:
         break;
     }
@@ -485,6 +369,14 @@ int Application::monitorMidi(MidiMessage& message, MidiRoute route) {
     #endif
 
     return result;
+}
+
+void Application::selectCurrentSoundFont(MidiRoute route) {
+    impl_->selectCurrentSoundFont(route);
+}
+
+void Application::selectNextSoundFont(MidiRoute route) {
+    impl_->selectNextSoundFont(route);
 }
 
 void Application::stopLoopPlayback() {
@@ -523,17 +415,18 @@ void Application::commitTake(Milliseconds duration) {
 }
 
 void Application::startLoopPlayback() {
-    impl_->selectConfiguredSoundFont(config_, config_.live_soundfont, live_channel);
+    impl_->selectCurrentSoundFont(MidiRoute::LiveChannel);
     impl_->startLoopPlayback();
 }
 
 void Application::showRecordingArmed() {
     std::cout
-        << "Recording... use the configured MIDI control to stop and start looping.\n";
+        << "Recording... Next can change the pending SoundFont before the first note.\n";
 }
 
 void Application::showLooping() {
     std::cout << "Looping. You can still play live over the loop.\n";
+    std::cout << "Use Next to change the live SoundFont.\n";
     std::cout << "Use the configured MIDI control to stop and quit.\n";
 }
 

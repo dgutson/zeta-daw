@@ -2,9 +2,9 @@
 
 #include "configuration.hpp"
 #include "looper_fsm.hpp"
+#include "midi_input.hpp"
 
-#include <fluidsynth.h>
-
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -13,6 +13,7 @@ namespace zeta {
 class Application final : private LooperOutput {
 public:
     explicit Application(ApplicationConfig config);
+    Application(ApplicationConfig config, std::unique_ptr<MidiInput> midi_input);
     ~Application();
 
     Application(const Application&) = delete;
@@ -28,11 +29,14 @@ private:
     std::unique_ptr<Impl> impl_;
     LooperStateRegistry states_;
     LooperFsm fsm_;
+    std::unique_ptr<MidiInput> midi_input_;
+    std::atomic<bool> midi_ready_{false};
 
-    static int midiCallback(void* data, fluid_midi_event_t* event) noexcept;
-    int handleMidiEvent(fluid_midi_event_t* event);
+    void handleMidiEvent(MidiEvent event) noexcept;
 
-    int monitorMidi(MidiMessage& message, MidiRoute route) override;
+    int monitorMidi(const MidiMessage& message, MidiRoute route) override;
+    void selectCurrentSoundFont(MidiRoute route) override;
+    void selectNextSoundFont(MidiRoute route) override;
 
     void stopLoopPlayback() override;
     void silenceAllChannels() override;

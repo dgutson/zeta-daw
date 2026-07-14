@@ -19,28 +19,11 @@ struct _fluid_synth_t {
 
 struct _fluid_audio_driver_t {};
 
-struct _fluid_midi_event_t {
-    int type{};
-    int channel{};
-    int key{};
-    int velocity{};
-    int control{};
-    int value{};
-    int program{};
-    int pitch{};
-};
-
-struct _fluid_midi_driver_t {
-    handle_midi_event_func_t handler{};
-    void* data{};
-};
-
 namespace {
 
 std::mutex mutex;
 std::condition_variable calls_changed;
 std::vector<fake_fluidsynth::Call> recorded_calls;
-_fluid_midi_driver_t* active_midi_driver{};
 int next_soundfont_id{1};
 
 void record(fake_fluidsynth::Call call) {
@@ -58,38 +41,7 @@ namespace fake_fluidsynth {
 void reset() {
     std::lock_guard lock(mutex);
     recorded_calls.clear();
-    active_midi_driver = nullptr;
     next_soundfont_id = 1;
-}
-
-int emitMidi(const MidiEvent& source) {
-    handle_midi_event_func_t handler = nullptr;
-    void* data = nullptr;
-
-    {
-        std::lock_guard lock(mutex);
-        if (active_midi_driver) {
-            handler = active_midi_driver->handler;
-            data = active_midi_driver->data;
-        }
-    }
-
-    if (!handler) {
-        return FLUID_FAILED;
-    }
-
-    _fluid_midi_event_t event{
-        .type = source.type,
-        .channel = source.channel,
-        .key = source.key,
-        .velocity = source.velocity,
-        .control = source.control,
-        .value = source.value,
-        .program = source.program,
-        .pitch = source.pitch,
-    };
-
-    return handler(data, &event);
 }
 
 std::vector<Call> calls() {
@@ -212,95 +164,15 @@ void delete_fluid_audio_driver(fluid_audio_driver_t* driver) {
     delete driver;
 }
 
-fluid_midi_driver_t* new_fluid_midi_driver(
-    fluid_settings_t*,
-    handle_midi_event_func_t handler,
-    void* data
-) {
-    auto* driver = new _fluid_midi_driver_t{
-        .handler = handler,
-        .data = data,
-    };
-
-    {
-        std::lock_guard lock(mutex);
-        active_midi_driver = driver;
-    }
-    return driver;
-}
-
-void delete_fluid_midi_driver(fluid_midi_driver_t* driver) {
-    {
-        std::lock_guard lock(mutex);
-        if (active_midi_driver == driver) {
-            active_midi_driver = nullptr;
-        }
-    }
-    record({
-        .kind = fake_fluidsynth::CallKind::DeleteMidiDriver,
-        .text = {},
-    });
-    delete driver;
-}
-
-int fluid_midi_event_get_type(const fluid_midi_event_t* event) {
-    return event->type;
-}
-
-int fluid_midi_event_set_channel(fluid_midi_event_t* event, int channel) {
-    event->channel = channel;
-    return FLUID_OK;
-}
-
-int fluid_midi_event_get_channel(const fluid_midi_event_t* event) {
-    return event->channel;
-}
-
-int fluid_midi_event_get_key(const fluid_midi_event_t* event) {
-    return event->key;
-}
-
-int fluid_midi_event_get_velocity(const fluid_midi_event_t* event) {
-    return event->velocity;
-}
-
-int fluid_midi_event_get_control(const fluid_midi_event_t* event) {
-    return event->control;
-}
-
-int fluid_midi_event_get_value(const fluid_midi_event_t* event) {
-    return event->value;
-}
-
-int fluid_midi_event_get_program(const fluid_midi_event_t* event) {
-    return event->program;
-}
-
-int fluid_midi_event_get_pitch(const fluid_midi_event_t* event) {
-    return event->pitch;
-}
-
-int fluid_synth_handle_midi_event(void* data, fluid_midi_event_t* event) {
-    auto* synth = static_cast<fluid_synth_t*>(data);
-    if (event->type == 0xC0) {
-        synth->programs.at(static_cast<std::size_t>(event->channel)).preset =
-            event->program;
-    }
-
+int fluid_synth_noteon(fluid_synth_t*, int channel, int key, int velocity) {
     record({
         .kind = fake_fluidsynth::CallKind::HandleMidi,
-        .type = event->type,
-        .channel = event->channel,
-        .key = event->key,
-        .velocity = event->velocity,
-        .control = event->control,
-        .value = event->value,
+        .type = 0x90,
+        .channel = channel,
+        .key = key,
+        .velocity = velocity,
         .text = {},
     });
-    return FLUID_OK;
-}
-
-int fluid_synth_noteon(fluid_synth_t*, int channel, int key, int velocity) {
     record({
         .kind = fake_fluidsynth::CallKind::SynthNoteOn,
         .channel = channel,
@@ -313,6 +185,13 @@ int fluid_synth_noteon(fluid_synth_t*, int channel, int key, int velocity) {
 
 int fluid_synth_noteoff(fluid_synth_t*, int channel, int key) {
     record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0x80,
+        .channel = channel,
+        .key = key,
+        .text = {},
+    });
+    record({
         .kind = fake_fluidsynth::CallKind::SynthNoteOff,
         .channel = channel,
         .key = key,
@@ -323,10 +202,69 @@ int fluid_synth_noteoff(fluid_synth_t*, int channel, int key) {
 
 int fluid_synth_cc(fluid_synth_t*, int channel, int control, int value) {
     record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0xB0,
+        .channel = channel,
+        .control = control,
+        .value = value,
+        .text = {},
+    });
+    record({
         .kind = fake_fluidsynth::CallKind::SynthControlChange,
         .channel = channel,
         .control = control,
         .value = value,
+        .text = {},
+    });
+    return FLUID_OK;
+}
+
+int fluid_synth_program_change(fluid_synth_t* synth, int channel, int program) {
+    synth->programs.at(static_cast<std::size_t>(channel)).preset = program;
+    record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0xC0,
+        .channel = channel,
+        .value = program,
+        .text = {},
+    });
+    return FLUID_OK;
+}
+
+int fluid_synth_pitch_bend(fluid_synth_t*, int channel, int pitch) {
+    record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0xE0,
+        .channel = channel,
+        .value = pitch,
+        .text = {},
+    });
+    return FLUID_OK;
+}
+
+int fluid_synth_channel_pressure(fluid_synth_t*, int channel, int pressure) {
+    record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0xD0,
+        .channel = channel,
+        .value = pressure,
+        .text = {},
+    });
+    return FLUID_OK;
+}
+
+int fluid_synth_key_pressure(
+    fluid_synth_t*,
+    int channel,
+    int key,
+    int pressure
+) {
+    record({
+        .kind = fake_fluidsynth::CallKind::HandleMidi,
+        .type = 0xA0,
+        .channel = channel,
+        .key = key,
+        .value = pressure,
         .text = {},
     });
     return FLUID_OK;

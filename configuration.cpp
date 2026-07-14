@@ -3,6 +3,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <string_view>
 #include <unordered_set>
@@ -10,7 +11,27 @@
 namespace zeta {
 namespace {
 
-constexpr int schema_version = 1;
+constexpr int required_schema_version = 2;
+
+struct NamedMachineControlCommand {
+    std::string_view name;
+    int value;
+};
+
+constexpr std::array machine_control_commands{
+    NamedMachineControlCommand{"stop", 0x01},
+    NamedMachineControlCommand{"play", 0x02},
+    NamedMachineControlCommand{"deferred_play", 0x03},
+    NamedMachineControlCommand{"fast_forward", 0x04},
+    NamedMachineControlCommand{"rewind", 0x05},
+    NamedMachineControlCommand{"record_strobe", 0x06},
+    NamedMachineControlCommand{"record_exit", 0x07},
+    NamedMachineControlCommand{"record_pause", 0x08},
+    NamedMachineControlCommand{"pause", 0x09},
+    NamedMachineControlCommand{"eject", 0x0A},
+    NamedMachineControlCommand{"chase", 0x0B},
+    NamedMachineControlCommand{"reset", 0x0D},
+};
 
 [[noreturn]] void fail(const std::string& location, const std::string& message) {
     throw ConfigurationError(location + ": " + message);
@@ -90,11 +111,44 @@ std::string nonEmptyString(
     return value;
 }
 
-MidiControlBinding parseControl(const YAML::Node& node, std::size_t index) {
-    const std::string location = "controls.recording[" + std::to_string(index) + "]";
+int parseMachineControlCommand(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    const auto command = nonEmptyString(node, "command", location);
+    const auto found = std::ranges::find(
+        machine_control_commands,
+        command,
+        &NamedMachineControlCommand::name
+    );
+    if (found == machine_control_commands.end()) {
+        fail(location + ".command", "unsupported MMC command '" + command + "'");
+    }
+    return found->value;
+}
+
+MidiControlBinding parseControl(
+    const YAML::Node& node,
+    const std::string& location
+) {
     requireMap(node, location);
 
     const auto type = nonEmptyString(node, "type", location);
+
+    if (type == "machine_control") {
+        rejectUnknownKeys(node, location, {"type", "command"});
+        return {
+            .type = MidiControlType::MachineControl,
+            .number = parseMachineControlCommand(node, location),
+        };
+    }
+
+    if (type != "note"
+        && type != "control_change"
+        && type != "program_change") {
+        fail(location + ".type", "unsupported MIDI control type '" + type + "'");
+    }
+
     const int channel = boundedInt(node, "channel", location, 1, 16) - 1;
 
     if (type == "note") {
@@ -120,27 +174,45 @@ MidiControlBinding parseControl(const YAML::Node& node, std::size_t index) {
         };
     }
 
-    if (type == "program_change") {
-        rejectUnknownKeys(node, location, {"type", "channel", "program"});
-        const auto program = node["program"];
-        if (!program) {
-            fail(location, "missing required field 'program'");
-        }
-        if (program.IsScalar() && program.Scalar() == "any") {
-            return {
-                .type = MidiControlType::ProgramChange,
-                .channel = channel,
-                .match_any_program = true,
-            };
-        }
+    rejectUnknownKeys(node, location, {"type", "channel", "program"});
+    const auto program = node["program"];
+    if (!program) {
+        fail(location, "missing required field 'program'");
+    }
+    if (program.IsScalar() && program.Scalar() == "any") {
         return {
             .type = MidiControlType::ProgramChange,
             .channel = channel,
-            .number = boundedInt(node, "program", location, 0, 127),
+            .match_any_program = true,
         };
     }
+    return {
+        .type = MidiControlType::ProgramChange,
+        .channel = channel,
+        .number = boundedInt(node, "program", location, 0, 127),
+    };
+}
 
-    fail(location + ".type", "unsupported MIDI control type '" + type + "'");
+std::vector<MidiControlBinding> parseControls(
+    const YAML::Node& controls,
+    const char* name
+) {
+    const std::string location = "controls." + std::string{name};
+    const auto nodes = controls[name];
+    requireSequence(nodes, location);
+    if (nodes.size() == 0) {
+        fail(location, "must contain at least one binding");
+    }
+
+    std::vector<MidiControlBinding> bindings;
+    bindings.reserve(nodes.size());
+    for (std::size_t index = 0; index < nodes.size(); ++index) {
+        bindings.push_back(parseControl(
+            nodes[index],
+            location + "[" + std::to_string(index) + "]"
+        ));
+    }
+    return bindings;
 }
 
 std::filesystem::path resolveSoundFontPath(
@@ -160,32 +232,49 @@ bool MidiControlBinding::matches(
     MidiMessageType message_type,
     const MidiMessage& message
 ) const noexcept {
-    if (message.channel != channel) {
+    switch (type) {
+    case MidiControlType::Note:
+        return message_type == MidiMessageType::NoteOn
+            && message.channel == channel
+            && message.velocity > 0
+            && message.key == number;
+    case MidiControlType::ControlChange:
+        return message_type == MidiMessageType::ControlChange
+            && message.channel == channel
+            && message.control == number
+            && message.value == value;
+    case MidiControlType::ProgramChange:
+        return message_type == MidiMessageType::ProgramChange
+            && message.channel == channel
+            && (match_any_program || message.program == number);
+    case MidiControlType::MachineControl:
+        return message_type == MidiMessageType::MachineControl
+            && message.machine_control_command == number;
+    }
+    return false;
+}
+
+bool MidiControlBinding::overlaps(const MidiControlBinding& other) const noexcept {
+    if (type != other.type) {
         return false;
     }
 
     switch (type) {
     case MidiControlType::Note:
-        return message_type == MidiMessageType::NoteOn
-            && message.velocity > 0
-            && message.key == number;
+        return channel == other.channel && number == other.number;
     case MidiControlType::ControlChange:
-        return message_type == MidiMessageType::ControlChange
-            && message.control == number
-            && message.value == value;
+        return channel == other.channel
+            && number == other.number
+            && value == other.value;
     case MidiControlType::ProgramChange:
-        return message_type == MidiMessageType::ProgramChange
-            && (match_any_program || message.program == number);
+        return channel == other.channel
+            && (match_any_program
+                || other.match_any_program
+                || number == other.number);
+    case MidiControlType::MachineControl:
+        return number == other.number;
     }
     return false;
-}
-
-const SoundFontDefinition& ApplicationConfig::soundfont(std::string_view id) const {
-    const auto found = std::ranges::find(soundfonts, id, &SoundFontDefinition::id);
-    if (found == soundfonts.end()) {
-        throw ConfigurationError("unknown SoundFont id '" + std::string{id} + "'");
-    }
-    return *found;
 }
 
 ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
@@ -200,11 +289,11 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     rejectUnknownKeys(root, "configuration", {
         "schema_version",
         "soundfonts",
-        "parts",
         "controls",
     });
 
-    if (required<int>(root, "schema_version", "configuration") != schema_version) {
+    if (required<int>(root, "schema_version", "configuration")
+        != required_schema_version) {
         fail("configuration.schema_version", "unsupported schema version");
     }
 
@@ -237,22 +326,24 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         });
     }
 
-    const auto parts = root["parts"];
-    rejectUnknownKeys(parts, "parts", {"live", "loop"});
-    config.live_soundfont = nonEmptyString(parts, "live", "parts");
-    config.loop_soundfont = nonEmptyString(parts, "loop", "parts");
-    config.soundfont(config.live_soundfont);
-    config.soundfont(config.loop_soundfont);
-
     const auto controls = root["controls"];
-    rejectUnknownKeys(controls, "controls", {"recording"});
-    const auto recording = controls["recording"];
-    requireSequence(recording, "controls.recording");
-    if (recording.size() == 0) {
-        fail("controls.recording", "must contain at least one binding");
-    }
-    for (std::size_t index = 0; index < recording.size(); ++index) {
-        config.recording_controls.push_back(parseControl(recording[index], index));
+    rejectUnknownKeys(controls, "controls", {"recording", "next_soundfont"});
+    config.recording_controls = parseControls(controls, "recording");
+    config.next_soundfont_controls = parseControls(controls, "next_soundfont");
+
+    for (const auto& recording : config.recording_controls) {
+        const bool ambiguous = std::ranges::any_of(
+            config.next_soundfont_controls,
+            [&](const auto& next) {
+                return recording.overlaps(next);
+            }
+        );
+        if (ambiguous) {
+            fail(
+                "controls",
+                "recording and next_soundfont bindings must not overlap"
+            );
+        }
     }
 
     return config;

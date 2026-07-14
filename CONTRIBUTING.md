@@ -1,0 +1,281 @@
+# Contributing to Zeta DAW
+
+This document is the architectural contract for the repository. Contributors
+and coding assistants must read it completely before proposing or making a
+change. Update it when an agreed architectural decision changes; do not let a
+refactor silently redefine the design.
+
+## Product constraints
+
+Zeta is a live-performance instrument, not a general-purpose sequencer. Design
+decisions must preserve these constraints:
+
+- The primary target is a Raspberry Pi 5 that boots headlessly and is operated
+  only from a MIDI controller. The same executable must remain usable as a
+  normal Linux desktop process.
+- Startup and shutdown are unattended. SIGINT and SIGTERM must stop playback,
+  silence notes, release MIDI/audio resources, and terminate cleanly.
+- Performance-time operations must be deterministic and low latency. All
+  configured SoundFonts are loaded eagerly before MIDI input becomes active;
+  do not introduce lazy loading on a performance path.
+- Do not sacrifice any playable piano note to solve a controller-integration
+  problem. Note bindings remain available as a generic user option, but they
+  are not an acceptable built-in solution for the SE49 or the default setup.
+- Sustain must remain ordinary CC64 input unless the user explicitly chooses
+  to bind it. A feature must not consume or emulate sustain incidentally.
+- Preserve expressive MIDI behavior. Avoid rewriting note streams when a
+  channel-level synthesizer operation can implement the same musical effect.
+- The first positive-velocity Note On after arming starts the take at offset
+  zero. This deliberate behavior removes leading silence and must not regress.
+- SoundFonts needed on stage are selected in configuration before the
+  performance. Runtime selection chooses among that bounded, preloaded list.
+
+## Architecture at a glance
+
+The runtime flow is:
+
+```text
+libremidi/ALSA input
+        |
+        v
+project-owned MidiEvent decoding and configured-control matching
+        |
+        v
+LooperFsm -> current LooperState -> LooperOutput
+                                      |
+                                      v
+                                  Application
+                                  /         \
+                         SynthEngine      loop worker
+                         (FluidSynth)
+```
+
+The main layers and ownership boundaries are:
+
+- `main.cpp` loads configuration, owns process signal handling, constructs the
+  application, and waits for termination.
+- `configuration.*` owns the strict YAML schema and converts it to
+  project-owned configuration types.
+- `midi_input.*` owns hardware MIDI discovery, connection, disconnection, and
+  reconnection through libremidi's ALSA Sequencer backend.
+- `midi_event.*` owns the library-independent MIDI event model and byte
+  decoding, including MMC SysEx recognition.
+- `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
+  libremidi, configuration parsing, or the playback thread.
+- `application.*` composes the system, matches configured controls, implements
+  the FSM output alphabet, stores a take, and owns the loop worker.
+- `synth_engine.*` is the narrow RAII wrapper around the FluidSynth C API.
+
+Keep dependency-specific types at their adapters. libremidi types must not
+leak past `midi_input.*`, and FluidSynth types must not leak past
+`synth_engine.*`.
+
+## FSM design contract
+
+The looper deliberately uses a GoF State pattern. Preserve that style.
+
+- Each state is a polymorphic `LooperState` implementation. `LooperFsm` holds a
+  `StateId` and dispatches stimuli to the object supplied by
+  `LooperStateRegistry`.
+- Do not replace this design with `std::variant`, visitation, a switch-based
+  state machine, function tables, or a third-party FSM framework.
+- The virtual methods on `LooperState` are the FSM input alphabet: currently
+  `primaryControlPressed`, `nextSoundFontPressed`, `midiMessage`, and
+  `shutdownRequested`. Add a virtual method when an agreed feature introduces
+  a genuinely new stimulus.
+- The virtual methods on `LooperOutput` are the output alphabet. State objects
+  request effects through this interface; they must not reach into
+  `Application`, `SynthEngine`, libremidi, or FluidSynth.
+- `LooperOutput&` is invariant for the FSM lifetime and is constructor-injected
+  into the `LooperState` base. Do not pass it repeatedly through stimulus
+  methods or replace it with a setter.
+- A stimulus should take only event-specific information. A button stimulus
+  such as `nextSoundFontPressed()` needs no argument. Persistent transition
+  data belongs in `LooperStateData`; effects belong in `LooperOutput`.
+- State methods return the next `StateId`. `midiMessage` returns
+  `MidiHandlingResult` because it must also propagate the synthesizer's native
+  result. Do not generalize that special case without a concrete need.
+- `LooperFsm` serializes stimuli with its mutex and validates every installed
+  `StateId` through the registry. Keep state objects free of independent
+  mutable lifecycle state.
+- Common state behavior belongs in a shared state base or a small helper when
+  that is clearer and DRYer than repetition.
+
+Any proposal that changes these boundaries or the GoF model must be discussed
+and explicitly agreed before code is changed. Do not hide an architectural
+rewrite inside a feature or cleanup ticket.
+
+## Current state semantics
+
+The states are `Ready`, `Armed`, `Recording`, `Looping`, and `Stopped`.
+
+- `Ready`: MIDI is monitored on the live channel. Primary control arms a new
+  take and assigns the current SoundFont to the loop channel. Next changes the
+  live SoundFont.
+- `Armed`: MIDI is monitored on the loop channel. The first positive-velocity
+  Note On enters `Recording` and is stored at offset zero. Next may change the
+  pending loop SoundFont before that first note.
+- `Recording`: Note On and Note Off events are timestamped and stored. Next is
+  consumed without effect. Primary control commits the duration and starts
+  loop playback.
+- `Looping`: recorded notes repeat on the loop channel while incoming MIDI is
+  monitored on the live channel. Next changes only the live SoundFont. Primary
+  control currently stops playback and enters `Stopped`.
+- `Stopped`: all stimuli are inert and the application terminates.
+
+The same configured primary control arms and finishes recording. The current
+third-press behavior—stop and exit—is known and is intended to change in a
+separate ticket, not incidentally in another feature.
+
+Live and loop output use fixed FluidSynth channels 0 and 1 respectively.
+Recorded notes retain their original key and velocity but play on the loop
+channel. Once recording begins, the loop channel's SoundFont is locked. When a
+take starts looping, live output is synchronized to the current selection;
+later Next events affect only live output.
+
+Control events are matched before ordinary MIDI reaches the FSM. A matched
+event is consumed, so it is neither synthesized nor recorded. Configuration
+must reject bindings that make two application actions ambiguous.
+
+## libremidi and FluidSynth are both intentional
+
+These libraries have different responsibilities and neither replaces the
+other:
+
+- libremidi is the MIDI input layer. It uses ALSA Sequencer, observes hardware
+  ports, handles hotplug/reconnection, receives SysEx, and invokes the
+  project-owned event callback.
+- FluidSynth is the synthesis and audio layer. `SynthEngine` loads SoundFonts,
+  selects presets per output channel, sends channel MIDI, and silences notes.
+
+Do not restore FluidSynth's MIDI driver. Doing so would create two competing
+input paths and make MMC/SysEx handling and ALSA port ownership unclear. Do
+not attempt to replace FluidSynth with libremidi: libremidi does not synthesize
+SoundFonts or provide audio output.
+
+Input callbacks may originate outside the application thread. Exceptions must
+not escape a MIDI callback. The startup gate remains closed until inputs have
+been connected and an all-notes-off pass has run; this guards against startup
+device noise. Ignored active-sensing/timing traffic and hotplug behavior are
+part of the input adapter's contract.
+
+## Configuration contract
+
+The configuration schema is deliberately strict and versioned. The current
+required version is 2.
+
+- The version in the file must exactly match the compiled
+  `required_schema_version` constant. There is no backward-compatibility
+  requirement unless explicitly agreed for a future schema.
+- Reject missing fields, unknown fields, empty required lists, duplicate
+  SoundFont IDs, invalid ranges, unsupported control commands, and overlapping
+  action bindings. Do not silently ignore a typo in stage configuration.
+- Paths relative to the YAML file are resolved relative to that file, not the
+  process working directory.
+- The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
+  repeated references to one file reuse its loaded FluidSynth ID.
+- `controls.recording` and `controls.next_soundfont` are non-empty binding
+  lists. Supported binding types are Note On, exact Control Change, exact or
+  any Program Change, and named MMC commands.
+- A schema shape change requires incrementing the exact version constant,
+  updating `zeta.example.yaml` and README usage, and adding positive and
+  negative parser tests.
+
+## Concurrency and lifecycle
+
+- `Application` owns dependencies in destruction-safe order. MIDI input is
+  stopped before shutdown tears down the FSM output implementation.
+- `LooperFsm` protects its current state and shared state data with a mutex.
+- Playback uses `std::jthread`, a stop token, a condition variable, and a
+  generation counter so a take can be interrupted without polling or long
+  sleeps.
+- Shutdown is idempotent. It stops loop playback, releases sustained/active
+  notes, stops and joins the worker, and wakes `Application::run()`.
+- Do not put blocking I/O, SoundFont loading, or unbounded work on the MIDI
+  callback or playback scheduling paths.
+- The take has a fixed maximum event count. Any change to real-time allocation
+  behavior or capacity policy needs explicit performance reasoning and tests.
+
+## Coding rules
+
+- Use C++20, RAII, clear ownership, narrow interfaces, and project-owned types
+  at architectural boundaries.
+- Keep changes DRY, small, and local to the owning layer. Prefer an explicit
+  helper over repeated transition or routing logic, but do not invent an
+  abstraction before it has a real responsibility.
+- Favor readable control flow. Do not use C++ initializer-statements in
+  conditions. Write the operation and the condition separately:
+
+  ```cpp
+  const auto error = input->open_port(port, client_name);
+  if (error.is_set()) {
+      // ...
+  }
+  ```
+
+- Do not introduce `std::variant` into the FSM design.
+- Follow the existing naming and formatting, compile with `-Wall -Wextra
+  -Wpedantic`, and keep warnings clean.
+- Preserve user changes in a dirty worktree and avoid unrelated formatting or
+  cleanup.
+- Update tests and documentation in the same change as behavior or schema.
+- Push back on complexity that does not serve a demonstrated live-performance
+  requirement. Architectural layering changes require prior agreement.
+
+## Dependency policy
+
+The current dependency strategy is intentional:
+
+- System packages provide platform-facing ALSA and FluidSynth libraries.
+- CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned
+  `FetchContent` fallbacks.
+- GoogleTest is pinned and fetched only for test builds.
+
+Do not add Conan, vcpkg, or Nix merely for uniformity. At the current project
+size they would add another packaging layer without removing the need for
+Raspberry Pi system audio integration. Reconsider a package manager if the
+dependency graph grows materially, repeatable cross-compilation becomes a
+real requirement, or the current pinned/system split causes reproducibility
+failures. Such a change is a dedicated build-architecture decision.
+
+## Building and testing changes
+
+Configure a development build and run the complete suite:
+
+```bash
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DBUILD_TESTING=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+```
+
+For routing diagnostics, configure a separate trace build or reconfigure the
+existing build with `-DZETA_MIDI_TRACE=ON`. Do not leave unconditional MIDI
+logging on a performance path.
+
+The test suites divide responsibilities as follows:
+
+- `configuration_tests`: strict schema, ranges, path resolution, and binding
+  ambiguity.
+- `midi_tests`: library-independent byte decoding and MMC recognition.
+- `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
+- `current_behavior_tests`: application-level behavior with fake MIDI and
+  FluidSynth boundaries.
+
+Every FSM stimulus should be tested in every state where its behavior differs.
+Test both the requested output action and the returned/installed `StateId`.
+Configuration changes need rejection tests, not only a happy path. Run
+`git diff --check` in addition to the complete suite.
+
+## Before submitting
+
+- Confirm that all playable notes and unbound expressive controls still reach
+  the synthesizer.
+- Confirm that the first played note still defines recording time zero.
+- Confirm that live and loop channel behavior remain independent.
+- Confirm clean Ctrl-C/SIGTERM shutdown and no stuck notes.
+- Confirm the change is usable without a screen or computer keyboard.
+- Confirm the complete test suite passes in both normal and, when routing is
+  affected, trace builds.
+- Describe any deliberate user-visible limitation candidly.

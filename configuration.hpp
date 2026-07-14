@@ -1,11 +1,10 @@
 #pragma once
 
-#include "looper_fsm.hpp"
+#include "midi_event.hpp"
 
 #include <filesystem>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace zeta {
@@ -14,6 +13,7 @@ enum class MidiControlType {
     Note,
     ControlChange,
     ProgramChange,
+    MachineControl,
 };
 
 struct MidiControlBinding {
@@ -24,6 +24,7 @@ struct MidiControlBinding {
     bool match_any_program{};
 
     bool matches(MidiMessageType message_type, const MidiMessage& message) const noexcept;
+    bool overlaps(const MidiControlBinding& other) const noexcept;
 };
 
 struct SoundFontDefinition {
@@ -35,11 +36,8 @@ struct SoundFontDefinition {
 
 struct ApplicationConfig {
     std::vector<SoundFontDefinition> soundfonts;
-    std::string live_soundfont;
-    std::string loop_soundfont;
     std::vector<MidiControlBinding> recording_controls;
-
-    const SoundFontDefinition& soundfont(std::string_view id) const;
+    std::vector<MidiControlBinding> next_soundfont_controls;
 };
 
 class ConfigurationError : public std::runtime_error {

@@ -70,19 +70,23 @@ stopped: {
 
 start -> ready
 
-ready -> armed: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); resetTake(); showRecordingArmed()"
+ready -> armed: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LoopChannel); resetTake(); showRecordingArmed()"
 ready -> ready: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel)"
+ready -> ready: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
 
 armed -> recording: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ monitorMidi(message, LoopChannel); recordNote(NoteOn, message, 0ms)"
 armed -> armed: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
+armed -> armed: "nextSoundFontPressed()\n/ selectNextSoundFont(LoopChannel)"
 armed -> stopped: "primaryControlPressed(now)\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 
 recording -> recording: "midiMessage(NoteOn | NoteOff, message, now)\n/ monitorMidi(message, LoopChannel); recordNote(kind, message, now - recordingStartedAt)"
 recording -> recording: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
+recording -> recording: "nextSoundFontPressed()\n/ no action"
 recording -> looping: "primaryControlPressed(now) [elapsed milliseconds > 0]\n/ commitTake(duration); startLoopPlayback(); showLooping()"
 recording -> stopped: "primaryControlPressed(now) [elapsed milliseconds == 0]\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 
 looping -> looping: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel) [unless suppressed]"
+looping -> looping: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
 looping -> stopped: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 
 ready -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
@@ -102,12 +106,12 @@ legend: {
   }
 
   inputs: {
-    label: "Stimuli (virtual State methods)\n• primaryControlPressed(now)\n• midiMessage(type, message, now)\n• shutdownRequested()"
+    label: "Stimuli (virtual State methods)\n• primaryControlPressed(now)\n• nextSoundFontPressed()\n• midiMessage(type, message, now)\n• shutdownRequested()"
     shape: rectangle
   }
 
   outputs: {
-    label: "Actions (abstract LooperOutput methods)\n• monitorMidi / silenceAllChannels\n• resetTake / recordNote / commitTake\n• startLoopPlayback / stopLoopPlayback\n• showRecordingArmed / showLooping / showNoTake\n• stopPlaybackWorker"
+    label: "Actions (invariant LooperOutput injected into each State)\n• monitorMidi / silenceAllChannels\n• selectCurrentSoundFont / selectNextSoundFont\n• resetTake / recordNote / commitTake\n• startLoopPlayback / stopLoopPlayback\n• showRecordingArmed / showLooping / showNoTake\n• stopPlaybackWorker"
     shape: rectangle
   }
 }
