@@ -9,6 +9,10 @@ product, architecture, testing, and real-time constraints remain authoritative.
 - Do not invent, infer, or silently expand product requirements. When behavior
   or a tradeoff has not been specified, ask the project owner before
   implementing it.
+- Proactively propose adjacent requirements, repository policies, and follow-up
+  improvements when they materially affect the value or completeness of the
+  requested work. Present them as recommendations with meaningful tradeoffs,
+  and obtain the project owner's agreement before implementing them.
 - Do not add defensive machinery for scenarios outside the agreed usage
   contract without discussing it first.
 - Keep tickets focused. Put unrelated changes in a separate issue and branch

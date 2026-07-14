@@ -22,6 +22,9 @@ All notable changes to Zeta DAW are documented in this file.
 - Octave transposition leaves a key unchanged when shifting it would exceed the
   MIDI range instead of requiring special handling from callers.
 - Schema-version errors report both the provided and required versions.
+- Contributor guidance now requires agents to propose material adjacent
+  requirements and policy decisions while keeping their implementation gated
+  on project-owner approval.
 - Contributor guidance now requires remote-base and complete PR-range audits so
   unpublished work is not silently mixed into a ticket branch.
 
