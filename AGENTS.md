@@ -15,3 +15,15 @@ product, architecture, testing, and real-time constraints remain authoritative.
   unless the project owner explicitly requests otherwise.
 - Explain unavoidable complexity before introducing it so the project owner can
   approve the tradeoff.
+
+## Review collaboration
+
+- Treat the project owner as an advanced code reviewer. Present design reasoning
+  and meaningful tradeoffs directly; do not optimize explanations for a novice.
+- When a ticket requests multiple separately verified commits, stop after each
+  verified commit, present the implementation and verification evidence, and
+  wait for the project owner's review before starting the next change.
+- Treat wording such as "consider refactoring" as a request for engineering
+  judgment, not as an already approved implementation. Explain whether the
+  refactor is worthwhile, surface ownership or architecture alternatives, and
+  obtain agreement before changing code.
