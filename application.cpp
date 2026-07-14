@@ -92,7 +92,7 @@ struct Application::Impl {
 
     void startPlaybackWorker() {
         looper_thread = std::jthread([this](std::stop_token stop_token) {
-            looperMain(stop_token);
+            looperMain(std::move(stop_token));
         });
     }
 
@@ -197,7 +197,6 @@ struct Application::Impl {
 
                 if (stop_token.stop_requested()
                     || playback_generation != active_generation) {
-                    interrupted = true;
                     break;
                 }
 
@@ -250,7 +249,7 @@ Application::Application(
     }
 
     midi_input_->start([this](MidiEvent event) {
-        handleMidiEvent(std::move(event));
+        handleMidiEvent(event);
     });
     impl_->allNotesOff();
     midi_ready_.store(true, std::memory_order_release);

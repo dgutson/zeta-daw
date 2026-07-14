@@ -1,0 +1,9 @@
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  performance-*,
+  portability-*
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(?!.*[/\\]build[/\\]).*[/\\]zeta-daw[/\\].*'

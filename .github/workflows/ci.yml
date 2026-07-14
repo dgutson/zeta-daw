@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            cmake \
+            libasound2-dev \
+            libfluidsynth-dev \
+            libyaml-cpp-dev \
+            pkg-config \
+            shellcheck
+      - name: Check shell scripts
+        run: shellcheck build.sh
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            clang-tidy-18 \
+            cmake \
+            libasound2-dev \
+            libfluidsynth-dev \
+            libyaml-cpp-dev \
+            pkg-config
+      - name: Configure compilation database
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=OFF
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Run clang-tidy
+        run: >-
+          run-clang-tidy-18
+          -p build
+          -j 2
+          "$(pwd)/[^/]+\.cpp$"
+
+  gcc-analyzer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            cmake \
+            libasound2-dev \
+            libfluidsynth-dev \
+            libyaml-cpp-dev \
+            pkg-config
+      - name: Configure GCC analyzer
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=OFF
+          -DZETA_GCC_ANALYZER=ON
+      - name: Run GCC analyzer
+        run: cmake --build build --parallel 2

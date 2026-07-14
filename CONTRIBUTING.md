@@ -268,6 +268,31 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+CI also runs clang-tidy 18 over first-party production sources. To reproduce
+that check locally:
+
+```bash
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DBUILD_TESTING=OFF \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+run-clang-tidy-18 \
+    -p build \
+    -j 2 \
+    "$(pwd)/[^/]+\.cpp$"
+```
+
+GCC's analyzer is limited to the production target so fetched dependencies are
+not analyzed. Run it in a separate build directory:
+
+```bash
+cmake -S . -B build-analyzer \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DBUILD_TESTING=OFF \
+    -DZETA_GCC_ANALYZER=ON
+cmake --build build-analyzer --parallel
+```
+
 For routing diagnostics, configure a separate trace build or reconfigure the
 existing build with `-DZETA_MIDI_TRACE=ON`. Do not leave unconditional MIDI
 logging on a performance path.

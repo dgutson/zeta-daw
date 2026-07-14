@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 project(zeta_daw LANGUAGES CXX)
 
 option(ZETA_MIDI_TRACE "Trace routed live MIDI and loop playback events" OFF)
+option(ZETA_GCC_ANALYZER "Enable GCC static analysis for production sources" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -73,6 +74,19 @@ target_link_libraries(
         libremidi::libremidi
 )
 target_compile_options(midi_looper PRIVATE -Wall -Wextra -Wpedantic)
+if(ZETA_GCC_ANALYZER)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "ZETA_GCC_ANALYZER requires GCC")
+    endif()
+    target_compile_options(
+        midi_looper
+        PRIVATE
+            -fanalyzer
+            -Werror
+            # GCC 13 reports this while constructing a standard unordered_map.
+            -Wno-analyzer-malloc-leak
+    )
+endif()
 if(ZETA_MIDI_TRACE)
     target_compile_definitions(midi_looper PRIVATE ZETA_MIDI_TRACE)
 endif()
