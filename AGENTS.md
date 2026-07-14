@@ -20,6 +20,9 @@ product, architecture, testing, and real-time constraints remain authoritative.
 
 - Treat the project owner as an advanced code reviewer. Present design reasoning
   and meaningful tradeoffs directly; do not optimize explanations for a novice.
+- Do not agree with a review suggestion merely to be agreeable. Evaluate it
+  against the agreed requirements and architecture, state disagreements with
+  concrete evidence, and distinguish owner decisions from agent recommendations.
 - When a ticket requests multiple separately verified commits, stop after each
   verified commit, present the implementation and verification evidence, and
   wait for the project owner's review before starting the next change.
@@ -27,3 +30,20 @@ product, architecture, testing, and real-time constraints remain authoritative.
   judgment, not as an already approved implementation. Explain whether the
   refactor is worthwhile, surface ownership or architecture alternatives, and
   obtain agreement before changing code.
+
+## Branch and pull-request hygiene
+
+- Before creating a ticket branch, refresh the remote references and compare
+  the intended local base with its remote tracking branch. Report any local-only
+  or remote-only commits before branching.
+- Do not silently base a ticket branch on unpublished commits. If the intended
+  base differs from its remote, stop and ask whether to publish the base work,
+  create a stacked change, or branch from the remote base.
+- Keep each pull request limited to its agreed ticket. Before pushing or opening
+  a pull request, inspect both the complete commit range and the complete diff
+  against the actual remote base.
+- If that range contains unrelated or previously unpublished work, do not open
+  the pull request until the project owner explicitly chooses how to separate
+  or include it.
+- After finishing a ticket, leave the worktree clean and report the checked-out
+  branch, unpublished commits, and pull-request state explicitly.
