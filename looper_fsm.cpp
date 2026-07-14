@@ -46,9 +46,15 @@ public:
     ) const override {
         output_.stopLoopPlayback();
         output_.silenceAllChannels();
+        output_.selectCurrentSoundFont(MidiRoute::LoopChannel);
         output_.resetTake();
         output_.showRecordingArmed();
         return StateId::Armed;
+    }
+
+    StateId nextSoundFontPressed() const override {
+        output_.selectNextSoundFont(MidiRoute::LiveChannel);
+        return StateId::Ready;
     }
 
     MidiHandlingResult midiMessage(
@@ -77,6 +83,11 @@ public:
     ) const override {
         output_.showNoTake();
         return stopApplication(output_);
+    }
+
+    StateId nextSoundFontPressed() const override {
+        output_.selectNextSoundFont(MidiRoute::LoopChannel);
+        return StateId::Armed;
     }
 
     MidiHandlingResult midiMessage(
@@ -127,6 +138,10 @@ public:
         return StateId::Looping;
     }
 
+    StateId nextSoundFontPressed() const override {
+        return StateId::Recording;
+    }
+
     MidiHandlingResult midiMessage(
         LooperStateData& data,
         MidiMessageType type,
@@ -166,6 +181,11 @@ public:
         return stopApplication(output_);
     }
 
+    StateId nextSoundFontPressed() const override {
+        output_.selectNextSoundFont(MidiRoute::LiveChannel);
+        return StateId::Looping;
+    }
+
     MidiHandlingResult midiMessage(
         LooperStateData&,
         MidiMessageType,
@@ -190,6 +210,10 @@ public:
         LooperStateData&,
         TimePoint
     ) const override {
+        return StateId::Stopped;
+    }
+
+    StateId nextSoundFontPressed() const override {
         return StateId::Stopped;
     }
 
@@ -237,6 +261,13 @@ LooperFsm::LooperFsm(LooperStateRegistry& states) noexcept : states_(states) {}
 StateId LooperFsm::primaryControlPressed(TimePoint now) {
     std::lock_guard lock(mutex_);
     const StateId next = states_.at(current_state_).primaryControlPressed(data_, now);
+    install(next);
+    return current_state_;
+}
+
+StateId LooperFsm::nextSoundFontPressed() {
+    std::lock_guard lock(mutex_);
+    const StateId next = states_.at(current_state_).nextSoundFontPressed();
     install(next);
     return current_state_;
 }

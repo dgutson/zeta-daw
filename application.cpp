@@ -24,6 +24,20 @@ constexpr int loop_channel = 1;
 constexpr int expression_controller = 11;
 constexpr std::size_t max_recorded_events = 16384;
 
+int channelFor(MidiRoute route) noexcept {
+    return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
+}
+
+bool matchesAnyControl(
+    const std::vector<MidiControlBinding>& controls,
+    MidiMessageType type,
+    const MidiMessage& message
+) {
+    return std::ranges::any_of(controls, [&](const auto& control) {
+        return control.matches(type, message);
+    });
+}
+
 } // namespace
 
 struct Application::Impl {
@@ -41,6 +55,8 @@ struct Application::Impl {
     };
 
     SynthEngine synth_engine;
+    const ApplicationConfig& config;
+    std::size_t current_soundfont{};
 
     std::vector<RecordedNoteEvent> events;
     uint64_t loop_length_ms{};
@@ -54,10 +70,26 @@ struct Application::Impl {
     std::mutex lifecycle_mutex;
     std::condition_variable lifecycle_changed;
 
-    explicit Impl(const ApplicationConfig& config) : synth_engine(config) {
-        synth_engine.select(config.soundfont(config.loop_soundfont), loop_channel);
-        synth_engine.select(config.soundfont(config.live_soundfont), live_channel);
+    explicit Impl(const ApplicationConfig& application_config)
+        : synth_engine(application_config),
+          config(application_config) {
+        selectCurrentSoundFont(MidiRoute::LoopChannel);
+        selectCurrentSoundFont(MidiRoute::LiveChannel);
         events.reserve(max_recorded_events);
+    }
+
+    void selectCurrentSoundFont(MidiRoute route) {
+        synth_engine.select(
+            config.soundfonts.at(current_soundfont),
+            channelFor(route)
+        );
+    }
+
+    void selectNextSoundFont(MidiRoute route) {
+        current_soundfont = (current_soundfont + 1) % config.soundfonts.size();
+        selectCurrentSoundFont(route);
+        std::cout << "SoundFont selected: "
+                  << config.soundfonts[current_soundfont].id << '\n';
     }
 
     void startPlaybackWorker() {
@@ -236,6 +268,7 @@ Application::~Application() {
 void Application::run() {
     std::cout << "\nMIDI looper ready.\n";
     std::cout << "Play your controller: it should sound live.\n\n";
+    std::cout << "Use the configured Next control to select a SoundFont.\n";
     std::cout << "Use the configured MIDI recording control to start.\n";
 
     std::unique_lock lock(impl_->lifecycle_mutex);
@@ -258,13 +291,16 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto type = event.type;
         const auto& message = event.message;
 
-        if (std::ranges::any_of(config_.recording_controls, [&](const auto& control) {
-            return control.matches(type, message);
-        })) {
+        if (matchesAnyControl(config_.recording_controls, type, message)) {
             const auto state = fsm_.primaryControlPressed(LooperClock::now());
             if (isTerminal(state)) {
                 impl_->notifyLifecycleChanged();
             }
+            return;
+        }
+
+        if (matchesAnyControl(config_.next_soundfont_controls, type, message)) {
+            fsm_.nextSoundFontPressed();
             return;
         }
 
@@ -284,9 +320,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
 }
 
 int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
-    const int output_channel = route == MidiRoute::LoopChannel
-        ? loop_channel
-        : live_channel;
+    const int output_channel = channelFor(route);
 
     const int result = impl_->synth_engine.send(message, output_channel);
 
@@ -337,6 +371,14 @@ int Application::monitorMidi(const MidiMessage& message, MidiRoute route) {
     return result;
 }
 
+void Application::selectCurrentSoundFont(MidiRoute route) {
+    impl_->selectCurrentSoundFont(route);
+}
+
+void Application::selectNextSoundFont(MidiRoute route) {
+    impl_->selectNextSoundFont(route);
+}
+
 void Application::stopLoopPlayback() {
     impl_->stopLoopPlayback();
 }
@@ -373,20 +415,18 @@ void Application::commitTake(Milliseconds duration) {
 }
 
 void Application::startLoopPlayback() {
-    impl_->synth_engine.select(
-        config_.soundfont(config_.live_soundfont),
-        live_channel
-    );
+    impl_->selectCurrentSoundFont(MidiRoute::LiveChannel);
     impl_->startLoopPlayback();
 }
 
 void Application::showRecordingArmed() {
     std::cout
-        << "Recording... use the configured MIDI control to stop and start looping.\n";
+        << "Recording... Next can change the pending SoundFont before the first note.\n";
 }
 
 void Application::showLooping() {
     std::cout << "Looping. You can still play live over the loop.\n";
+    std::cout << "Use Next to change the live SoundFont.\n";
     std::cout << "Use the configured MIDI control to stop and quit.\n";
 }
 

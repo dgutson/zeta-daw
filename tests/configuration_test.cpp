@@ -42,9 +42,9 @@ private:
     std::filesystem::path path_;
 };
 
-TEST(ConfigurationTest, ParsesOrderedCatalogPartsAndRecordingControls) {
+TEST(ConfigurationTest, ParsesOrderedCatalogAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 1
+schema_version: 2
 soundfonts:
   - id: piano
     file: sounds/piano.sf2
@@ -54,9 +54,6 @@ soundfonts:
     file: /opt/sounds/bass.sf2
     bank: 128
     preset: 34
-parts:
-  live: piano
-  loop: bass
 controls:
   recording:
     - type: note
@@ -69,6 +66,11 @@ controls:
     - type: program_change
       channel: 16
       program: any
+    - type: machine_control
+      command: rewind
+  next_soundfont:
+    - type: machine_control
+      command: stop
 )yaml"};
 
     const auto config = zeta::loadConfiguration(source.path());
@@ -81,10 +83,8 @@ controls:
     );
     EXPECT_EQ(config.soundfonts[1].id, "bass");
     EXPECT_EQ(config.soundfonts[1].bank, 128);
-    EXPECT_EQ(config.live_soundfont, "piano");
-    EXPECT_EQ(config.loop_soundfont, "bass");
 
-    ASSERT_EQ(config.recording_controls.size(), 3U);
+    ASSERT_EQ(config.recording_controls.size(), 4U);
     EXPECT_EQ(config.recording_controls[0].type, MidiControlType::Note);
     EXPECT_EQ(config.recording_controls[0].channel, 0);
     EXPECT_EQ(config.recording_controls[0].number, 24);
@@ -95,25 +95,33 @@ controls:
     EXPECT_EQ(config.recording_controls[2].type, MidiControlType::ProgramChange);
     EXPECT_EQ(config.recording_controls[2].channel, 15);
     EXPECT_TRUE(config.recording_controls[2].match_any_program);
+    EXPECT_EQ(config.recording_controls[3].type, MidiControlType::MachineControl);
+    EXPECT_EQ(config.recording_controls[3].number, 0x05);
+
+    ASSERT_EQ(config.next_soundfont_controls.size(), 1U);
+    EXPECT_EQ(
+        config.next_soundfont_controls[0].type,
+        MidiControlType::MachineControl
+    );
+    EXPECT_EQ(config.next_soundfont_controls[0].number, 0x01);
 }
 
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 1
+schema_version: 2
 soundfonts:
   - id: piano
     file: piano.sf2
     bank: 0
     preset: 0
     typo: true
-parts:
-  live: piano
-  loop: piano
 controls:
   recording:
     - type: program_change
       channel: 1
       program: 1
+  next_soundfont:
+    - { type: machine_control, command: stop }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
@@ -121,41 +129,89 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 1
+schema_version: 2
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
   - { id: piano, file: other.sf2, bank: 0, preset: 1 }
-parts: { live: piano, loop: piano }
 controls:
   recording:
     - { type: note, channel: 1, key: 24 }
+  next_soundfont:
+    - { type: machine_control, command: stop }
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
 }
 
-TEST(ConfigurationTest, RejectsUnknownPartAndOutOfRangeMidiValues) {
-    TemporaryConfig unknown_part{R"yaml(
+TEST(ConfigurationTest, RejectsOldSchemaAndRemovedParts) {
+    TemporaryConfig old_schema{R"yaml(
 schema_version: 1
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
-parts: { live: piano, loop: missing }
 controls:
   recording:
     - { type: note, channel: 1, key: 24 }
+  next_soundfont:
+    - { type: machine_control, command: stop }
 )yaml"};
-    EXPECT_THROW(zeta::loadConfiguration(unknown_part.path()), ConfigurationError);
+    EXPECT_THROW(zeta::loadConfiguration(old_schema.path()), ConfigurationError);
 
-    TemporaryConfig bad_channel{R"yaml(
-schema_version: 1
+    TemporaryConfig removed_parts{R"yaml(
+schema_version: 2
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 parts: { live: piano, loop: piano }
 controls:
   recording:
+    - { type: note, channel: 1, key: 24 }
+  next_soundfont:
+    - { type: machine_control, command: stop }
+)yaml"};
+    EXPECT_THROW(zeta::loadConfiguration(removed_parts.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
+    TemporaryConfig bad_channel{R"yaml(
+schema_version: 2
+soundfonts:
+  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
+controls:
+  recording:
     - { type: program_change, channel: 0, program: 1 }
+  next_soundfont:
+    - { type: machine_control, command: stop }
 )yaml"};
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
+
+    TemporaryConfig bad_mmc_command{R"yaml(
+schema_version: 2
+soundfonts:
+  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
+controls:
+  recording:
+    - { type: machine_control, command: rewind }
+  next_soundfont:
+    - { type: machine_control, command: dance }
+)yaml"};
+    EXPECT_THROW(
+        zeta::loadConfiguration(bad_mmc_command.path()),
+        ConfigurationError
+    );
+}
+
+TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
+    TemporaryConfig source{R"yaml(
+schema_version: 2
+soundfonts:
+  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
+controls:
+  recording:
+    - { type: program_change, channel: 1, program: any }
+  next_soundfont:
+    - { type: program_change, channel: 1, program: 12 }
+)yaml"};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
 }
 
 TEST(ConfigurationTest, MatchesSupportedMidiControlsPrecisely) {
@@ -219,6 +275,26 @@ TEST(ConfigurationTest, MatchesSupportedMidiControlsPrecisely) {
         MidiMessageType::ProgramChange,
         MidiMessage{.channel = 1, .program = 42}
     ));
+
+    const zeta::MidiControlBinding machine_control{
+        .type = MidiControlType::MachineControl,
+        .number = 0x05,
+    };
+    EXPECT_TRUE(machine_control.matches(
+        MidiMessageType::MachineControl,
+        MidiMessage{.machine_control_command = 0x05}
+    ));
+    EXPECT_FALSE(machine_control.matches(
+        MidiMessageType::MachineControl,
+        MidiMessage{.machine_control_command = 0x01}
+    ));
+
+    EXPECT_TRUE(any_program_change.overlaps(zeta::MidiControlBinding{
+        .type = MidiControlType::ProgramChange,
+        .channel = 0,
+        .number = 12,
+    }));
+    EXPECT_FALSE(any_program_change.overlaps(machine_control));
 }
 
 } // namespace

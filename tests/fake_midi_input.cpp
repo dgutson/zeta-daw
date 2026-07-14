@@ -62,7 +62,9 @@ int emitMidi(const MidiEvent& source) {
         handler = active_input->handler();
     }
 
-    const auto type = zeta::classifyMidiMessage(source.type);
+    const auto type = source.type == static_cast<int>(zeta::MidiMessageType::MachineControl)
+        ? zeta::MidiMessageType::MachineControl
+        : zeta::classifyMidiMessage(source.type);
     handler({
         .type = type,
         .message = {
@@ -75,6 +77,7 @@ int emitMidi(const MidiEvent& source) {
             .program = source.program,
             .pitch = source.pitch,
             .pressure = source.pressure,
+            .machine_control_command = source.machine_control_command,
         },
     });
     return 0;

@@ -47,6 +47,8 @@ public:
     virtual ~LooperOutput() = default;
 
     virtual int monitorMidi(const MidiMessage& message, MidiRoute route) = 0;
+    virtual void selectCurrentSoundFont(MidiRoute route) = 0;
+    virtual void selectNextSoundFont(MidiRoute route) = 0;
 
     virtual void stopLoopPlayback() = 0;
     virtual void silenceAllChannels() = 0;
@@ -76,6 +78,8 @@ public:
         LooperStateData& data,
         TimePoint now
     ) const = 0;
+
+    virtual StateId nextSoundFontPressed() const = 0;
 
     virtual MidiHandlingResult midiMessage(
         LooperStateData& data,
@@ -115,6 +119,7 @@ public:
     LooperFsm& operator=(const LooperFsm&) = delete;
 
     StateId primaryControlPressed(TimePoint now);
+    StateId nextSoundFontPressed();
     int midiMessage(MidiMessageType type, MidiMessage message, TimePoint received_at);
     StateId shutdownRequested();
 

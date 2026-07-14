@@ -35,6 +35,8 @@ private:
     void handleMidiEvent(MidiEvent event) noexcept;
 
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;
+    void selectCurrentSoundFont(MidiRoute route) override;
+    void selectNextSoundFont(MidiRoute route) override;
 
     void stopLoopPlayback() override;
     void silenceAllChannels() override;

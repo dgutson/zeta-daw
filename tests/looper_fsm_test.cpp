@@ -26,6 +26,8 @@ using zeta::TimePoint;
 class MockOutput : public LooperOutput {
 public:
     MOCK_METHOD(int, monitorMidi, (const MidiMessage&, MidiRoute), (override));
+    MOCK_METHOD(void, selectCurrentSoundFont, (MidiRoute), (override));
+    MOCK_METHOD(void, selectNextSoundFont, (MidiRoute), (override));
     MOCK_METHOD(void, stopLoopPlayback, (), (override));
     MOCK_METHOD(void, silenceAllChannels, (), (override));
     MOCK_METHOD(void, resetTake, (), (override));
@@ -49,6 +51,7 @@ void expectArm(StrictMock<MockOutput>& output) {
     InSequence sequence;
     EXPECT_CALL(output, stopLoopPlayback());
     EXPECT_CALL(output, silenceAllChannels());
+    EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LoopChannel));
     EXPECT_CALL(output, resetTake());
     EXPECT_CALL(output, showRecordingArmed());
 }
@@ -75,6 +78,37 @@ TEST(LooperFsmTest, ReadyMonitorsMidiOnTheDedicatedLiveChannel) {
         23
     );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
+}
+
+TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
+    StrictMock<MockOutput> output;
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
+
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Ready);
+
+    arm(fsm, output);
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LoopChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
+
+    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
+    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
+    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time + 1ms);
+
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Recording);
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(9ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
+    }
+    EXPECT_EQ(fsm.primaryControlPressed(start_time + 10ms), StateId::Looping);
+
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
 }
 
 TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {

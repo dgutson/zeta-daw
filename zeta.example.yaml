@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 
 # Entries are loaded eagerly, in this order, before MIDI input starts.
 soundfonts:
@@ -12,22 +12,20 @@ soundfonts:
     bank: 0
     preset: 34
 
-parts:
-  live: piano
-  loop: bass
-
-# Assign the SE49 Transpose buttons to Program Change once. Alternate
-# Transpose Up to arm recording and Transpose Down to finish the take.
-# The program number is deliberately ignored and the event is consumed.
+# Put the SE49 in MMC transport mode. In that mode Transpose Down sends
+# Rewind, and Transpose Up sends Stop. Zeta maps those messages to actions.
 controls:
   recording:
-    - type: program_change
-      channel: 1
-      program: any
+    - type: machine_control
+      command: rewind
 
-# A momentary footswitch is a convenient hands-free alternative:
-#   recording:
-#     - type: control_change
-#       channel: 1
-#       controller: 64
-#       value: 127
+  next_soundfont:
+    - type: machine_control
+      command: stop
+
+# A momentary footswitch is a convenient hands-free alternative. Add this
+# entry to controls.recording if desired:
+#    - type: control_change
+#      channel: 1
+#      controller: 64
+#      value: 127

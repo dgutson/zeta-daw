@@ -16,6 +16,7 @@ struct MidiEvent {
     int program{};
     int pitch{};
     int pressure{};
+    int machine_control_command{};
 };
 
 std::unique_ptr<zeta::MidiInput> makeInput();

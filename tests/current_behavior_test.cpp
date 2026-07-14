@@ -138,13 +138,16 @@ ApplicationConfig testConfig() {
                 .preset = 0,
             },
         },
-        .live_soundfont = "live",
-        .loop_soundfont = "loop",
         .recording_controls = {
             MidiControlBinding{
-                .type = MidiControlType::ProgramChange,
-                .channel = 0,
-                .number = 12,
+                .type = MidiControlType::MachineControl,
+                .number = 0x05,
+            },
+        },
+        .next_soundfont_controls = {
+            MidiControlBinding{
+                .type = MidiControlType::MachineControl,
+                .number = 0x01,
             },
         },
     };
@@ -152,9 +155,15 @@ ApplicationConfig testConfig() {
 
 int pressRecordingControl() {
     return fake_midi_input::emitMidi({
-        .type = raw(MidiMessageType::ProgramChange),
-        .channel = 0,
-        .program = 12,
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x05,
+    });
+}
+
+int pressNextSoundFontControl() {
+    return fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x01,
     });
 }
 
@@ -213,7 +222,7 @@ TEST_F(CurrentBehaviorTest, IgnoresMidiDeliveredWhileInputIsStarting) {
     EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn, 0, 67));
 }
 
-TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
+TEST_F(CurrentBehaviorTest, LoadsInitialSoundFontOnBothChannels) {
     {
         Application application{testConfig(), fake_midi_input::makeInput()};
 
@@ -233,7 +242,7 @@ TEST_F(CurrentBehaviorTest, LoadsDedicatedProgramsForLoopAndLiveChannels) {
         EXPECT_EQ(calls[3].kind, CallKind::SelectProgram);
         EXPECT_EQ(calls[3].channel, 0);
         EXPECT_EQ(calls[3].bank, 0);
-        EXPECT_EQ(calls[3].preset, 0);
+        EXPECT_EQ(calls[3].preset, 34);
     }
 
     const auto calls = fake_fluidsynth::calls();
@@ -285,7 +294,7 @@ TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
     const auto calls = fake_fluidsynth::calls();
     EXPECT_FALSE(std::ranges::any_of(calls, [](const Call& call) {
         return call.kind == CallKind::HandleMidi
-            && call.type == raw(MidiMessageType::ProgramChange);
+            && call.type == raw(MidiMessageType::MachineControl);
     }));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
@@ -449,7 +458,7 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
     );
 }
 
-TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresConfiguredLiveProgram) {
+TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresCurrentProgram) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
@@ -475,10 +484,73 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresConfiguredLiveProgram) {
     EXPECT_EQ(std::ranges::count_if(calls, [](const Call& call) {
         return call.kind == CallKind::SelectProgram
             && call.channel == 0
-            && call.soundfont_id == 2
+            && call.soundfont_id == 1
             && call.bank == 0
-            && call.preset == 0;
+            && call.preset == 34;
     }), 2);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    session.join();
+}
+
+TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+    InteractiveSession session{application};
+
+    ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("SoundFont selected: live"));
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Recording..."));
+
+    ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("SoundFont selected: loop"));
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 60,
+        .velocity = 100,
+    }), FLUID_OK);
+
+    const auto selections_before_ignored_press = std::ranges::count(
+        fake_fluidsynth::calls(),
+        CallKind::SelectProgram,
+        &Call::kind
+    );
+    ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
+    EXPECT_EQ(
+        std::ranges::count(
+            fake_fluidsynth::calls(),
+            CallKind::SelectProgram,
+            &Call::kind
+        ),
+        selections_before_ignored_press
+    );
+
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Looping."));
+
+    ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("SoundFont selected: live"));
+
+    const auto calls = fake_fluidsynth::calls();
+    std::vector<std::pair<int, int>> selections;
+    for (const auto& call : calls) {
+        if (call.kind == CallKind::SelectProgram) {
+            selections.emplace_back(call.channel, call.soundfont_id);
+        }
+    }
+    EXPECT_THAT(selections, ::testing::ElementsAre(
+        std::pair{1, 1},
+        std::pair{0, 1},
+        std::pair{0, 2},
+        std::pair{1, 2},
+        std::pair{1, 1},
+        std::pair{0, 1},
+        std::pair{0, 2}
+    ));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
     session.join();
