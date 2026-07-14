@@ -31,7 +31,7 @@ class ActiveState : public LooperState {
 public:
     using LooperState::LooperState;
 
-    StateId shutdownRequested(LooperStateData&) const final {
+    StateId shutdownRequested() const final {
         return stopApplication(output_);
     }
 };
@@ -40,10 +40,7 @@ class ReadyState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(
-        LooperStateData&,
-        TimePoint
-    ) const override {
+    StateId primaryControlPressed(TimePoint) const override {
         output_.stopLoopPlayback();
         output_.silenceAllChannels();
         output_.selectCurrentSoundFont(MidiRoute::LoopChannel);
@@ -58,7 +55,6 @@ public:
     }
 
     MidiHandlingResult midiMessage(
-        LooperStateData&,
         MidiMessageType,
         MidiMessage& message,
         TimePoint
@@ -77,10 +73,7 @@ class ArmedState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(
-        LooperStateData&,
-        TimePoint
-    ) const override {
+    StateId primaryControlPressed(TimePoint) const override {
         output_.showNoTake();
         return stopApplication(output_);
     }
@@ -91,7 +84,6 @@ public:
     }
 
     MidiHandlingResult midiMessage(
-        LooperStateData& data,
         MidiMessageType type,
         MidiMessage& message,
         TimePoint received_at
@@ -99,7 +91,7 @@ public:
         const int result = output_.monitorMidi(message, MidiRoute::LoopChannel);
 
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
-            data.recording_started_at = received_at;
+            data_.recording_started_at = received_at;
             output_.recordNote(
                 RecordedNoteKind::NoteOn,
                 message,
@@ -122,11 +114,11 @@ class RecordingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(
-        LooperStateData& data,
-        TimePoint now
-    ) const override {
-        const auto duration = elapsedMilliseconds(data.recording_started_at, now);
+    StateId primaryControlPressed(TimePoint now) const override {
+        const auto duration = elapsedMilliseconds(
+            data_.recording_started_at,
+            now
+        );
         if (duration <= Milliseconds::zero()) {
             output_.showNoTake();
             return stopApplication(output_);
@@ -143,14 +135,13 @@ public:
     }
 
     MidiHandlingResult midiMessage(
-        LooperStateData& data,
         MidiMessageType type,
         MidiMessage& message,
         TimePoint received_at
     ) const override {
         const int result = output_.monitorMidi(message, MidiRoute::LoopChannel);
         const auto offset = elapsedMilliseconds(
-            data.recording_started_at,
+            data_.recording_started_at,
             received_at
         );
 
@@ -174,10 +165,7 @@ class LoopingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(
-        LooperStateData&,
-        TimePoint
-    ) const override {
+    StateId primaryControlPressed(TimePoint) const override {
         return stopApplication(output_);
     }
 
@@ -187,7 +175,6 @@ public:
     }
 
     MidiHandlingResult midiMessage(
-        LooperStateData&,
         MidiMessageType,
         MidiMessage& message,
         TimePoint
@@ -206,10 +193,7 @@ class StoppedState final : public LooperState {
 public:
     using LooperState::LooperState;
 
-    StateId primaryControlPressed(
-        LooperStateData&,
-        TimePoint
-    ) const override {
+    StateId primaryControlPressed(TimePoint) const override {
         return StateId::Stopped;
     }
 
@@ -218,7 +202,6 @@ public:
     }
 
     MidiHandlingResult midiMessage(
-        LooperStateData&,
         MidiMessageType,
         MidiMessage&,
         TimePoint
@@ -229,21 +212,29 @@ public:
         };
     }
 
-    StateId shutdownRequested(LooperStateData&) const override {
+    StateId shutdownRequested() const override {
         return StateId::Stopped;
     }
 };
 
 } // namespace
 
-LooperState::LooperState(LooperOutput& output) noexcept : output_(output) {}
+LooperState::LooperState(
+    LooperOutput& output,
+    LooperStateData& data
+) noexcept : output_(output), data_(data) {}
 
 LooperStateRegistry::LooperStateRegistry(LooperOutput& output) {
-    states_[stateIndex(StateId::Ready)] = std::make_unique<ReadyState>(output);
-    states_[stateIndex(StateId::Armed)] = std::make_unique<ArmedState>(output);
-    states_[stateIndex(StateId::Recording)] = std::make_unique<RecordingState>(output);
-    states_[stateIndex(StateId::Looping)] = std::make_unique<LoopingState>(output);
-    states_[stateIndex(StateId::Stopped)] = std::make_unique<StoppedState>(output);
+    states_[stateIndex(StateId::Ready)] =
+        std::make_unique<ReadyState>(output, data_);
+    states_[stateIndex(StateId::Armed)] =
+        std::make_unique<ArmedState>(output, data_);
+    states_[stateIndex(StateId::Recording)] =
+        std::make_unique<RecordingState>(output, data_);
+    states_[stateIndex(StateId::Looping)] =
+        std::make_unique<LoopingState>(output, data_);
+    states_[stateIndex(StateId::Stopped)] =
+        std::make_unique<StoppedState>(output, data_);
 }
 
 LooperStateRegistry::~LooperStateRegistry() = default;
@@ -260,7 +251,7 @@ LooperFsm::LooperFsm(LooperStateRegistry& states) noexcept : states_(states) {}
 
 StateId LooperFsm::primaryControlPressed(TimePoint now) {
     std::lock_guard lock(mutex_);
-    const StateId next = states_.at(current_state_).primaryControlPressed(data_, now);
+    const StateId next = states_.at(current_state_).primaryControlPressed(now);
     install(next);
     return current_state_;
 }
@@ -279,7 +270,6 @@ int LooperFsm::midiMessage(
 ) {
     std::lock_guard lock(mutex_);
     const MidiHandlingResult result = states_.at(current_state_).midiMessage(
-        data_,
         type,
         message,
         received_at
@@ -290,7 +280,7 @@ int LooperFsm::midiMessage(
 
 StateId LooperFsm::shutdownRequested() {
     std::lock_guard lock(mutex_);
-    const StateId next = states_.at(current_state_).shutdownRequested(data_);
+    const StateId next = states_.at(current_state_).shutdownRequested();
     install(next);
     return current_state_;
 }

@@ -86,18 +86,18 @@ The looper deliberately uses a GoF State pattern. Preserve that style.
 - The virtual methods on `LooperOutput` are the output alphabet. State objects
   request effects through this interface; they must not reach into
   `Application`, `SynthEngine`, libremidi, or FluidSynth.
-- `LooperOutput&` is invariant for the FSM lifetime and is constructor-injected
-  into the `LooperState` base. Do not pass it repeatedly through stimulus
-  methods or replace it with a setter.
+- `LooperOutput&` and `LooperStateData&` are invariant for the FSM lifetime and
+  are constructor-injected into the `LooperState` base. Do not pass them
+  repeatedly through stimulus methods or replace them with setters.
 - A stimulus should take only event-specific information. A button stimulus
   such as `nextSoundFontPressed()` needs no argument. Persistent transition
   data belongs in `LooperStateData`; effects belong in `LooperOutput`.
 - State methods return the next `StateId`. `midiMessage` returns
   `MidiHandlingResult` because it must also propagate the synthesizer's native
   result. Do not generalize that special case without a concrete need.
-- `LooperFsm` serializes stimuli with its mutex and validates every installed
-  `StateId` through the registry. Keep state objects free of independent
-  mutable lifecycle state.
+- `LooperFsm` serializes stimuli and access to the registry-owned shared state
+  data with its mutex, and validates every installed `StateId` through the
+  registry. Keep state objects free of independent mutable lifecycle state.
 - Common state behavior belongs in a shared state base or a small helper when
   that is clearer and DRYer than repetition.
 
