@@ -40,7 +40,9 @@ int main(int argc, char** argv) {
         const auto shutdown_signals = blockShutdownSignals();
 
         zeta::Application app{std::move(config)};
-        std::jthread signal_waiter([&app, shutdown_signals](std::stop_token stop) {
+        std::jthread signal_waiter([&app, shutdown_signals](
+            const std::stop_token& stop
+        ) {
             int signal_number = 0;
             if (sigwait(&shutdown_signals, &signal_number) == 0
                 && !stop.stop_requested()) {
@@ -51,6 +53,8 @@ int main(int argc, char** argv) {
         app.run();
 
         signal_waiter.request_stop();
+        // The blocked signal wakes sigwait so the stop request can be observed.
+        // NOLINTNEXTLINE(bugprone-bad-signal-to-kill-thread)
         pthread_kill(signal_waiter.native_handle(), SIGTERM);
         signal_waiter.join();
         return 0;

@@ -6,6 +6,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added GitHub Actions validation for the complete build and test suite,
+  ShellCheck, clang-tidy, and GCC static analysis.
 - Restored the SE49 Octave Down and Octave Up controls while MMC transport mode
   is active, with arithmetic transposition from three octaves down through four
   octaves up.
