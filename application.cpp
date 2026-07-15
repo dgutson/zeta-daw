@@ -271,6 +271,10 @@ Application::~Application() {
     shutdownRequested();
 }
 
+bool Application::isPlayableLoopDuration(Milliseconds duration) noexcept {
+    return duration > Milliseconds::zero();
+}
+
 void Application::run() {
     std::cout << "\nMIDI looper ready.\n";
     std::cout << "Play your controller: it should sound live.\n\n";

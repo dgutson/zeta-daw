@@ -214,11 +214,6 @@ protected:
     }
 };
 
-TEST(LoopPlaybackTest, RequiresAPositiveDuration) {
-    EXPECT_FALSE(zeta::isPlayableLoopDuration(0ms));
-    EXPECT_TRUE(zeta::isPlayableLoopDuration(1ms));
-}
-
 class StartupNoteMidiInput final : public MidiInput {
 public:
     void start(

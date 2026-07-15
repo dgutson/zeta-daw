@@ -10,10 +10,6 @@
 
 namespace zeta {
 
-constexpr bool isPlayableLoopDuration(Milliseconds duration) noexcept {
-    return duration > Milliseconds::zero();
-}
-
 class Application final : private LooperOutput {
 public:
     explicit Application(ApplicationConfig config);
@@ -35,6 +31,8 @@ private:
     LooperFsm fsm_;
     std::unique_ptr<MidiInput> midi_input_;
     std::atomic<bool> midi_ready_{false};
+
+    static bool isPlayableLoopDuration(Milliseconds duration) noexcept;
 
     void handleMidiEvent(MidiEvent event) noexcept;
 
