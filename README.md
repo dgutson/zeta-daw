@@ -80,7 +80,13 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 4
+schema_version: 5
+
+midi_control_change_mappings:
+  - source_port: "SE49 MIDI2"
+    channel: 16
+    controller: 20
+    target_controller: 7
 
 soundfonts:
   - id: piano
@@ -111,7 +117,7 @@ controls:
     command: record_strobe
 ```
 
-Only schema version 4 is accepted. A configuration error stops startup and
+Only schema version 5 is accepted. A configuration error stops startup and
 reports the invalid field.
 
 ### SoundFonts
@@ -135,6 +141,31 @@ changing the recorded loop.
 To inspect the banks and presets in a SoundFont, start FluidSynth with the
 file, then use its `fonts` and `inst` shell commands. Consult your distribution's
 FluidSynth documentation because command-line audio options differ by system.
+
+### MIDI Control Change mappings
+
+`midi_control_change_mappings` is optional. Omit it when the controller needs
+no normalization. Each entry matches an exact connected source-port display
+name, MIDI channel, and Control Change controller number, then replaces only
+the controller number. The MIDI channel and value are preserved. Mappings are
+applied once without chaining; unmatched Control Change and all other MIDI
+messages remain unchanged.
+
+The source-port name is the stable, human-readable name printed by Zeta:
+
+```text
+[MIDI input] connected: SE49 MIDI2
+```
+
+Do not use the numeric ALSA address shown by tools such as `aseqdump`; that
+address may change after a reboot or reconnection. YAML channels use the
+human-facing range 1 through 16, and controller numbers range from 0 through
+127.
+
+The example mapping turns the SE49 MIDI2 fader event on channel 16 from CC20
+into standard Channel Volume CC7 while MMC transport mode remains enabled.
+The resulting CC7 follows Zeta's existing routing: it controls the live channel
+in Ready and Looping, and the pending-loop channel in Armed and Recording.
 
 ### Controller bindings
 

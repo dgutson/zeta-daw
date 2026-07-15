@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added exact, source-port-aware MIDI Control Change mappings so controller
+  faders can use standard synthesizer controller semantics without persistent
+  hardware reconfiguration.
 - Added GitHub Actions validation for the complete build and test suite,
   ShellCheck, clang-tidy, and GCC static analysis.
 - Added `build_debug.sh` for a separate debug build with MIDI routing traces.
@@ -15,8 +18,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
-- Configuration schema 4 requires dedicated `octave_down` and `octave_up`
-  bindings and rejects overlaps among all four application actions.
+- Configuration schema 5 accepts optional `midi_control_change_mappings` for
+  controllers needing normalization, and requires dedicated `octave_down` and
+  `octave_up` bindings with overlap rejection among all four application
+  actions.
 - Live and pending-loop octave selection stay synchronized until recording
   starts; recorded loops retain their selected octave while later changes
   affect only live playing.
@@ -33,6 +38,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Fixed
 
+- Restored the SE49 volume fader while MMC transport mode is active by mapping
+  its configured MIDI2 channel-16 CC20 event to Channel Volume CC7.
 - Restored MIDI input after hardware ports disconnect and reconnect by keeping
   libremidi's observed-port lifecycle synchronized with active connections.
 

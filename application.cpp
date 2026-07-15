@@ -248,9 +248,12 @@ Application::Application(
         throw std::invalid_argument("MIDI input must not be null");
     }
 
-    midi_input_->start([this](MidiEvent event) {
-        handleMidiEvent(event);
-    });
+    midi_input_->start(
+        config_.midi_control_change_mappings,
+        [this](MidiEvent event) {
+            handleMidiEvent(event);
+        }
+    );
     impl_->allNotesOff();
     midi_ready_.store(true, std::memory_order_release);
     impl_->startPlaybackWorker();

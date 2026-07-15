@@ -11,7 +11,7 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 4;
+constexpr int required_schema_version = 5;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -201,6 +201,62 @@ MidiControlBinding parseActionControl(
     return parseControl(controls[name], location);
 }
 
+std::vector<MidiControlChangeMapping> parseMidiControlChangeMappings(
+    const YAML::Node& mappings
+) {
+    constexpr std::string_view mappings_location{
+        "midi_control_change_mappings"
+    };
+    requireSequence(mappings, std::string{mappings_location});
+
+    std::vector<MidiControlChangeMapping> parsed;
+    parsed.reserve(mappings.size());
+
+    for (std::size_t index = 0; index < mappings.size(); ++index) {
+        const auto node = mappings[index];
+        const std::string location = std::string{mappings_location}
+            + "[" + std::to_string(index) + "]";
+        rejectUnknownKeys(node, location, {
+            "source_port",
+            "channel",
+            "controller",
+            "target_controller",
+        });
+
+        MidiControlChangeMapping mapping{
+            .source_port = nonEmptyString(node, "source_port", location),
+            .channel = boundedInt(node, "channel", location, 1, 16) - 1,
+            .controller = boundedInt(node, "controller", location, 0, 127),
+            .target_controller = boundedInt(
+                node,
+                "target_controller",
+                location,
+                0,
+                127
+            ),
+        };
+
+        const auto duplicate = std::ranges::find_if(
+            parsed,
+            [&](const MidiControlChangeMapping& candidate) {
+                return candidate.source_port == mapping.source_port
+                    && candidate.channel == mapping.channel
+                    && candidate.controller == mapping.controller;
+            }
+        );
+        if (duplicate != parsed.end()) {
+            fail(
+                location,
+                "duplicate source_port, channel, and controller mapping"
+            );
+        }
+
+        parsed.push_back(std::move(mapping));
+    }
+
+    return parsed;
+}
+
 std::filesystem::path resolveSoundFontPath(
     const std::filesystem::path& config_path,
     const std::string& configured_path
@@ -274,6 +330,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
     rejectUnknownKeys(root, "configuration", {
         "schema_version",
+        "midi_control_change_mappings",
         "soundfonts",
         "controls",
     });
@@ -292,6 +349,14 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     }
 
     ApplicationConfig config;
+    const auto midi_control_change_mappings =
+        root["midi_control_change_mappings"];
+    if (midi_control_change_mappings) {
+        config.midi_control_change_mappings = parseMidiControlChangeMappings(
+            midi_control_change_mappings
+        );
+    }
+
     const auto soundfonts = root["soundfonts"];
     requireSequence(soundfonts, "soundfonts");
     if (soundfonts.size() == 0) {

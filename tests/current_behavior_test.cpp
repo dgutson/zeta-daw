@@ -138,6 +138,7 @@ ApplicationConfig testConfig() {
                 .preset = 0,
             },
         },
+        .midi_control_change_mappings = {},
         .recording_control = MidiControlBinding{
             .type = MidiControlType::MachineControl,
             .number = 0x05,
@@ -215,7 +216,10 @@ protected:
 
 class StartupNoteMidiInput final : public MidiInput {
 public:
-    void start(Handler handler) override {
+    void start(
+        std::vector<zeta::MidiControlChangeMapping>,
+        Handler handler
+    ) override {
         handler(MidiEvent{
             .type = MidiMessageType::NoteOn,
             .message = {

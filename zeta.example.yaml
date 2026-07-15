@@ -1,4 +1,13 @@
-schema_version: 4
+schema_version: 5
+
+# The SE49 fader uses its DAW integration port while MMC mode is active. Treat
+# its channel-16 CC20 event as standard Channel Volume CC7. Omit this optional
+# list for controllers that need no Control Change normalization.
+midi_control_change_mappings:
+  - source_port: "SE49 MIDI2"
+    channel: 16
+    controller: 20
+    target_controller: 7
 
 # Entries are loaded eagerly, in this order, before MIDI input starts.
 soundfonts:

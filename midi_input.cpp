@@ -8,6 +8,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <syncstream>
 #include <utility>
 #include <vector>
 
@@ -30,13 +31,17 @@ public:
         stop();
     }
 
-    void start(Handler handler) override {
+    void start(
+        std::vector<MidiControlChangeMapping> mappings,
+        Handler handler
+    ) override {
         {
             std::lock_guard lock(mutex_);
             if (observer_) {
                 throw std::logic_error("MIDI input is already running");
             }
 
+            mappings_ = std::move(mappings);
             handler_ = std::move(handler);
             stopping_ = false;
         }
@@ -116,9 +121,17 @@ private:
             return;
         }
 
+        const MidiControlChangeMapper mapper{
+            port.display_name,
+            mappings_,
+        };
         libremidi::input_configuration configuration{
-            .on_message = [this](libremidi::message&& message) {
-                receive(message);
+            .on_message = [
+                this,
+                mapper,
+                display_name = port.display_name
+            ](libremidi::message&& message) {
+                receive(message, mapper, display_name);
             },
             .on_error = [](std::string_view error, const auto&) {
                 std::cerr << "[MIDI input error] " << error << '\n';
@@ -171,12 +184,32 @@ private:
         std::cout << "[MIDI input] disconnected: " << display_name << '\n';
     }
 
-    void receive(const libremidi::message& message) noexcept {
+    void receive(
+        const libremidi::message& message,
+        const MidiControlChangeMapper& mapper,
+        [[maybe_unused]] std::string_view display_name
+    ) noexcept {
         try {
             const auto event = decodeMidiEvent(message.bytes);
             if (!event) {
                 return;
             }
+
+            const auto mapped_event = mapper.map(*event);
+
+            #ifdef ZETA_MIDI_TRACE
+            if (event->type == MidiMessageType::ControlChange
+                && event->message.control != mapped_event.message.control) {
+                std::osyncstream{std::cerr}
+                    << "[midi mapping]"
+                    << " source_port=\"" << display_name << '"'
+                    << " channel=" << event->message.channel + 1
+                    << " controller=" << event->message.control
+                    << " target_controller=" << mapped_event.message.control
+                    << " value=" << event->message.value
+                    << '\n';
+            }
+            #endif
 
             Handler handler;
             {
@@ -187,7 +220,7 @@ private:
                 handler = handler_;
             }
             if (handler) {
-                handler(*event);
+                handler(mapped_event);
             }
         } catch (const std::exception& error) {
             std::cerr << "[MIDI input error] " << error.what() << '\n';
@@ -197,6 +230,7 @@ private:
     }
 
     std::mutex mutex_;
+    std::vector<MidiControlChangeMapping> mappings_;
     Handler handler_;
     std::unique_ptr<libremidi::observer> observer_;
     std::vector<Connection> inputs_;

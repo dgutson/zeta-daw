@@ -17,7 +17,10 @@ public:
         stop();
     }
 
-    void start(Handler handler) override {
+    void start(
+        std::vector<zeta::MidiControlChangeMapping>,
+        Handler handler
+    ) override {
         std::lock_guard lock(mutex);
         handler_ = std::move(handler);
         active_input = this;
