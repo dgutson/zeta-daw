@@ -41,7 +41,7 @@ struct Application::Impl {
 
     struct PlaybackTake {
         std::vector<RecordedNoteEvent> events;
-        uint64_t length_ms{};
+        Milliseconds duration{};
     };
 
     SynthEngine synth_engine;
@@ -51,7 +51,7 @@ struct Application::Impl {
     OctaveTransposer loop_transposer;
 
     std::vector<RecordedNoteEvent> events;
-    uint64_t loop_length_ms{};
+    Milliseconds loop_duration{};
 
     std::jthread looper_thread;
     std::mutex playback_mutex;
@@ -114,7 +114,7 @@ struct Application::Impl {
             std::lock_guard lock(playback_mutex);
             requested_take = PlaybackTake{
                 .events = events,
-                .length_ms = loop_length_ms,
+                .duration = loop_duration,
             };
             ++playback_generation;
         }
@@ -163,6 +163,12 @@ struct Application::Impl {
                 active_generation = observed_generation;
             }
 
+            if (!isPlayableLoopDuration(take.duration)) {
+                std::osyncstream{std::cerr}
+                    << "[loop playback error] zero-length take ignored\n";
+                continue;
+            }
+
             auto loop_started_at = LooperClock::now();
             bool interrupted = false;
 
@@ -188,7 +194,7 @@ struct Application::Impl {
                     break;
                 }
 
-                const auto loop_end = loop_started_at + Milliseconds(take.length_ms);
+                const auto loop_end = loop_started_at + take.duration;
                 std::unique_lock lock(playback_mutex);
                 playback_changed.wait_until(lock, loop_end, [&] {
                     return stop_token.stop_requested()
@@ -200,7 +206,7 @@ struct Application::Impl {
                     break;
                 }
 
-                loop_started_at += Milliseconds(take.length_ms);
+                loop_started_at += take.duration;
             }
 
             allNotesOff();
@@ -410,7 +416,7 @@ void Application::silenceAllChannels() {
 
 void Application::resetTake() {
     impl_->events.clear();
-    impl_->loop_length_ms = 0;
+    impl_->loop_duration = Milliseconds::zero();
 }
 
 void Application::recordNote(
@@ -434,7 +440,7 @@ void Application::recordNote(
 }
 
 void Application::commitTake(Milliseconds duration) {
-    impl_->loop_length_ms = static_cast<uint64_t>(duration.count());
+    impl_->loop_duration = duration;
 }
 
 void Application::startLoopPlayback() {

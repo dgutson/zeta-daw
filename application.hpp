@@ -10,6 +10,10 @@
 
 namespace zeta {
 
+constexpr bool isPlayableLoopDuration(Milliseconds duration) noexcept {
+    return duration > Milliseconds::zero();
+}
+
 class Application final : private LooperOutput {
 public:
     explicit Application(ApplicationConfig config);
