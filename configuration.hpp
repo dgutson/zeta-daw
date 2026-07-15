@@ -1,5 +1,6 @@
 #pragma once
 
+#include "midi_control_change_mapping.hpp"
 #include "midi_event.hpp"
 
 #include <filesystem>
@@ -36,6 +37,7 @@ struct SoundFontDefinition {
 
 struct ApplicationConfig {
     std::vector<SoundFontDefinition> soundfonts;
+    std::vector<MidiControlChangeMapping> midi_control_change_mappings;
     MidiControlBinding recording_control;
     MidiControlBinding next_soundfont_control;
     MidiControlBinding octave_down_control;

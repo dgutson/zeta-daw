@@ -39,7 +39,8 @@ The runtime flow is:
 libremidi/ALSA input
         |
         v
-project-owned MidiEvent decoding and configured-control matching
+project-owned MidiEvent decoding, per-port CC mapping,
+and configured-control matching
         |
         v
 LooperFsm -> current LooperState -> LooperOutput
@@ -57,8 +58,11 @@ The main layers and ownership boundaries are:
   application, and waits for termination.
 - `configuration.*` owns the strict YAML schema and converts it to
   project-owned configuration types.
+- `midi_control_change_mapping.*` owns exact, dependency-free Control Change
+  mapping definitions and immutable per-port lookup state.
 - `midi_input.*` owns hardware MIDI discovery, connection, disconnection, and
-  reconnection through libremidi's ALSA Sequencer backend.
+  reconnection through libremidi's ALSA Sequencer backend. It associates
+  configured mappings with a source port while the port name is available.
 - `midi_event.*` owns the library-independent MIDI event model and byte
   decoding, including MMC SysEx recognition.
 - `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
@@ -147,9 +151,12 @@ Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.
 
-Control events are matched before ordinary MIDI reaches the FSM. A matched
-event is consumed, so it is neither synthesized nor recorded. Configuration
-must reject bindings that make any application actions ambiguous.
+Source-port Control Change mappings are applied once after decoding and before
+configured application actions are matched. They replace only the controller
+number and preserve the MIDI channel and value. Control events are then matched
+before ordinary MIDI reaches the FSM. A matched event is consumed, so it is
+neither synthesized nor recorded. Configuration must reject bindings that make
+any application actions ambiguous.
 
 ## libremidi and FluidSynth are both intentional
 
@@ -176,7 +183,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 4.
+required version is 5.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -188,6 +195,10 @@ required version is 4.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
+- `midi_control_change_mappings` is a required list that may be empty. Each
+  entry matches one exact source-port display name, human-facing channel, and
+  controller number, then replaces only the controller number. Duplicate
+  source/channel/controller matches are rejected.
 - `controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
   `controls.octave_up` each contain exactly one required binding. Performance
   setup changes are made by editing that binding before startup. Supported
@@ -302,6 +313,8 @@ The test suites divide responsibilities as follows:
 - `configuration_tests`: strict schema, ranges, path resolution, and binding
   ambiguity.
 - `midi_tests`: library-independent byte decoding and MMC recognition.
+- `midi_control_change_mapping_tests`: exact per-port Control Change mapping,
+  passthrough, value preservation, and one-pass behavior.
 - `octave_transposer_tests`: octave bounds, arithmetic key transposition, and
   non-key MIDI passthrough.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.

@@ -60,6 +60,7 @@ add_executable(
     application.cpp
     configuration.cpp
     looper_fsm.cpp
+    midi_control_change_mapping.cpp
     midi_event.cpp
     midi_input.cpp
     octave_transposer.cpp
@@ -114,6 +115,7 @@ if(BUILD_TESTING)
         application.cpp
         configuration.cpp
         looper_fsm.cpp
+        midi_control_change_mapping.cpp
         midi_event.cpp
         midi_input.cpp
         octave_transposer.cpp
@@ -156,6 +158,20 @@ if(BUILD_TESTING)
     target_link_libraries(looper_fsm_tests PRIVATE GTest::gmock_main Threads::Threads)
 
     add_executable(
+        midi_control_change_mapping_tests
+        tests/midi_control_change_mapping_test.cpp
+        midi_control_change_mapping.cpp
+    )
+    target_compile_options(
+        midi_control_change_mapping_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        midi_control_change_mapping_tests
+        PRIVATE GTest::gtest_main
+    )
+
+    add_executable(
         midi_tests
         tests/midi_event_test.cpp
         midi_event.cpp
@@ -179,6 +195,7 @@ if(BUILD_TESTING)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
     gtest_discover_tests(looper_fsm_tests)
+    gtest_discover_tests(midi_control_change_mapping_tests)
     gtest_discover_tests(midi_tests)
     gtest_discover_tests(octave_transposer_tests)
 endif()

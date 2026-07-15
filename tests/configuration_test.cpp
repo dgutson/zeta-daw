@@ -50,7 +50,8 @@ std::string configWithMmcCommands(
 ) {
     std::ostringstream config;
     config
-        << "schema_version: 4\n"
+        << "schema_version: 5\n"
+        << "midi_control_change_mappings: []\n"
         << "soundfonts:\n"
         << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
         << "controls:\n"
@@ -65,9 +66,30 @@ std::string configWithMmcCommands(
     return config.str();
 }
 
-TEST(ConfigurationTest, ParsesOrderedCatalogAndActionControls) {
+std::string configWithMapping(std::string_view mapping) {
+    std::ostringstream config;
+    config
+        << "schema_version: 5\n"
+        << "midi_control_change_mappings:\n"
+        << "  - { " << mapping << " }\n"
+        << "soundfonts:\n"
+        << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
+        << "controls:\n"
+        << "  recording: { type: machine_control, command: rewind }\n"
+        << "  next_soundfont: { type: machine_control, command: stop }\n"
+        << "  octave_down: { type: machine_control, command: play }\n"
+        << "  octave_up: { type: machine_control, command: record_strobe }\n";
+    return config.str();
+}
+
+TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings:
+  - source_port: Controller MIDI2
+    channel: 16
+    controller: 20
+    target_controller: 7
 soundfonts:
   - id: piano
     file: sounds/piano.sf2
@@ -100,6 +122,15 @@ controls:
     EXPECT_EQ(config.soundfonts[1].id, "bass");
     EXPECT_EQ(config.soundfonts[1].bank, 128);
 
+    ASSERT_EQ(config.midi_control_change_mappings.size(), 1U);
+    EXPECT_EQ(
+        config.midi_control_change_mappings[0].source_port,
+        "Controller MIDI2"
+    );
+    EXPECT_EQ(config.midi_control_change_mappings[0].channel, 15);
+    EXPECT_EQ(config.midi_control_change_mappings[0].controller, 20);
+    EXPECT_EQ(config.midi_control_change_mappings[0].target_controller, 7);
+
     EXPECT_EQ(config.recording_control.type, MidiControlType::Note);
     EXPECT_EQ(config.recording_control.channel, 0);
     EXPECT_EQ(config.recording_control.number, 24);
@@ -110,6 +141,86 @@ controls:
     EXPECT_EQ(config.next_soundfont_control.number, 0x01);
     EXPECT_EQ(config.octave_down_control.number, 0x02);
     EXPECT_EQ(config.octave_up_control.number, 0x06);
+}
+
+TEST(ConfigurationTest, RequiresMidiControlChangeMappings) {
+    auto contents = configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    });
+    const std::string field = "midi_control_change_mappings: []\n";
+    contents.erase(contents.find(field), field.size());
+    TemporaryConfig source{std::move(contents)};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, AcceptsEmptyMidiControlChangeMappings) {
+    TemporaryConfig source{configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    })};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    EXPECT_TRUE(config.midi_control_change_mappings.empty());
+}
+
+TEST(ConfigurationTest, RejectsInvalidMidiControlChangeMappings) {
+    constexpr std::array invalid_mappings{
+        std::string_view{
+            "source_port: '', channel: 16, controller: 20, "
+            "target_controller: 7"
+        },
+        std::string_view{
+            "source_port: MIDI2, channel: 0, controller: 20, "
+            "target_controller: 7"
+        },
+        std::string_view{
+            "source_port: MIDI2, channel: 16, controller: 128, "
+            "target_controller: 7"
+        },
+        std::string_view{
+            "source_port: MIDI2, channel: 16, controller: 20, "
+            "target_controller: 128"
+        },
+        std::string_view{
+            "source_port: MIDI2, channel: 16, controller: 20"
+        },
+        std::string_view{
+            "source_port: MIDI2, channel: 16, controller: 20, "
+            "target_controller: 7, typo: true"
+        },
+    };
+
+    for (const auto mapping : invalid_mappings) {
+        TemporaryConfig source{configWithMapping(mapping)};
+        SCOPED_TRACE(mapping);
+        EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+    }
+}
+
+TEST(ConfigurationTest, RejectsDuplicateMidiControlChangeMappings) {
+    auto contents = configWithMapping(
+        "source_port: MIDI2, channel: 16, controller: 20, "
+        "target_controller: 7"
+    );
+    const std::string first_mapping =
+        "  - { source_port: MIDI2, channel: 16, controller: 20, "
+        "target_controller: 7 }\n";
+    const auto position = contents.find(first_mapping);
+    contents.insert(
+        position + first_mapping.size(),
+        "  - { source_port: MIDI2, channel: 16, controller: 20, "
+        "target_controller: 74 }\n"
+    );
+    TemporaryConfig source{std::move(contents)};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
 }
 
 TEST(ConfigurationTest, RejectsEveryMissingActionControl) {
@@ -144,7 +255,8 @@ TEST(ConfigurationTest, RejectsEveryMissingActionControl) {
 
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - id: piano
     file: piano.sf2
@@ -166,7 +278,8 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
   - { id: piano, file: other.sf2, bank: 0, preset: 1 }
@@ -198,12 +311,13 @@ controls:
         EXPECT_STREQ(
             error.what(),
             "configuration.schema_version: unsupported schema version 3; "
-            "expected 4"
+            "expected 5"
         );
     }
 
     TemporaryConfig removed_parts{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 parts: { live: piano, loop: piano }
@@ -218,7 +332,8 @@ controls:
 
 TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -230,7 +345,8 @@ controls:
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
 
     TemporaryConfig bad_mmc_command{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -282,7 +398,8 @@ TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
 
 TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
     TemporaryConfig source{R"yaml(
-schema_version: 4
+schema_version: 5
+midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
