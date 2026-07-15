@@ -54,13 +54,20 @@ sudo apt install alsa-utils fluid-soundfont-gm
 Configure and build a release executable:
 
 ```bash
-cmake -S . -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_TESTING=OFF
-cmake --build build --parallel
+./build.sh
 ```
 
-The executable is `build/midi_looper`.
+The release executable is `build/midi_looper`. This script explicitly disables
+MIDI tracing, even when the build directory previously cached another value.
+
+For a debug executable with MIDI routing traces enabled, use the separate debug
+build directory:
+
+```bash
+./build_debug.sh
+```
+
+The trace executable is `build-debug/midi_looper`.
 
 ## Configuration
 

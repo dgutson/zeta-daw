@@ -8,6 +8,7 @@ All notable changes to Zeta DAW are documented in this file.
 
 - Added GitHub Actions validation for the complete build and test suite,
   ShellCheck, clang-tidy, and GCC static analysis.
+- Added `build_debug.sh` for a separate debug build with MIDI routing traces.
 - Restored the SE49 Octave Down and Octave Up controls while MMC transport mode
   is active, with arithmetic transposition from three octaves down through four
   octaves up.
@@ -27,6 +28,8 @@ All notable changes to Zeta DAW are documented in this file.
   on project-owner approval.
 - Contributor guidance now requires remote-base and complete PR-range audits so
   unpublished work is not silently mixed into a ticket branch.
+- Release builds produced by `build.sh` now explicitly disable MIDI tracing
+  instead of inheriting a cached CMake option.
 
 ### Fixed
 
