@@ -60,7 +60,7 @@ void expectArm(StrictMock<MockOutput>& output) {
 
 void arm(LooperFsm& fsm, StrictMock<MockOutput>& output) {
     expectArm(output);
-    EXPECT_EQ(fsm.primaryControlPressed(start_time), StateId::Armed);
+    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Armed);
     EXPECT_EQ(fsm.stateId(), StateId::Armed);
 }
 
@@ -108,7 +108,7 @@ TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
         EXPECT_CALL(output, startLoopPlayback());
         EXPECT_CALL(output, showLooping());
     }
-    EXPECT_EQ(fsm.primaryControlPressed(start_time + 10ms), StateId::Looping);
+    EXPECT_EQ(fsm.recordingControlPressed(start_time + 10ms), StateId::Looping);
 
     EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
     EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
@@ -160,7 +160,7 @@ TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
         EXPECT_CALL(output, startLoopPlayback());
         EXPECT_CALL(output, showLooping());
     }
-    fsm.primaryControlPressed(start_time + 1ms);
+    fsm.recordingControlPressed(start_time + 1ms);
 
     EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
     EXPECT_EQ(fsm.octaveDownPressed(), StateId::Looping);
@@ -173,7 +173,7 @@ TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
         EXPECT_CALL(output, silenceAllChannels());
     }
     EXPECT_EQ(
-        fsm.primaryControlPressed(start_time + 2ms),
+        fsm.recordingControlPressed(start_time + 2ms),
         StateId::Ready
     );
 
@@ -254,7 +254,7 @@ TEST(LooperFsmTest, CompletedRecordingCanStopBackToReady) {
         EXPECT_CALL(output, showLooping());
     }
     EXPECT_EQ(
-        fsm.primaryControlPressed(start_time + 30ms),
+        fsm.recordingControlPressed(start_time + 30ms),
         StateId::Looping
     );
     EXPECT_EQ(fsm.stateId(), StateId::Looping);
@@ -272,7 +272,7 @@ TEST(LooperFsmTest, CompletedRecordingCanStopBackToReady) {
         EXPECT_CALL(output, silenceAllChannels());
     }
     EXPECT_EQ(
-        fsm.primaryControlPressed(start_time + 32ms),
+        fsm.recordingControlPressed(start_time + 32ms),
         StateId::Ready
     );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
@@ -301,7 +301,7 @@ TEST(LooperFsmTest, PressingControlWhileArmedCancelsBackToReady) {
     }
 
     EXPECT_EQ(
-        fsm.primaryControlPressed(start_time + 1ms),
+        fsm.recordingControlPressed(start_time + 1ms),
         StateId::Ready
     );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
@@ -334,7 +334,7 @@ TEST(LooperFsmTest, ZeroDurationTakeUsesTheNormalRecordingTransition) {
         EXPECT_CALL(output, showLooping());
     }
 
-    EXPECT_EQ(fsm.primaryControlPressed(start_time), StateId::Looping);
+    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Looping);
     EXPECT_EQ(fsm.stateId(), StateId::Looping);
 }
 
@@ -355,7 +355,7 @@ TEST(LooperFsmTest, ShutdownFromReadyIsTerminalAndIdempotent) {
 
     fsm.shutdownRequested();
     EXPECT_EQ(
-        fsm.primaryControlPressed(start_time),
+        fsm.recordingControlPressed(start_time),
         StateId::Stopped
     );
 }

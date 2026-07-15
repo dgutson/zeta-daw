@@ -76,7 +76,7 @@ public:
     LooperState(LooperOutput& output, LooperStateData& data) noexcept;
     virtual ~LooperState() = default;
 
-    virtual StateId primaryControlPressed(TimePoint now) const = 0;
+    virtual StateId recordingControlPressed(TimePoint now) const = 0;
 
     virtual StateId nextSoundFontPressed() const = 0;
 
@@ -121,7 +121,7 @@ public:
     LooperFsm(const LooperFsm&) = delete;
     LooperFsm& operator=(const LooperFsm&) = delete;
 
-    StateId primaryControlPressed(TimePoint now);
+    StateId recordingControlPressed(TimePoint now);
     StateId nextSoundFontPressed();
     StateId octaveDownPressed();
     StateId octaveUpPressed();

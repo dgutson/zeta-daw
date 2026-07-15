@@ -21,6 +21,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Renamed the FSM recording-control stimulus for consistency with the
+  configured action, without changing state behavior.
 - The recording control now cancels an armed take or stops an active loop and
   returns to Ready; only process shutdown stops the playback worker and exits
   the application, and returning to Ready preserves independent live and loop

@@ -70,7 +70,7 @@ stopped: {
 
 start -> ready
 
-ready -> armed: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LoopChannel); resetTake(); showRecordingArmed()"
+ready -> armed: "recordingControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LoopChannel); resetTake(); showRecordingArmed()"
 ready -> ready: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel)"
 ready -> ready: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
 ready -> ready: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel and LoopChannel"
@@ -79,18 +79,18 @@ armed -> recording: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ monitor
 armed -> armed: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
 armed -> armed: "nextSoundFontPressed()\n/ selectNextSoundFont(LoopChannel)"
 armed -> armed: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel and LoopChannel"
-armed -> ready: "primaryControlPressed(now)\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LiveChannel)"
+armed -> ready: "recordingControlPressed(now)\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LiveChannel)"
 
 recording -> recording: "midiMessage(NoteOn | NoteOff, message, now)\n/ monitorMidi(message, LoopChannel); recordNote(kind, message, now - recordingStartedAt)"
 recording -> recording: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
 recording -> recording: "nextSoundFontPressed()\n/ no action"
 recording -> recording: "octaveDownPressed() | octaveUpPressed()\n/ no action"
-recording -> looping: "primaryControlPressed(now)\n/ commitTake(duration); startLoopPlayback(); showLooping()"
+recording -> looping: "recordingControlPressed(now)\n/ commitTake(duration); startLoopPlayback(); showLooping()"
 
 looping -> looping: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel) [unless suppressed]"
 looping -> looping: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
 looping -> looping: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel"
-looping -> ready: "primaryControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels()"
+looping -> ready: "recordingControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels()"
 
 ready -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 armed -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
@@ -109,7 +109,7 @@ legend: {
   }
 
   inputs: {
-    label: "Stimuli (virtual State methods)\n• primaryControlPressed(now)\n• nextSoundFontPressed()\n• octaveDownPressed() / octaveUpPressed()\n• midiMessage(type, message, now)\n• shutdownRequested()"
+    label: "Stimuli (virtual State methods)\n• recordingControlPressed(now)\n• nextSoundFontPressed()\n• octaveDownPressed() / octaveUpPressed()\n• midiMessage(type, message, now)\n• shutdownRequested()"
     shape: rectangle
   }
 
