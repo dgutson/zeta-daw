@@ -320,7 +320,7 @@ TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
     }));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
+    ASSERT_TRUE(session.waitForOutput("Ready for a new loop."));
 }
 
 TEST_F(CurrentBehaviorTest, ShutdownRequestWakesTheApplicationRunLoop) {
@@ -402,17 +402,27 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
         .control = 7,
         .value = 99,
     }), FLUID_OK);
+    ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("SoundFont selected: live"));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
+    ASSERT_TRUE(session.waitForOutput("Ready for a new loop."));
 
     const auto calls = fake_fluidsynth::calls();
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 60));
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, std::nullopt, 99));
-    EXPECT_THAT(session.output(), ::testing::HasSubstr("No notes were recorded. Exiting."));
+    EXPECT_TRUE(std::ranges::any_of(calls, [](const Call& call) {
+        return call.kind == CallKind::SelectProgram
+            && call.channel == 0
+            && call.soundfont_id == 2;
+    }));
+    EXPECT_THAT(
+        session.output(),
+        ::testing::HasSubstr("No notes were recorded. Ready for a new loop.")
+    );
 }
 
-TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChannelOne) {
+TEST_F(CurrentBehaviorTest, CompletedTakeCanStopAndASecondTakeCanLoop) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
@@ -456,7 +466,37 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
     }), FLUID_OK);
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 74,
+        .velocity = 70,
+    }), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 74,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 64,
+        .velocity = 90,
+    }), FLUID_OK);
+    std::this_thread::sleep_for(5ms);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 64,
+    }), FLUID_OK);
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
+        return hasCall(calls, CallKind::SynthNoteOn, 1, 64)
+            && hasCall(calls, CallKind::SynthNoteOff, 1, 64);
+    }));
 
     const auto calls = fake_fluidsynth::calls();
     EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 60));
@@ -474,9 +514,14 @@ TEST_F(CurrentBehaviorTest, FirstNoteStartsRecordingAndCompletedTakeLoopsOnChann
             && call.type == raw(MidiMessageType::PitchBend)
             && call.channel == 1;
     }));
+    EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 0, 74));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 1, 64));
+    EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOff, 1, 64));
     EXPECT_THAT(
         session.output(),
-        ::testing::HasSubstr("Use the configured MIDI control to stop and quit.")
+        ::testing::HasSubstr(
+            "Use the configured MIDI control to stop the loop and return to Ready."
+        )
     );
 }
 
@@ -512,7 +557,6 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresCurrentProgram) {
     }), 2);
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
 }
 
 TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
@@ -575,10 +619,9 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
     ));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
 }
 
-TEST_F(CurrentBehaviorTest, TransposesLivePlayingAndLocksTheRecordedLoop) {
+TEST_F(CurrentBehaviorTest, PreservesIndependentOctavesForTheNextTake) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
@@ -635,7 +678,26 @@ TEST_F(CurrentBehaviorTest, TransposesLivePlayingAndLocksTheRecordedLoop) {
     }), FLUID_OK);
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
-    session.join();
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 48,
+        .velocity = 80,
+    }), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOff),
+        .channel = 0,
+        .key = 48,
+    }), FLUID_OK);
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 50,
+        .velocity = 80,
+    }), FLUID_OK);
 
     const auto calls = fake_fluidsynth::calls();
     EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 0, 60));
@@ -643,6 +705,8 @@ TEST_F(CurrentBehaviorTest, TransposesLivePlayingAndLocksTheRecordedLoop) {
     EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOn, 1, 72));
     EXPECT_TRUE(hasCall(calls, CallKind::SynthNoteOff, 1, 72));
     EXPECT_FALSE(hasCall(calls, CallKind::SynthNoteOn, 1, 60));
+    EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 74));
+    EXPECT_FALSE(hasCall(calls, CallKind::HandleMidi, 1, 62));
 }
 
 } // namespace

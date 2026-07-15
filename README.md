@@ -13,8 +13,10 @@ The performance workflow is:
 4. Press the recording control again to finish the take and start looping.
 5. Keep playing live and select other SoundFonts without changing the loop.
 
-Pressing the recording control a third time currently stops playback and exits
-the application.
+Pressing the recording control while looping stops playback and returns to
+Ready for a new take. Pressing it while armed, before playing a note, cancels
+the pending take and also returns to Ready. Exit is only through Ctrl-C,
+SIGTERM, or another process shutdown signal.
 
 ## Requirements and installation
 
@@ -136,7 +138,8 @@ list and wraps to the first entry.
 The SoundFont selected when recording is armed is used for the loop. Next may
 change that selection while armed but before the first note. During recording,
 Next is ignored. During loop playback, Next changes the live sound without
-changing the recorded loop.
+changing the recorded loop. Canceling while armed adopts the pending selection
+as the live sound before returning to Ready.
 
 To inspect the banks and presets in a SoundFont, start FluidSynth with the
 file, then use its `fonts` and `inst` shell commands. Consult your distribution's
@@ -262,7 +265,8 @@ During a performance:
 3. Play the first note to begin recording.
 4. Press **Transpose Down** again to finish the take and start the loop.
 5. Press **Transpose Up** while looping to change the live SoundFont.
-6. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
+6. Press **Transpose Down** while looping to stop it and return to Ready.
+7. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
    twelve semitones.
 
 The octave range is three octaves down through four octaves up and does not
@@ -270,6 +274,8 @@ wrap. Before recording, octave changes affect both live playing and the pending
 loop. Octave changes are ignored while recording. Once looping, they affect
 only live playing, so the recorded loop keeps its pitch. Notes whose shifted
 key would fall outside MIDI range 0 through 127 retain their original key.
+Returning to Ready preserves the independent live and loop octave selections;
+a later take uses the preserved loop selection.
 
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**

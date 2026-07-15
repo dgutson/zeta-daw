@@ -302,10 +302,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto& message = event.message;
 
         if (config_.recording_control.matches(type, message)) {
-            const auto state = fsm_.primaryControlPressed(LooperClock::now());
-            if (isTerminal(state)) {
-                impl_->notifyLifecycleChanged();
-            }
+            fsm_.primaryControlPressed(LooperClock::now());
             return;
         }
 
@@ -460,11 +457,12 @@ void Application::showRecordingArmed() {
 void Application::showLooping() {
     std::cout << "Looping. You can still play live over the loop.\n";
     std::cout << "Use Next to change the live SoundFont.\n";
-    std::cout << "Use the configured MIDI control to stop and quit.\n";
+    std::cout
+        << "Use the configured MIDI control to stop the loop and return to Ready.\n";
 }
 
 void Application::showNoTake() {
-    std::cout << "No notes were recorded. Exiting.\n";
+    std::cout << "No notes were recorded. Ready for a new loop.\n";
 }
 
 void Application::stopPlaybackWorker() {
