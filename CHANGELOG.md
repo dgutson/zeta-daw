@@ -21,6 +21,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- The recording control now cancels an armed take or stops an active loop and
+  returns to Ready; only process shutdown stops the playback worker and exits
+  the application, and returning to Ready preserves independent live and loop
+  octave selections for later takes.
 - Recording completion now always follows one FSM transition into looping;
   zero-length playback requests are rejected by the playback worker so they
   cannot busy-loop.
@@ -28,9 +32,9 @@ All notable changes to Zeta DAW are documented in this file.
   controllers needing normalization, and requires dedicated `octave_down` and
   `octave_up` bindings with overlap rejection among all four application
   actions.
-- Live and pending-loop octave selection stay synchronized until recording
-  starts; recorded loops retain their selected octave while later changes
-  affect only live playing.
+- Live and pending-loop octave selection start synchronized for the first take;
+  recorded loops retain their selected octave while later changes affect only
+  live playing.
 - Octave transposition leaves a key unchanged when shifting it would exceed the
   MIDI range instead of requiring special handling from callers.
 - Schema-version errors report both the provided and required versions.

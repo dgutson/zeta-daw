@@ -122,19 +122,23 @@ The states are `Ready`, `Armed`, `Recording`, `Looping`, and `Stopped`.
 - `Armed`: MIDI is monitored on the loop channel. The first positive-velocity
   Note On enters `Recording` and is stored at offset zero. Next may change the
   pending loop SoundFont before that first note. Octave controls change both
-  live and loop transposition.
+  live and loop transposition. Primary control before that first note cancels
+  the pending take, adopts its SoundFont for live playing, and returns to
+  `Ready`.
 - `Recording`: Note On and Note Off events are timestamped and stored. Next is
   consumed without effect, as are both octave controls. Primary control commits
   the duration and starts loop playback.
 - `Looping`: recorded notes repeat on the loop channel while incoming MIDI is
   monitored on the live channel. Next changes only the live SoundFont. Octave
-  controls change only live transposition. Primary control currently stops
-  playback and enters `Stopped`.
-- `Stopped`: all stimuli are inert and the application terminates.
+  controls change only live transposition. Primary control stops playback and
+  returns to `Ready` without stopping the playback worker.
+- `Stopped`: all stimuli are inert and the application terminates. Only the
+  shutdown stimulus enters this state.
 
-The same configured primary control arms and finishes recording. The current
-third-press behavior—stop and exit—is known and is intended to change in a
-separate ticket, not incidentally in another feature.
+The same configured primary control arms, finishes, and cancels recording, and
+stops an active loop. Controller stimuli never terminate the application;
+SIGINT, SIGTERM, and destruction use the shutdown stimulus for that lifecycle
+transition.
 
 Live and loop output use fixed FluidSynth channels 0 and 1 respectively.
 Recorded notes retain their original velocity and store the key produced by
@@ -147,6 +151,11 @@ Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
+Live and loop transposition start synchronized for the first take. Returning
+from `Looping` to `Ready` preserves their independent octave selections, and
+subsequent Ready octave controls move both from those preserved values. A later
+take therefore uses the preserved loop selection rather than synchronizing it
+to the live selection.
 Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.

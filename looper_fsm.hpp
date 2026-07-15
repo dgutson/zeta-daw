@@ -139,6 +139,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-bool isTerminal(StateId id) noexcept;
-
 } // namespace zeta

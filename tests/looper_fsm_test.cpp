@@ -171,12 +171,24 @@ TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
         InSequence sequence;
         EXPECT_CALL(output, stopLoopPlayback());
         EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, stopPlaybackWorker());
     }
-    fsm.primaryControlPressed(start_time + 2ms);
+    EXPECT_EQ(
+        fsm.primaryControlPressed(start_time + 2ms),
+        StateId::Ready
+    );
 
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Stopped);
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Stopped);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
 }
 
 TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
@@ -219,7 +231,7 @@ TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
     EXPECT_EQ(fsm.stateId(), StateId::Recording);
 }
 
-TEST(LooperFsmTest, CompletedRecordingLoopsAndReturnsMidiToLiveChannel) {
+TEST(LooperFsmTest, CompletedRecordingCanStopBackToReady) {
     StrictMock<MockOutput> output;
     LooperStateRegistry states{output};
     LooperFsm fsm{states};
@@ -258,21 +270,23 @@ TEST(LooperFsmTest, CompletedRecordingLoopsAndReturnsMidiToLiveChannel) {
         InSequence sequence;
         EXPECT_CALL(output, stopLoopPlayback());
         EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, stopPlaybackWorker());
     }
     EXPECT_EQ(
         fsm.primaryControlPressed(start_time + 32ms),
-        StateId::Stopped
+        StateId::Ready
     );
-    EXPECT_EQ(fsm.stateId(), StateId::Stopped);
+    EXPECT_EQ(fsm.stateId(), StateId::Ready);
+    EXPECT_TRUE(fsm.shouldRun());
 
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel))
+        .WillOnce(Return(13));
     EXPECT_EQ(
         fsm.midiMessage(MidiMessageType::NoteOn, live_note, start_time + 33ms),
-        0
+        13
     );
 }
 
-TEST(LooperFsmTest, PressingControlWhileArmedReportsNoTakeAndStops) {
+TEST(LooperFsmTest, PressingControlWhileArmedCancelsBackToReady) {
     StrictMock<MockOutput> output;
     LooperStateRegistry states{output};
     LooperFsm fsm{states};
@@ -283,14 +297,23 @@ TEST(LooperFsmTest, PressingControlWhileArmedReportsNoTakeAndStops) {
         EXPECT_CALL(output, showNoTake());
         EXPECT_CALL(output, stopLoopPlayback());
         EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, stopPlaybackWorker());
+        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LiveChannel));
     }
 
     EXPECT_EQ(
         fsm.primaryControlPressed(start_time + 1ms),
-        StateId::Stopped
+        StateId::Ready
     );
-    EXPECT_EQ(fsm.stateId(), StateId::Stopped);
+    EXPECT_EQ(fsm.stateId(), StateId::Ready);
+    EXPECT_TRUE(fsm.shouldRun());
+
+    MidiMessage live_note{.channel = 0, .key = 67, .velocity = 80};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel))
+        .WillOnce(Return(17));
+    EXPECT_EQ(
+        fsm.midiMessage(MidiMessageType::NoteOn, live_note, start_time + 2ms),
+        17
+    );
 }
 
 TEST(LooperFsmTest, ZeroDurationTakeUsesTheNormalRecordingTransition) {

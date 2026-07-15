@@ -20,9 +20,13 @@ Milliseconds elapsedMilliseconds(TimePoint start, TimePoint finish) {
     return elapsed < Milliseconds::zero() ? Milliseconds::zero() : elapsed;
 }
 
-StateId stopApplication(LooperOutput& output) {
+void stopPlayback(LooperOutput& output) {
     output.stopLoopPlayback();
     output.silenceAllChannels();
+}
+
+StateId shutdownApplication(LooperOutput& output) {
+    stopPlayback(output);
     output.stopPlaybackWorker();
     return StateId::Stopped;
 }
@@ -32,7 +36,7 @@ public:
     using LooperState::LooperState;
 
     StateId shutdownRequested() const final {
-        return stopApplication(output_);
+        return shutdownApplication(output_);
     }
 };
 
@@ -87,7 +91,9 @@ public:
 
     StateId primaryControlPressed(TimePoint) const override {
         output_.showNoTake();
-        return stopApplication(output_);
+        stopPlayback(output_);
+        output_.selectCurrentSoundFont(MidiRoute::LiveChannel);
+        return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
@@ -193,7 +199,8 @@ public:
     using ActiveState::ActiveState;
 
     StateId primaryControlPressed(TimePoint) const override {
-        return stopApplication(output_);
+        stopPlayback(output_);
+        return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
@@ -346,7 +353,7 @@ StateId LooperFsm::shutdownRequested() {
 
 bool LooperFsm::shouldRun() const {
     std::lock_guard lock(mutex_);
-    return !isTerminal(current_state_);
+    return current_state_ != StateId::Stopped;
 }
 
 StateId LooperFsm::stateId() const {
@@ -357,10 +364,6 @@ StateId LooperFsm::stateId() const {
 void LooperFsm::install(StateId next_state) {
     states_.at(next_state);
     current_state_ = next_state;
-}
-
-bool isTerminal(StateId id) noexcept {
-    return id == StateId::Stopped;
 }
 
 } // namespace zeta
