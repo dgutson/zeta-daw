@@ -261,7 +261,8 @@ The current dependency strategy is intentional:
   `FetchContent` fallbacks.
 - GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
   selective beta pilot for pure property tests; retain deterministic GoogleTest
-  examples and do not treat it as a blanket testing standard.
+  examples and do not treat it as a blanket testing standard. Follow
+  [HEGEL.md](HEGEL.md) when selecting, writing, and running properties.
 
 Do not add Conan, vcpkg, or Nix merely for uniformity. At the current project
 size they would add another packaging layer without removing the need for
