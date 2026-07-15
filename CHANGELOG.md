@@ -54,6 +54,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Fixed
 
+- Rejected channel voice messages containing out-of-domain MIDI data bytes at
+  the raw decoder boundary, preventing malformed Control Change input from
+  indexing beyond the mapping table.
 - Restored the SE49 volume fader while MMC transport mode is active by mapping
   its configured MIDI2 channel-16 CC20 event to Channel Volume CC7.
 - Restored MIDI input after hardware ports disconnect and reconnect by keeping

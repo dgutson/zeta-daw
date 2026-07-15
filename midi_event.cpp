@@ -12,8 +12,22 @@ constexpr std::uint8_t end_of_exclusive = 0xF7;
 constexpr std::uint8_t universal_realtime = 0x7F;
 constexpr std::uint8_t machine_control = 0x06;
 
-bool hasSize(std::span<const std::uint8_t> bytes, std::size_t size) noexcept {
-    return bytes.size() >= size;
+template<std::size_t Count>
+bool hasValidDataBytes(std::span<const std::uint8_t> bytes) noexcept {
+    static_assert(Count == 1 || Count == 2);
+
+    if (bytes.size() < Count + 1) {
+        return false;
+    }
+
+    if (bytes[1] >= 0x80) {
+        return false;
+    }
+
+    if constexpr (Count == 2) {
+        return bytes[2] < 0x80;
+    }
+    return true;
 }
 
 } // namespace
@@ -53,7 +67,7 @@ std::optional<MidiEvent> decodeMidiEvent(
             .message = {.raw_type = system_exclusive},
         };
 
-        if (hasSize(bytes, 6)
+        if (bytes.size() >= 6
             && bytes[1] == universal_realtime
             && bytes[3] == machine_control
             && bytes.back() == end_of_exclusive) {
@@ -81,40 +95,40 @@ std::optional<MidiEvent> decodeMidiEvent(
     switch (type) {
     case MidiMessageType::NoteOff:
     case MidiMessageType::NoteOn:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes<2>(bytes)) {
             return std::nullopt;
         }
         event.message.key = bytes[1];
         event.message.velocity = bytes[2];
         break;
     case MidiMessageType::PolyphonicKeyPressure:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes<2>(bytes)) {
             return std::nullopt;
         }
         event.message.key = bytes[1];
         event.message.pressure = bytes[2];
         break;
     case MidiMessageType::ControlChange:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes<2>(bytes)) {
             return std::nullopt;
         }
         event.message.control = bytes[1];
         event.message.value = bytes[2];
         break;
     case MidiMessageType::ProgramChange:
-        if (!hasSize(bytes, 2)) {
+        if (!hasValidDataBytes<1>(bytes)) {
             return std::nullopt;
         }
         event.message.program = bytes[1];
         break;
     case MidiMessageType::ChannelPressure:
-        if (!hasSize(bytes, 2)) {
+        if (!hasValidDataBytes<1>(bytes)) {
             return std::nullopt;
         }
         event.message.pressure = bytes[1];
         break;
     case MidiMessageType::PitchBend:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes<2>(bytes)) {
             return std::nullopt;
         }
         event.message.pitch = bytes[1] | (bytes[2] << 7);

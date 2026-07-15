@@ -186,7 +186,7 @@ if(BUILD_TESTING)
         midi_event.cpp
     )
     target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)
-    target_link_libraries(midi_tests PRIVATE GTest::gtest_main)
+    target_link_libraries(midi_tests PRIVATE GTest::gtest_main hegel)
 
     add_executable(
         octave_transposer_tests

@@ -126,6 +126,7 @@ Current examples are in:
 - `tests/octave_transposer_test.cpp` for a sequence/reference model and field
   preservation;
 - `tests/midi_control_change_mapping_test.cpp` for a linear-search oracle;
+- `tests/midi_event_test.cpp` for the channel-message data-byte invariant;
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
 
 ## Running Hegel properties
