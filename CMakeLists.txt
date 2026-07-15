@@ -66,6 +66,7 @@ add_executable(
     octave_transposer.cpp
     synth_engine.cpp
 )
+set_target_properties(midi_looper PROPERTIES OUTPUT_NAME zd)
 target_link_libraries(
     midi_looper
     PRIVATE
