@@ -12,15 +12,11 @@ constexpr std::uint8_t end_of_exclusive = 0xF7;
 constexpr std::uint8_t universal_realtime = 0x7F;
 constexpr std::uint8_t machine_control = 0x06;
 
-bool hasSize(std::span<const std::uint8_t> bytes, std::size_t size) noexcept {
-    return bytes.size() >= size;
-}
-
 template<std::size_t Count>
 bool hasValidDataBytes(std::span<const std::uint8_t> bytes) noexcept {
     static_assert(Count == 1 || Count == 2);
 
-    if (!hasSize(bytes, Count + 1)) {
+    if (bytes.size() < Count + 1) {
         return false;
     }
 
@@ -71,7 +67,7 @@ std::optional<MidiEvent> decodeMidiEvent(
             .message = {.raw_type = system_exclusive},
         };
 
-        if (hasSize(bytes, 6)
+        if (bytes.size() >= 6
             && bytes[1] == universal_realtime
             && bytes[3] == machine_control
             && bytes.back() == end_of_exclusive) {
