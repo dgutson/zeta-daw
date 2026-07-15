@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added a selective Hegel property-testing pilot for octave transposition,
+  Control Change mapping, and MIDI control-binding overlap contracts while
+  retaining the deterministic GoogleTest examples.
 - Added exact, source-port-aware MIDI Control Change mappings so controller
   faders can use standard synthesizer controller semantics without persistent
   hardware reconfiguration.
