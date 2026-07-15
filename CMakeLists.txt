@@ -97,6 +97,15 @@ include(CTest)
 if(BUILD_TESTING)
     include(FetchContent)
 
+    FetchContent_Declare(
+        hegel
+        URL https://github.com/hegeldev/hegel-cpp/archive/refs/tags/v0.7.1.tar.gz
+        URL_HASH SHA256=d27dc8db6c1f9b9898e3d0ecd35844e4a65d059cfb093d91bbc20d4c1da2de2b
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    set(HEGEL_REFLECTION OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(hegel)
+
     # Pin the latest GoogleTest release available when this suite was added.
     # A release archive keeps test builds reproducible.
     FetchContent_Declare(
@@ -145,7 +154,7 @@ if(BUILD_TESTING)
     target_compile_options(configuration_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(
         configuration_tests
-        PRIVATE GTest::gtest_main ${ZETA_YAML_TARGET}
+        PRIVATE GTest::gtest_main ${ZETA_YAML_TARGET} hegel
     )
 
     add_executable(
@@ -168,7 +177,7 @@ if(BUILD_TESTING)
     )
     target_link_libraries(
         midi_control_change_mapping_tests
-        PRIVATE GTest::gtest_main
+        PRIVATE GTest::gtest_main hegel
     )
 
     add_executable(
@@ -189,7 +198,10 @@ if(BUILD_TESTING)
         octave_transposer_tests
         PRIVATE -Wall -Wextra -Wpedantic
     )
-    target_link_libraries(octave_transposer_tests PRIVATE GTest::gtest_main)
+    target_link_libraries(
+        octave_transposer_tests
+        PRIVATE GTest::gtest_main hegel
+    )
 
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)

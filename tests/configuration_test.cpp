@@ -1,19 +1,24 @@
 #include "../configuration.hpp"
 
 #include <gtest/gtest.h>
+#include <hegel/hegel.h>
 
 #include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 
 namespace {
 
+namespace gs = hegel::generators;
+
 using zeta::ConfigurationError;
+using zeta::MidiControlBinding;
 using zeta::MidiMessage;
 using zeta::MidiMessageType;
 using zeta::MidiControlType;
@@ -80,6 +85,129 @@ std::string configWithMapping(std::string_view mapping) {
         << "  octave_down: { type: machine_control, command: play }\n"
         << "  octave_up: { type: machine_control, command: record_strobe }\n";
     return config.str();
+}
+
+MidiControlType generatedControlType(int choice) {
+    switch (choice) {
+    case 0:
+        return MidiControlType::Note;
+    case 1:
+        return MidiControlType::ControlChange;
+    case 2:
+        return MidiControlType::ProgramChange;
+    default:
+        return MidiControlType::MachineControl;
+    }
+}
+
+MidiControlBinding generatedBinding(hegel::TestCase& tc) {
+    return {
+        .type = generatedControlType(
+            tc.draw(gs::integers<int>({.min_value = 0, .max_value = 3}))
+        ),
+        .channel = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 15})),
+        .number = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
+        .value = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
+        .match_any_program = tc.draw(gs::booleans()),
+    };
+}
+
+bool bothMatch(
+    const MidiControlBinding& first,
+    const MidiControlBinding& second,
+    MidiMessageType type,
+    const MidiMessage& message
+) {
+    return first.matches(type, message) && second.matches(type, message);
+}
+
+bool haveCommonMatchingEvent(
+    const MidiControlBinding& first,
+    const MidiControlBinding& second
+) {
+    for (int channel = 0; channel < 16; ++channel) {
+        for (int number = 0; number < 128; ++number) {
+            if (bothMatch(
+                    first,
+                    second,
+                    MidiMessageType::NoteOn,
+                    MidiMessage{
+                        .channel = channel,
+                        .key = number,
+                        .velocity = 1,
+                    }
+                )) {
+                return true;
+            }
+
+            if (bothMatch(
+                    first,
+                    second,
+                    MidiMessageType::ProgramChange,
+                    MidiMessage{.channel = channel, .program = number}
+                )) {
+                return true;
+            }
+
+            for (int value = 0; value < 128; ++value) {
+                if (bothMatch(
+                        first,
+                        second,
+                        MidiMessageType::ControlChange,
+                        MidiMessage{
+                            .channel = channel,
+                            .control = number,
+                            .value = value,
+                        }
+                    )) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    for (int command = 0; command < 128; ++command) {
+        if (bothMatch(
+                first,
+                second,
+                MidiMessageType::MachineControl,
+                MidiMessage{.machine_control_command = command}
+            )) {
+            return true;
+        }
+    }
+    return false;
+}
+
+HEGEL_TEST(control_binding_overlap_is_symmetric)(hegel::TestCase& tc) {
+    const auto first = generatedBinding(tc);
+    const auto second = generatedBinding(tc);
+
+    if (first.overlaps(second) != second.overlaps(first)) {
+        throw std::runtime_error("MIDI control-binding overlap is asymmetric");
+    }
+}
+
+HEGEL_TEST(control_binding_overlap_matches_finite_event_model)(
+    hegel::TestCase& tc
+) {
+    const auto first = generatedBinding(tc);
+    const auto second = generatedBinding(tc);
+    const bool expected = haveCommonMatchingEvent(first, second);
+
+    if (first.overlaps(second) != expected) {
+        throw std::runtime_error(
+            "MIDI control-binding overlap disagrees with matching events"
+        );
+    }
+}
+
+TEST(MidiControlBindingPropertyTest, OverlapIsSymmetric) {
+    control_binding_overlap_is_symmetric();
+}
+
+TEST(MidiControlBindingPropertyTest, OverlapMatchesFiniteEventModel) {
+    control_binding_overlap_matches_finite_event_model();
 }
 
 TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {

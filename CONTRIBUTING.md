@@ -259,7 +259,10 @@ The current dependency strategy is intentional:
 - System packages provide platform-facing ALSA and FluidSynth libraries.
 - CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned
   `FetchContent` fallbacks.
-- GoogleTest is pinned and fetched only for test builds.
+- GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
+  selective beta pilot for pure property tests; retain deterministic GoogleTest
+  examples and do not treat it as a blanket testing standard. Follow
+  [HEGEL.md](HEGEL.md) when selecting, writing, and running properties.
 
 Do not add Conan, vcpkg, or Nix merely for uniformity. At the current project
 size they would add another packaging layer without removing the need for
