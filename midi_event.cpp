@@ -16,6 +16,22 @@ bool hasSize(std::span<const std::uint8_t> bytes, std::size_t size) noexcept {
     return bytes.size() >= size;
 }
 
+bool hasValidDataBytes(
+    std::span<const std::uint8_t> bytes,
+    std::size_t count
+) noexcept {
+    if (!hasSize(bytes, count + 1)) {
+        return false;
+    }
+
+    for (const auto byte : bytes.subspan(1, count)) {
+        if (byte >= 0x80) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 MidiMessageType classifyMidiMessage(int raw_type) noexcept {
@@ -81,40 +97,40 @@ std::optional<MidiEvent> decodeMidiEvent(
     switch (type) {
     case MidiMessageType::NoteOff:
     case MidiMessageType::NoteOn:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes(bytes, 2)) {
             return std::nullopt;
         }
         event.message.key = bytes[1];
         event.message.velocity = bytes[2];
         break;
     case MidiMessageType::PolyphonicKeyPressure:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes(bytes, 2)) {
             return std::nullopt;
         }
         event.message.key = bytes[1];
         event.message.pressure = bytes[2];
         break;
     case MidiMessageType::ControlChange:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes(bytes, 2)) {
             return std::nullopt;
         }
         event.message.control = bytes[1];
         event.message.value = bytes[2];
         break;
     case MidiMessageType::ProgramChange:
-        if (!hasSize(bytes, 2)) {
+        if (!hasValidDataBytes(bytes, 1)) {
             return std::nullopt;
         }
         event.message.program = bytes[1];
         break;
     case MidiMessageType::ChannelPressure:
-        if (!hasSize(bytes, 2)) {
+        if (!hasValidDataBytes(bytes, 1)) {
             return std::nullopt;
         }
         event.message.pressure = bytes[1];
         break;
     case MidiMessageType::PitchBend:
-        if (!hasSize(bytes, 3)) {
+        if (!hasValidDataBytes(bytes, 2)) {
             return std::nullopt;
         }
         event.message.pitch = bytes[1] | (bytes[2] << 7);

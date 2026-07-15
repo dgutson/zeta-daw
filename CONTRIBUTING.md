@@ -63,8 +63,9 @@ The main layers and ownership boundaries are:
 - `midi_input.*` owns hardware MIDI discovery, connection, disconnection, and
   reconnection through libremidi's ALSA Sequencer backend. It associates
   configured mappings with a source port while the port name is available.
-- `midi_event.*` owns the library-independent MIDI event model and byte
-  decoding, including MMC SysEx recognition.
+- `midi_event.*` owns the library-independent MIDI event model and raw-byte
+  decoding, including channel-message data-byte validation and MMC SysEx
+  recognition.
 - `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
   libremidi, configuration parsing, or the playback thread.
 - `application.*` composes the system, matches configured controls, implements
