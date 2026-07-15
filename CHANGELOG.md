@@ -18,10 +18,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
-- Configuration schema 5 requires `midi_control_change_mappings`, which may be
-  empty when a controller needs no normalization, as well as dedicated
-  `octave_down` and `octave_up` bindings with overlap rejection among all four
-  application actions.
+- Configuration schema 5 accepts optional `midi_control_change_mappings` for
+  controllers needing normalization, and requires dedicated `octave_down` and
+  `octave_up` bindings with overlap rejection among all four application
+  actions.
 - Live and pending-loop octave selection stay synchronized until recording
   starts; recorded loops retain their selected octave while later changes
   affect only live playing.

@@ -349,9 +349,13 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     }
 
     ApplicationConfig config;
-    config.midi_control_change_mappings = parseMidiControlChangeMappings(
-        root["midi_control_change_mappings"]
-    );
+    const auto midi_control_change_mappings =
+        root["midi_control_change_mappings"];
+    if (midi_control_change_mappings) {
+        config.midi_control_change_mappings = parseMidiControlChangeMappings(
+            midi_control_change_mappings
+        );
+    }
 
     const auto soundfonts = root["soundfonts"];
     requireSequence(soundfonts, "soundfonts");

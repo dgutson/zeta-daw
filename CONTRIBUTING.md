@@ -195,10 +195,11 @@ required version is 5.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- `midi_control_change_mappings` is a required list that may be empty. Each
-  entry matches one exact source-port display name, human-facing channel, and
-  controller number, then replaces only the controller number. Duplicate
-  source/channel/controller matches are rejected.
+- `midi_control_change_mappings` is optional; omission means that no Control
+  Change normalization is needed. Each entry matches one exact source-port
+  display name, human-facing channel, and controller number, then replaces only
+  the controller number. Duplicate source/channel/controller matches are
+  rejected.
 - `controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
   `controls.octave_up` each contain exactly one required binding. Performance
   setup changes are made by editing that binding before startup. Supported

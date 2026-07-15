@@ -144,11 +144,12 @@ FluidSynth documentation because command-line audio options differ by system.
 
 ### MIDI Control Change mappings
 
-`midi_control_change_mappings` is a required list and may be empty. Each entry
-matches an exact connected source-port display name, MIDI channel, and Control
-Change controller number, then replaces only the controller number. The MIDI
-channel and value are preserved. Mappings are applied once without chaining;
-unmatched Control Change and all other MIDI messages remain unchanged.
+`midi_control_change_mappings` is optional. Omit it when the controller needs
+no normalization. Each entry matches an exact connected source-port display
+name, MIDI channel, and Control Change controller number, then replaces only
+the controller number. The MIDI channel and value are preserved. Mappings are
+applied once without chaining; unmatched Control Change and all other MIDI
+messages remain unchanged.
 
 The source-port name is the stable, human-readable name printed by Zeta:
 

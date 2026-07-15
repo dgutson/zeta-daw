@@ -143,7 +143,7 @@ controls:
     EXPECT_EQ(config.octave_up_control.number, 0x06);
 }
 
-TEST(ConfigurationTest, RequiresMidiControlChangeMappings) {
+TEST(ConfigurationTest, AcceptsOmittedMidiControlChangeMappings) {
     auto contents = configWithMmcCommands({
         "rewind",
         "stop",
@@ -154,7 +154,9 @@ TEST(ConfigurationTest, RequiresMidiControlChangeMappings) {
     contents.erase(contents.find(field), field.size());
     TemporaryConfig source{std::move(contents)};
 
-    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+    const auto config = zeta::loadConfiguration(source.path());
+
+    EXPECT_TRUE(config.midi_control_change_mappings.empty());
 }
 
 TEST(ConfigurationTest, AcceptsEmptyMidiControlChangeMappings) {
