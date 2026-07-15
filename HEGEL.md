@@ -7,9 +7,8 @@ counterexample. This complements deterministic GoogleTest examples; it does
 not replace them or make Hegel the default choice for every test.
 
 The version and archive hash in `CMakeLists.txt` are authoritative. Hegel is a
-beta test-only dependency and must not be linked to the production
-`midi_looper` CMake target or used on a real-time path. Do not upgrade it
-opportunistically.
+beta test-only dependency and must not be linked to the production `zd` CMake
+target or used on a real-time path. Do not upgrade it opportunistically.
 
 ## When Hegel is a good fit
 

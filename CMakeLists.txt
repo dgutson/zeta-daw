@@ -55,7 +55,7 @@ else()
 endif()
 
 add_executable(
-    midi_looper
+    zd
     main.cpp
     application.cpp
     configuration.cpp
@@ -66,22 +66,21 @@ add_executable(
     octave_transposer.cpp
     synth_engine.cpp
 )
-set_target_properties(midi_looper PROPERTIES OUTPUT_NAME zd)
 target_link_libraries(
-    midi_looper
+    zd
     PRIVATE
         PkgConfig::FLUIDSYNTH
         Threads::Threads
         ${ZETA_YAML_TARGET}
         libremidi::libremidi
 )
-target_compile_options(midi_looper PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(zd PRIVATE -Wall -Wextra -Wpedantic)
 if(ZETA_GCC_ANALYZER)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         message(FATAL_ERROR "ZETA_GCC_ANALYZER requires GCC")
     endif()
     target_compile_options(
-        midi_looper
+        zd
         PRIVATE
             -fanalyzer
             -Werror
@@ -90,7 +89,7 @@ if(ZETA_GCC_ANALYZER)
     )
 endif()
 if(ZETA_MIDI_TRACE)
-    target_compile_definitions(midi_looper PRIVATE ZETA_MIDI_TRACE)
+    target_compile_definitions(zd PRIVATE ZETA_MIDI_TRACE)
 endif()
 
 include(CTest)

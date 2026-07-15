@@ -21,7 +21,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
-- Renamed the produced application executable from `midi_looper` to `zd`.
+- Renamed the production CMake target and application executable from
+  `midi_looper` to `zd`.
 - Renamed the FSM recording-control stimulus for consistency with the
   configured action, without changing state behavior.
 - The recording control now cancels an armed take or stops an active loop and

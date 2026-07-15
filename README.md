@@ -25,6 +25,7 @@ SIGTERM, or another process shutdown signal.
 - CMake 3.22 or newer
 - pkg-config
 - FluidSynth and ALSA development files
+- libremidi 5.4.3 and yaml-cpp, installed or fetched by CMake
 - An ALSA-compatible audio output and MIDI controller
 - One or more `.sf2` or `.sf3` SoundFont files
 
@@ -41,8 +42,11 @@ sudo apt install \
     libyaml-cpp-dev
 ```
 
-CMake downloads pinned copies of libremidi and, when it is not installed,
-yaml-cpp during the first configuration. That step requires network access.
+FluidSynth and ALSA are required system dependencies. CMake first looks for
+libremidi 5.4.3 and yaml-cpp, then downloads pinned copies when they are not
+available. Test builds also fetch pinned Hegel and GoogleTest dependencies.
+The first configuration therefore requires network access when those fetched
+dependencies are not already cached.
 
 These optional packages provide MIDI diagnostic tools and a General MIDI
 SoundFont suitable for an initial test:
