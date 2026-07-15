@@ -143,11 +143,6 @@ public:
             data_.recording_started_at,
             now
         );
-        if (duration <= Milliseconds::zero()) {
-            output_.showNoTake();
-            return stopApplication(output_);
-        }
-
         output_.commitTake(duration);
         output_.startLoopPlayback();
         output_.showLooping();

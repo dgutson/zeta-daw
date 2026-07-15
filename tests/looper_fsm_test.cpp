@@ -293,7 +293,7 @@ TEST(LooperFsmTest, PressingControlWhileArmedReportsNoTakeAndStops) {
     EXPECT_EQ(fsm.stateId(), StateId::Stopped);
 }
 
-TEST(LooperFsmTest, ZeroDurationTakeReportsNoTakeAndStops) {
+TEST(LooperFsmTest, ZeroDurationTakeUsesTheNormalRecordingTransition) {
     StrictMock<MockOutput> output;
     LooperStateRegistry states{output};
     LooperFsm fsm{states};
@@ -306,14 +306,13 @@ TEST(LooperFsmTest, ZeroDurationTakeReportsNoTakeAndStops) {
 
     {
         InSequence sequence;
-        EXPECT_CALL(output, showNoTake());
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, stopPlaybackWorker());
+        EXPECT_CALL(output, commitTake(0ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
     }
 
-    EXPECT_EQ(fsm.primaryControlPressed(start_time), StateId::Stopped);
-    EXPECT_EQ(fsm.stateId(), StateId::Stopped);
+    EXPECT_EQ(fsm.primaryControlPressed(start_time), StateId::Looping);
+    EXPECT_EQ(fsm.stateId(), StateId::Looping);
 }
 
 TEST(LooperFsmTest, ShutdownFromReadyIsTerminalAndIdempotent) {

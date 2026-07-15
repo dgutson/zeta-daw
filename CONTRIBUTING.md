@@ -228,6 +228,9 @@ required version is 5.
 
 - Use C++20, RAII, clear ownership, narrow interfaces, and project-owned types
   at architectural boundaries.
+- Keep a function used by only one class as a private static member when it
+  does not require instance state. Do not expose class implementation details
+  as namespace-level helpers merely to make them directly testable.
 - Keep changes DRY, small, and local to the owning layer. Prefer an explicit
   helper over repeated transition or routing logic, but do not invent an
   abstraction before it has a real responsibility.

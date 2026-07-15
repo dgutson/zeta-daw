@@ -32,6 +32,8 @@ private:
     std::unique_ptr<MidiInput> midi_input_;
     std::atomic<bool> midi_ready_{false};
 
+    static bool isPlayableLoopDuration(Milliseconds duration) noexcept;
+
     void handleMidiEvent(MidiEvent event) noexcept;
 
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;

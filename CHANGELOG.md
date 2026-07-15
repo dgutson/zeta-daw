@@ -21,6 +21,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Recording completion now always follows one FSM transition into looping;
+  zero-length playback requests are rejected by the playback worker so they
+  cannot busy-loop.
 - Configuration schema 5 accepts optional `midi_control_change_mappings` for
   controllers needing normalization, and requires dedicated `octave_down` and
   `octave_up` bindings with overlap rejection among all four application
