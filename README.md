@@ -25,6 +25,7 @@ SIGTERM, or another process shutdown signal.
 - CMake 3.22 or newer
 - pkg-config
 - FluidSynth and ALSA development files
+- libremidi 5.4.3 and yaml-cpp, installed or fetched by CMake
 - An ALSA-compatible audio output and MIDI controller
 - One or more `.sf2` or `.sf3` SoundFont files
 
@@ -41,8 +42,11 @@ sudo apt install \
     libyaml-cpp-dev
 ```
 
-CMake downloads pinned copies of libremidi and, when it is not installed,
-yaml-cpp during the first configuration. That step requires network access.
+FluidSynth and ALSA are required system dependencies. CMake first looks for
+libremidi 5.4.3 and yaml-cpp, then downloads pinned copies when they are not
+available. Test builds also fetch pinned Hegel and GoogleTest dependencies.
+The first configuration therefore requires network access when those fetched
+dependencies are not already cached.
 
 These optional packages provide MIDI diagnostic tools and a General MIDI
 SoundFont suitable for an initial test:
@@ -59,7 +63,7 @@ Configure and build a release executable:
 ./build.sh
 ```
 
-The release executable is `build/midi_looper`. This script explicitly disables
+The release executable is `build/zd`. This script explicitly disables
 MIDI tracing, even when the build directory previously cached another value.
 
 For a debug executable with MIDI routing traces enabled, use the separate debug
@@ -69,7 +73,7 @@ build directory:
 ./build_debug.sh
 ```
 
-The trace executable is `build-debug/midi_looper`.
+The trace executable is `build-debug/zd`.
 
 ## Configuration
 
@@ -290,7 +294,7 @@ Connect the audio interface and MIDI controller, then run with an explicit
 configuration path:
 
 ```bash
-./build/midi_looper /path/to/zeta.yaml
+./build/zd /path/to/zeta.yaml
 ```
 
 Press Ctrl-C to shut down gracefully. SIGTERM is handled the same way.
@@ -302,7 +306,7 @@ With no argument, Zeta reads `/etc/zeta-daw/zeta.yaml`.
 Install the executable and configuration:
 
 ```bash
-sudo install -m 0755 build/midi_looper /usr/local/bin/midi_looper
+sudo install -m 0755 build/zd /usr/local/bin/zd
 sudo install -d /etc/zeta-daw
 sudo install -m 0644 zeta.yaml /etc/zeta-daw/zeta.yaml
 ```
@@ -326,7 +330,7 @@ After=sound.target
 Type=simple
 User=YOUR_USER
 SupplementaryGroups=audio
-ExecStart=/usr/local/bin/midi_looper /etc/zeta-daw/zeta.yaml
+ExecStart=/usr/local/bin/zd /etc/zeta-daw/zeta.yaml
 Restart=on-failure
 RestartSec=2
 
