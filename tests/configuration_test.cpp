@@ -55,7 +55,7 @@ std::string configWithMmcCommands(
 ) {
     std::ostringstream config;
     config
-        << "schema_version: 5\n"
+        << "schema_version: 6\n"
         << "midi_control_change_mappings: []\n"
         << "soundfonts:\n"
         << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
@@ -74,7 +74,7 @@ std::string configWithMmcCommands(
 std::string configWithMapping(std::string_view mapping) {
     std::ostringstream config;
     config
-        << "schema_version: 5\n"
+        << "schema_version: 6\n"
         << "midi_control_change_mappings:\n"
         << "  - { " << mapping << " }\n"
         << "soundfonts:\n"
@@ -84,6 +84,30 @@ std::string configWithMapping(std::string_view mapping) {
         << "  next_soundfont: { type: machine_control, command: stop }\n"
         << "  octave_down: { type: machine_control, command: play }\n"
         << "  octave_up: { type: machine_control, command: record_strobe }\n";
+    return config.str();
+}
+
+std::string configWithAllMmcCommands(
+    const std::array<std::string_view, 5>& commands
+) {
+    std::ostringstream config;
+    config
+        << "schema_version: 6\n"
+        << "soundfonts:\n"
+        << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
+        << "soundfont_note_selections:\n"
+        << "  - { channel: 1, key: 60, soundfont: piano }\n"
+        << "controls:\n"
+        << "  recording: { type: machine_control, command: "
+        << commands[0] << " }\n"
+        << "  next_soundfont: { type: machine_control, command: "
+        << commands[1] << " }\n"
+        << "  soundfont_by_note: { type: machine_control, command: "
+        << commands[2] << " }\n"
+        << "  octave_down: { type: machine_control, command: "
+        << commands[3] << " }\n"
+        << "  octave_up: { type: machine_control, command: "
+        << commands[4] << " }\n";
     return config.str();
 }
 
@@ -212,7 +236,7 @@ TEST(MidiControlBindingPropertyTest, OverlapMatchesFiniteEventModel) {
 
 TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings:
   - source_port: Controller MIDI2
     channel: 16
@@ -227,6 +251,9 @@ soundfonts:
     file: /opt/sounds/bass.sf2
     bank: 128
     preset: 34
+soundfont_note_selections:
+  - { channel: 1, key: 60, soundfont: piano }
+  - { channel: 2, key: 62, soundfont: bass }
 controls:
   recording:
     type: note
@@ -235,6 +262,7 @@ controls:
   next_soundfont:
     type: machine_control
     command: stop
+  soundfont_by_note: { type: machine_control, command: pause }
   octave_down: { type: machine_control, command: play }
   octave_up: { type: machine_control, command: record_strobe }
 )yaml"};
@@ -262,13 +290,62 @@ controls:
     EXPECT_EQ(config.recording_control.type, MidiControlType::Note);
     EXPECT_EQ(config.recording_control.channel, 0);
     EXPECT_EQ(config.recording_control.number, 24);
+    ASSERT_TRUE(config.next_soundfont_control);
     EXPECT_EQ(
-        config.next_soundfont_control.type,
+        config.next_soundfont_control->type,
         MidiControlType::MachineControl
     );
-    EXPECT_EQ(config.next_soundfont_control.number, 0x01);
+    EXPECT_EQ(config.next_soundfont_control->number, 0x01);
+    ASSERT_TRUE(config.soundfont_by_note_control);
+    EXPECT_EQ(config.soundfont_by_note_control->number, 0x09);
     EXPECT_EQ(config.octave_down_control.number, 0x02);
     EXPECT_EQ(config.octave_up_control.number, 0x06);
+
+    ASSERT_EQ(config.soundfont_note_selections.size(), 2U);
+    EXPECT_EQ(config.soundfont_note_selections[0].channel, 0);
+    EXPECT_EQ(config.soundfont_note_selections[0].key, 60);
+    EXPECT_EQ(config.soundfont_note_selections[0].soundfont_index, 0U);
+    EXPECT_EQ(config.soundfont_note_selections[1].channel, 1);
+    EXPECT_EQ(config.soundfont_note_selections[1].key, 62);
+    EXPECT_EQ(config.soundfont_note_selections[1].soundfont_index, 1U);
+}
+
+TEST(ConfigurationTest, AcceptsEitherOrBothSoundFontSelectionControls) {
+    TemporaryConfig only_next{configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    })};
+    const auto next_config = zeta::loadConfiguration(only_next.path());
+    EXPECT_TRUE(next_config.next_soundfont_control);
+    EXPECT_FALSE(next_config.soundfont_by_note_control);
+
+    auto only_direct_contents = configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    });
+    const std::string next =
+        "  next_soundfont: { type: machine_control, command: stop }\n";
+    only_direct_contents.erase(only_direct_contents.find(next), next.size());
+    TemporaryConfig only_direct{std::move(only_direct_contents)};
+    const auto direct_config = zeta::loadConfiguration(only_direct.path());
+    EXPECT_FALSE(direct_config.next_soundfont_control);
+    EXPECT_TRUE(direct_config.soundfont_by_note_control);
+
+    TemporaryConfig both{configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    })};
+    const auto both_config = zeta::loadConfiguration(both.path());
+    EXPECT_TRUE(both_config.next_soundfont_control);
+    EXPECT_TRUE(both_config.soundfont_by_note_control);
 }
 
 TEST(ConfigurationTest, AcceptsOmittedMidiControlChangeMappings) {
@@ -356,7 +433,6 @@ TEST(ConfigurationTest, RejectsDuplicateMidiControlChangeMappings) {
 TEST(ConfigurationTest, RejectsEveryMissingActionControl) {
     constexpr std::array action_names{
         std::string_view{"recording"},
-        std::string_view{"next_soundfont"},
         std::string_view{"octave_down"},
         std::string_view{"octave_up"},
     };
@@ -383,9 +459,131 @@ TEST(ConfigurationTest, RejectsEveryMissingActionControl) {
     }
 }
 
+TEST(ConfigurationTest, RejectsMissingSoundFontSelectionMechanism) {
+    auto contents = configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    });
+    const std::string next =
+        "  next_soundfont: { type: machine_control, command: stop }\n";
+    contents.erase(contents.find(next), next.size());
+    TemporaryConfig source{std::move(contents)};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, RejectsInvalidSoundFontNoteSelections) {
+    constexpr std::array invalid_selections{
+        std::string_view{"channel: 0, key: 60, soundfont: piano"},
+        std::string_view{"channel: 17, key: 60, soundfont: piano"},
+        std::string_view{"channel: 1, key: 128, soundfont: piano"},
+        std::string_view{"channel: 1, key: 60, soundfont: missing"},
+        std::string_view{"channel: 1, key: 60"},
+        std::string_view{
+            "channel: 1, key: 60, soundfont: piano, typo: true"
+        },
+    };
+
+    for (const auto selection : invalid_selections) {
+        std::ostringstream contents;
+        contents
+            << "schema_version: 6\n"
+            << "soundfonts:\n"
+            << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
+            << "soundfont_note_selections:\n"
+            << "  - { " << selection << " }\n"
+            << "controls:\n"
+            << "  recording: { type: machine_control, command: rewind }\n"
+            << "  soundfont_by_note: { type: machine_control, command: stop }\n"
+            << "  octave_down: { type: machine_control, command: play }\n"
+            << "  octave_up: { type: machine_control, command: record_strobe }\n";
+        TemporaryConfig source{contents.str()};
+        SCOPED_TRACE(selection);
+        EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+    }
+}
+
+TEST(ConfigurationTest, RejectsDuplicateSoundFontNoteSelections) {
+    auto contents = configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    });
+    const std::string selection =
+        "  - { channel: 1, key: 60, soundfont: piano }\n";
+    const auto position = contents.find(selection);
+    contents.insert(position + selection.size(), selection);
+    TemporaryConfig source{std::move(contents)};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, RejectsSelectionNotesOverlappingActionBindings) {
+    TemporaryConfig source{R"yaml(
+schema_version: 6
+soundfonts:
+  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
+soundfont_note_selections:
+  - { channel: 1, key: 60, soundfont: piano }
+controls:
+  recording: { type: note, channel: 1, key: 60 }
+  soundfont_by_note: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
+)yaml"};
+
+    EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, RequiresMappingsExactlyWhenDirectSelectionIsConfigured) {
+    auto missing_contents = configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    });
+    const std::string mappings =
+        "soundfont_note_selections:\n"
+        "  - { channel: 1, key: 60, soundfont: piano }\n";
+    missing_contents.erase(missing_contents.find(mappings), mappings.size());
+    TemporaryConfig missing{std::move(missing_contents)};
+    EXPECT_THROW(zeta::loadConfiguration(missing.path()), ConfigurationError);
+
+    auto empty_contents = configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    });
+    const std::string one_mapping =
+        "  - { channel: 1, key: 60, soundfont: piano }\n";
+    empty_contents.erase(empty_contents.find(one_mapping), one_mapping.size());
+    TemporaryConfig empty{std::move(empty_contents)};
+    EXPECT_THROW(zeta::loadConfiguration(empty.path()), ConfigurationError);
+
+    auto unused_contents = configWithAllMmcCommands({
+        "rewind",
+        "stop",
+        "pause",
+        "play",
+        "record_strobe",
+    });
+    const std::string direct =
+        "  soundfont_by_note: { type: machine_control, command: pause }\n";
+    unused_contents.erase(unused_contents.find(direct), direct.size());
+    TemporaryConfig unused{std::move(unused_contents)};
+    EXPECT_THROW(zeta::loadConfiguration(unused.path()), ConfigurationError);
+}
+
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - id: piano
@@ -408,7 +606,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -425,7 +623,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsOldSchemaAndRemovedParts) {
     TemporaryConfig old_schema{R"yaml(
-schema_version: 3
+schema_version: 5
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -440,13 +638,13 @@ controls:
     } catch (const ConfigurationError& error) {
         EXPECT_STREQ(
             error.what(),
-            "configuration.schema_version: unsupported schema version 3; "
-            "expected 5"
+            "configuration.schema_version: unsupported schema version 5; "
+            "expected 6"
         );
     }
 
     TemporaryConfig removed_parts{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -462,7 +660,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -475,7 +673,7 @@ controls:
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
 
     TemporaryConfig bad_mmc_command{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -495,6 +693,7 @@ TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
     constexpr std::array action_names{
         std::string_view{"recording"},
         std::string_view{"next_soundfont"},
+        std::string_view{"soundfont_by_note"},
         std::string_view{"octave_down"},
         std::string_view{"octave_up"},
     };
@@ -505,15 +704,16 @@ TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
             second < action_names.size();
             ++second
         ) {
-            auto commands = std::array<std::string_view, 4>{
+            auto commands = std::array<std::string_view, 5>{
                 "rewind",
                 "stop",
+                "pause",
                 "play",
                 "record_strobe",
             };
             commands[first] = "pause";
             commands[second] = "pause";
-            TemporaryConfig source{configWithMmcCommands(commands)};
+            TemporaryConfig source{configWithAllMmcCommands(commands)};
             SCOPED_TRACE(
                 std::string{action_names[first]} + " and "
                     + std::string{action_names[second]}
@@ -528,7 +728,7 @@ TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
 
 TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
     TemporaryConfig source{R"yaml(
-schema_version: 5
+schema_version: 6
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }

@@ -30,6 +30,7 @@ using zeta::MidiEvent;
 using zeta::MidiInput;
 using zeta::MidiMessageType;
 using zeta::SoundFontDefinition;
+using zeta::SoundFontNoteSelection;
 
 constexpr int raw(MidiMessageType type) {
     return static_cast<int>(type);
@@ -105,12 +106,20 @@ public:
         return output_.waitFor(text);
     }
 
+    bool waitForError(std::string_view text) {
+        return error_.waitFor(text);
+    }
+
     void join() {
         thread_.join();
     }
 
     std::string output() const {
         return output_.contents();
+    }
+
+    std::string error() const {
+        return error_.contents();
     }
 
 private:
@@ -138,6 +147,18 @@ ApplicationConfig testConfig() {
                 .preset = 0,
             },
         },
+        .soundfont_note_selections = {
+            SoundFontNoteSelection{
+                .channel = 0,
+                .key = 71,
+                .soundfont_index = 0,
+            },
+            SoundFontNoteSelection{
+                .channel = 0,
+                .key = 72,
+                .soundfont_index = 1,
+            },
+        },
         .midi_control_change_mappings = {},
         .recording_control = MidiControlBinding{
             .type = MidiControlType::MachineControl,
@@ -146,6 +167,10 @@ ApplicationConfig testConfig() {
         .next_soundfont_control = MidiControlBinding{
             .type = MidiControlType::MachineControl,
             .number = 0x01,
+        },
+        .soundfont_by_note_control = MidiControlBinding{
+            .type = MidiControlType::MachineControl,
+            .number = 0x09,
         },
         .octave_down_control = MidiControlBinding{
             .type = MidiControlType::MachineControl,
@@ -169,6 +194,13 @@ int pressNextSoundFontControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
         .machine_control_command = 0x01,
+    });
+}
+
+int pressSoundFontByNoteControl() {
+    return fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x09,
     });
 }
 
@@ -619,6 +651,183 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
     ));
 
     ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+}
+
+TEST_F(CurrentBehaviorTest, SelectsSoundFontsByNoteOnStateSpecificRoutes) {
+    auto config = testConfig();
+    config.next_soundfont_control.reset();
+    Application application{std::move(config), fake_midi_input::makeInput()};
+    InteractiveSession session{application};
+
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 72,
+        .velocity = 100,
+    }), FLUID_OK);
+    ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
+        return std::ranges::any_of(calls, [](const Call& call) {
+            return call.kind == CallKind::SelectProgram
+                && call.channel == 0
+                && call.soundfont_id == 2;
+        });
+    }));
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Recording..."));
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 71,
+        .velocity = 100,
+    }), FLUID_OK);
+    ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
+        return std::ranges::any_of(calls, [](const Call& call) {
+            return call.kind == CallKind::SelectProgram
+                && call.channel == 1
+                && call.soundfont_id == 1;
+        });
+    }));
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 60,
+        .velocity = 90,
+    }), FLUID_OK);
+    const auto selections_before_ignored_press = std::ranges::count(
+        fake_fluidsynth::calls(),
+        CallKind::SelectProgram,
+        &Call::kind
+    );
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 72,
+        .velocity = 80,
+    }), FLUID_OK);
+    EXPECT_EQ(
+        std::ranges::count(
+            fake_fluidsynth::calls(),
+            CallKind::SelectProgram,
+            &Call::kind
+        ),
+        selections_before_ignored_press
+    );
+
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_TRUE(session.waitForOutput("Looping."));
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 72,
+        .velocity = 70,
+    }), FLUID_OK);
+
+    const auto calls = fake_fluidsynth::calls();
+    EXPECT_FALSE(hasCall(calls, CallKind::HandleMidi, 0, 71));
+    EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 60));
+    EXPECT_TRUE(hasCall(calls, CallKind::HandleMidi, 1, 72));
+    EXPECT_FALSE(hasCall(calls, CallKind::HandleMidi, 0, 72));
+    EXPECT_TRUE(std::ranges::any_of(calls, [](const Call& call) {
+        return call.kind == CallKind::SelectProgram
+            && call.channel == 1
+            && call.soundfont_id == 1;
+    }));
+    EXPECT_TRUE(std::ranges::any_of(calls, [](const Call& call) {
+        return call.kind == CallKind::SelectProgram
+            && call.channel == 0
+            && call.soundfont_id == 2;
+    }));
+
+    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+}
+
+TEST_F(CurrentBehaviorTest, CancelsOrReportsOneShotSoundFontSelection) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+    InteractiveSession session{application};
+
+    const auto initial_selection_count = std::ranges::count(
+        fake_fluidsynth::calls(),
+        CallKind::SelectProgram,
+        &Call::kind
+    );
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 72,
+        .velocity = 100,
+    }), FLUID_OK);
+    EXPECT_TRUE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 72));
+    EXPECT_EQ(
+        std::ranges::count(
+            fake_fluidsynth::calls(),
+            CallKind::SelectProgram,
+            &Call::kind
+        ),
+        initial_selection_count
+    );
+
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 70,
+        .velocity = 100,
+    }), FLUID_OK);
+    ASSERT_TRUE(session.waitForError(
+        "No SoundFont mapped for MIDI channel 1 key 70"
+    ));
+    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 70));
+
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 70,
+        .velocity = 100,
+    }), FLUID_OK);
+    EXPECT_TRUE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 70));
+}
+
+TEST_F(CurrentBehaviorTest, DirectSelectionMatchesRawChannelAndKey) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+    InteractiveSession session{application};
+
+    ASSERT_EQ(pressOctaveUpControl(), FLUID_OK);
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 1,
+        .key = 72,
+        .velocity = 100,
+    }), FLUID_OK);
+    ASSERT_TRUE(session.waitForError(
+        "No SoundFont mapped for MIDI channel 2 key 72"
+    ));
+
+    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
+    EXPECT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::NoteOn),
+        .channel = 0,
+        .key = 72,
+        .velocity = 100,
+    }), FLUID_OK);
+    EXPECT_TRUE(std::ranges::any_of(
+        fake_fluidsynth::calls(),
+        [](const Call& call) {
+            return call.kind == CallKind::SelectProgram
+                && call.channel == 0
+                && call.soundfont_id == 2;
+        }
+    ));
+    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 84));
 }
 
 TEST_F(CurrentBehaviorTest, PreservesIndependentOctavesForTheNextTake) {

@@ -1,4 +1,4 @@
-schema_version: 5
+schema_version: 6
 
 # The SE49 fader uses its DAW integration port while MMC mode is active. Treat
 # its channel-16 CC20 event as standard Channel Volume CC7. Omit this optional
@@ -21,15 +21,29 @@ soundfonts:
     bank: 0
     preset: 34
 
+# Press the configured soundfont_by_note control and then one of these notes to
+# select that SoundFont directly. Channels are human-facing; keys are raw MIDI
+# numbers before Zeta octave transposition.
+soundfont_note_selections:
+  - channel: 1
+    key: 60
+    soundfont: piano
+
+  - channel: 1
+    key: 62
+    soundfont: bass
+
 # Put the SE49 in MMC transport mode. In that mode Transpose Down sends
 # Rewind, Transpose Up sends Stop, Octave Down sends Play, and Octave Up sends
-# Record Strobe. Zeta maps those messages to actions.
+# Record Strobe. This example uses Transpose Up to arm direct SoundFont
+# selection. To use sequential selection instead, rename soundfont_by_note to
+# next_soundfont and omit soundfont_note_selections.
 controls:
   recording:
     type: machine_control
     command: rewind
 
-  next_soundfont:
+  soundfont_by_note:
     type: machine_control
     command: stop
 

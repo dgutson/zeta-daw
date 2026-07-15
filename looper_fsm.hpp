@@ -26,9 +26,12 @@ enum class RecordedNoteKind {
 
 enum class StateId : std::size_t {
     Ready,
+    ReadySelectingSoundFont,
     Armed,
+    ArmedSelectingSoundFont,
     Recording,
     Looping,
+    LoopingSelectingSoundFont,
     Stopped,
     Count,
 };
@@ -49,6 +52,11 @@ public:
     virtual int monitorMidi(const MidiMessage& message, MidiRoute route) = 0;
     virtual void selectCurrentSoundFont(MidiRoute route) = 0;
     virtual void selectNextSoundFont(MidiRoute route) = 0;
+    virtual void selectSoundFontByNote(
+        MidiRoute route,
+        int input_channel,
+        int key
+    ) = 0;
     virtual void octaveDown(MidiRoute route) = 0;
     virtual void octaveUp(MidiRoute route) = 0;
 
@@ -79,6 +87,7 @@ public:
     virtual StateId recordingControlPressed(TimePoint now) const = 0;
 
     virtual StateId nextSoundFontPressed() const = 0;
+    virtual StateId soundFontByNotePressed() const = 0;
 
     virtual StateId octaveDownPressed() const = 0;
     virtual StateId octaveUpPressed() const = 0;
@@ -123,6 +132,7 @@ public:
 
     StateId recordingControlPressed(TimePoint now);
     StateId nextSoundFontPressed();
+    StateId soundFontByNotePressed();
     StateId octaveDownPressed();
     StateId octaveUpPressed();
     int midiMessage(MidiMessageType type, MidiMessage message, TimePoint received_at);

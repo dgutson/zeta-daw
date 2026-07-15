@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added direct SoundFont selection by pressing a configured controller action
+  and then a mapped piano note, with explicit Ready, Armed, and Looping
+  selection states for live performance.
 - Added a selective Hegel property-testing pilot and contributor guide for
   octave transposition, Control Change mapping, and MIDI control-binding
   overlap contracts while retaining the deterministic GoogleTest examples.
@@ -21,6 +24,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Configuration schema 6 makes sequential Next and direct note selection
+  independently optional while requiring at least one SoundFont-selection
+  mechanism.
+- Clarified that performer-visible interaction phases must be explicit looper
+  states and must not be encoded as hidden modes in shared state data or other
+  layers.
 - Clarified Linux-only platform support and the currently CI-tested compiler
   without making GCC mandatory for normal builds.
 - Renamed the production CMake target and application executable from

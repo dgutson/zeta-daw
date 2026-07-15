@@ -2,6 +2,7 @@
 #include "octave_transposer.hpp"
 #include "synth_engine.hpp"
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -22,10 +23,17 @@ namespace {
 constexpr int live_channel = 0;
 constexpr int loop_channel = 1;
 constexpr int expression_controller = 11;
+constexpr std::size_t midi_channel_count = 16;
+constexpr std::size_t midi_key_count = 128;
 constexpr std::size_t max_recorded_events = 16384;
 
 int channelFor(MidiRoute route) noexcept {
     return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
+}
+
+std::size_t soundFontSelectionIndex(int channel, int key) noexcept {
+    return static_cast<std::size_t>(channel) * midi_key_count
+        + static_cast<std::size_t>(key);
 }
 
 } // namespace
@@ -47,6 +55,10 @@ struct Application::Impl {
     SynthEngine synth_engine;
     const ApplicationConfig& config;
     std::size_t current_soundfont{};
+    std::array<
+        std::optional<std::size_t>,
+        midi_channel_count * midi_key_count
+    > soundfont_note_selections{};
     OctaveTransposer live_transposer;
     OctaveTransposer loop_transposer;
 
@@ -65,6 +77,12 @@ struct Application::Impl {
     explicit Impl(const ApplicationConfig& application_config)
         : synth_engine(application_config),
           config(application_config) {
+        for (const auto& selection : config.soundfont_note_selections) {
+            soundfont_note_selections.at(soundFontSelectionIndex(
+                selection.channel,
+                selection.key
+            )) = selection.soundfont_index;
+        }
         selectCurrentSoundFont(MidiRoute::LoopChannel);
         selectCurrentSoundFont(MidiRoute::LiveChannel);
         events.reserve(max_recorded_events);
@@ -80,6 +98,27 @@ struct Application::Impl {
     void selectNextSoundFont(MidiRoute route) {
         current_soundfont = (current_soundfont + 1) % config.soundfonts.size();
         selectCurrentSoundFont(route);
+        reportCurrentSoundFont();
+    }
+
+    void selectSoundFontByNote(MidiRoute route, int input_channel, int key) {
+        const auto soundfont = soundfont_note_selections.at(
+            soundFontSelectionIndex(input_channel, key)
+        );
+        if (!soundfont) {
+            std::cerr
+                << "No SoundFont mapped for MIDI channel "
+                << input_channel + 1
+                << " key " << key << '\n';
+            return;
+        }
+
+        current_soundfont = *soundfont;
+        selectCurrentSoundFont(route);
+        reportCurrentSoundFont();
+    }
+
+    void reportCurrentSoundFont() const {
         std::cout << "SoundFont selected: "
                   << config.soundfonts[current_soundfont].id << '\n';
     }
@@ -278,7 +317,14 @@ bool Application::isPlayableLoopDuration(Milliseconds duration) noexcept {
 void Application::run() {
     std::cout << "\nMIDI looper ready.\n";
     std::cout << "Play your controller: it should sound live.\n\n";
-    std::cout << "Use the configured Next control to select a SoundFont.\n";
+    if (config_.next_soundfont_control) {
+        std::cout << "Use the configured Next control to select a SoundFont.\n";
+    }
+    if (config_.soundfont_by_note_control) {
+        std::cout
+            << "Use the configured SoundFont-by-note control, then a mapped note, "
+            << "to select a SoundFont.\n";
+    }
     std::cout << "Use the configured MIDI recording control to start.\n";
 
     std::unique_lock lock(impl_->lifecycle_mutex);
@@ -306,8 +352,15 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
             return;
         }
 
-        if (config_.next_soundfont_control.matches(type, message)) {
+        if (config_.next_soundfont_control
+            && config_.next_soundfont_control->matches(type, message)) {
             fsm_.nextSoundFontPressed();
+            return;
+        }
+
+        if (config_.soundfont_by_note_control
+            && config_.soundfont_by_note_control->matches(type, message)) {
+            fsm_.soundFontByNotePressed();
             return;
         }
 
@@ -399,6 +452,14 @@ void Application::selectNextSoundFont(MidiRoute route) {
     impl_->selectNextSoundFont(route);
 }
 
+void Application::selectSoundFontByNote(
+    MidiRoute route,
+    int input_channel,
+    int key
+) {
+    impl_->selectSoundFontByNote(route, input_channel, key);
+}
+
 void Application::octaveDown(MidiRoute route) {
     impl_->transposerFor(route).octaveDown();
 }
@@ -450,13 +511,28 @@ void Application::startLoopPlayback() {
 }
 
 void Application::showRecordingArmed() {
-    std::cout
-        << "Recording... Next can change the pending SoundFont before the first note.\n";
+    std::cout << "Recording... Play a note to start.\n";
+    if (config_.next_soundfont_control) {
+        std::cout
+            << "Next can change the pending SoundFont before the first note.\n";
+    }
+    if (config_.soundfont_by_note_control) {
+        std::cout
+            << "SoundFont-by-note can change the pending SoundFont before the "
+            << "first recording note.\n";
+    }
 }
 
 void Application::showLooping() {
     std::cout << "Looping. You can still play live over the loop.\n";
-    std::cout << "Use Next to change the live SoundFont.\n";
+    if (config_.next_soundfont_control) {
+        std::cout << "Use Next to change the live SoundFont.\n";
+    }
+    if (config_.soundfont_by_note_control) {
+        std::cout
+            << "Use SoundFont-by-note followed by a mapped note to change the "
+            << "live SoundFont.\n";
+    }
     std::cout
         << "Use the configured MIDI control to stop the loop and return to Ready.\n";
 }

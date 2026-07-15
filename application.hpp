@@ -39,6 +39,11 @@ private:
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;
     void selectCurrentSoundFont(MidiRoute route) override;
     void selectNextSoundFont(MidiRoute route) override;
+    void selectSoundFontByNote(
+        MidiRoute route,
+        int input_channel,
+        int key
+    ) override;
     void octaveDown(MidiRoute route) override;
     void octaveUp(MidiRoute route) override;
 

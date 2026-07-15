@@ -5,11 +5,11 @@ MIDI input and POSIX lifecycle integration do not support macOS or Windows. It
 can run as a desktop process or start automatically as a headless service and
 be controlled entirely from a MIDI controller.
 
-The performance workflow is:
+The direct-selection performance workflow is:
 
-1. Use the configured Next control to select a SoundFont.
+1. Press the configured SoundFont-by-note control, then a mapped piano note.
 2. Press the configured recording control to arm the looper.
-3. Play the first note. Recording starts on that note, with no leading
+3. Play the first recording note. Recording starts on that note, with no leading
    silence.
 4. Press the recording control again to finish the take and start looping.
 5. Keep playing live and select other SoundFonts without changing the loop.
@@ -88,7 +88,7 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 5
+schema_version: 6
 
 midi_control_change_mappings:
   - source_port: "SE49 MIDI2"
@@ -107,14 +107,28 @@ soundfonts:
     bank: 0
     preset: 34
 
+soundfont_note_selections:
+  - channel: 1
+    key: 60
+    soundfont: piano
+
+  - channel: 1
+    key: 62
+    soundfont: bass
+
 controls:
   recording:
     type: machine_control
     command: rewind
 
-  next_soundfont:
+  soundfont_by_note:
     type: machine_control
     command: stop
+
+  next_soundfont:
+    type: program_change
+    channel: 1
+    program: 12
 
   octave_down:
     type: machine_control
@@ -125,7 +139,7 @@ controls:
     command: record_strobe
 ```
 
-Only schema version 5 is accepted. A configuration error stops startup and
+Only schema version 6 is accepted. A configuration error stops startup and
 reports the invalid field.
 
 ### SoundFonts
@@ -146,6 +160,31 @@ change that selection while armed but before the first note. During recording,
 Next is ignored. During loop playback, Next changes the live sound without
 changing the recorded loop. Canceling while armed adopts the pending selection
 as the live sound before returning to Ready.
+
+### Direct SoundFont selection by note
+
+`soundfont_note_selections` maps an exact human-facing MIDI channel and raw key
+number to one configured SoundFont ID. Press `controls.soundfont_by_note`, then
+press a mapped positive-velocity note to select it. The mapping uses the raw
+input key before Zeta octave transposition, so the physical selection key does
+not move when the performance octave changes.
+
+The selector is one-shot. Pressing it again cancels. The selection note is
+consumed and does not sound; an unmapped note is also consumed, reports an
+error, changes nothing, and leaves selection mode. All notes remain ordinarily
+playable when the selector is not armed.
+
+In Ready and Looping, direct selection changes the live SoundFont. In Armed it
+changes the pending loop SoundFont without sounding the selection note or
+starting recording; the following positive-velocity note starts the take at
+offset zero. The selector is ignored during Recording. The recorded loop's
+SoundFont remains locked while Looping.
+
+`controls.soundfont_by_note` and `soundfont_note_selections` are optional as a
+pair. `controls.next_soundfont` is also optional, but at least one of these two
+selection controls is required. Configure both for direct and sequential
+selection, or configure either one alone. Mapped channel/key pairs must be
+unique and must not overlap a configured note action.
 
 To inspect the banks and presets in a SoundFont, start FluidSynth with the
 file, then use its `fonts` and `inst` shell commands. Consult your distribution's
@@ -178,11 +217,12 @@ in Ready and Looping, and the pending-loop channel in Armed and Recording.
 
 ### Controller bindings
 
-`controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
-`controls.octave_up` each require exactly one binding. A matched control event
-is reserved for the action: it does not sound and is not recorded. Actions may
-not use overlapping bindings. Edit a binding before the performance when the
-physical control setup changes.
+`controls.recording`, `controls.octave_down`, and `controls.octave_up` each
+require exactly one binding. `controls.next_soundfont` and
+`controls.soundfont_by_note` are individually optional, with at least one
+required. A matched control event is reserved for the action: it does not sound
+and is not recorded. Actions may not use overlapping bindings. Edit a binding
+before the performance when the physical control setup changes.
 
 YAML MIDI channels use the human-facing range 1 through 16.
 
@@ -264,13 +304,15 @@ Configure MMC and enable transport mode:
 5. Press **Octave Down + Transpose Down** simultaneously to enable MMC
    transport mode.
 
-During a performance:
+With `zeta.example.yaml`, during a performance:
 
-1. Press **Transpose Up** to select the next SoundFont.
+1. Press **Transpose Up**, then MIDI key 60 (C4) for piano or key 62 (D4) for
+   bass.
 2. Press **Transpose Down** to arm recording with the current SoundFont.
 3. Play the first note to begin recording.
 4. Press **Transpose Down** again to finish the take and start the loop.
-5. Press **Transpose Up** while looping to change the live SoundFont.
+5. Press **Transpose Up** and a mapped note while looping to change the live
+   SoundFont.
 6. Press **Transpose Down** while looping to stop it and return to Ready.
 7. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
    twelve semitones.
@@ -286,6 +328,11 @@ a later take uses the preserved loop selection.
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**
 together again to restore the buttons' native functions.
+
+To retain sequential selection on Transpose Up, bind its MMC Stop event to
+`controls.next_soundfont` instead and omit `controls.soundfont_by_note` and
+`soundfont_note_selections`. To configure both mechanisms, give
+`next_soundfont` a different non-overlapping controller binding.
 
 The setup procedure and control assignments are documented in the
 [Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/my-downloads/Owners_Manuals/SE49_61_printed_guide_v1_3_ENGLISH.pdf).

@@ -28,6 +28,12 @@ public:
     MOCK_METHOD(int, monitorMidi, (const MidiMessage&, MidiRoute), (override));
     MOCK_METHOD(void, selectCurrentSoundFont, (MidiRoute), (override));
     MOCK_METHOD(void, selectNextSoundFont, (MidiRoute), (override));
+    MOCK_METHOD(
+        void,
+        selectSoundFontByNote,
+        (MidiRoute, int, int),
+        (override)
+    );
     MOCK_METHOD(void, octaveDown, (MidiRoute), (override));
     MOCK_METHOD(void, octaveUp, (MidiRoute), (override));
     MOCK_METHOD(void, stopLoopPlayback, (), (override));
@@ -62,6 +68,22 @@ void arm(LooperFsm& fsm, StrictMock<MockOutput>& output) {
     expectArm(output);
     EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Armed);
     EXPECT_EQ(fsm.stateId(), StateId::Armed);
+}
+
+void startLooping(LooperFsm& fsm, StrictMock<MockOutput>& output) {
+    arm(fsm, output);
+    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
+    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
+    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time);
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(1ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
+    }
+    EXPECT_EQ(fsm.recordingControlPressed(start_time + 1ms), StateId::Looping);
 }
 
 TEST(LooperFsmTest, ReadyMonitorsMidiOnTheDedicatedLiveChannel) {
@@ -112,6 +134,236 @@ TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
 
     EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
     EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
+}
+
+TEST(LooperFsmTest, SoundFontByNoteUsesExplicitStateAndStateSpecificRoute) {
+    StrictMock<MockOutput> output;
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
+    MidiMessage selection_note{.channel = 2, .key = 60, .velocity = 100};
+
+    EXPECT_EQ(
+        fsm.soundFontByNotePressed(),
+        StateId::ReadySelectingSoundFont
+    );
+    EXPECT_CALL(
+        output,
+        selectSoundFontByNote(MidiRoute::LiveChannel, 2, 60)
+    );
+    EXPECT_EQ(
+        fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time),
+        0
+    );
+    EXPECT_EQ(fsm.stateId(), StateId::Ready);
+
+    arm(fsm, output);
+    EXPECT_EQ(
+        fsm.soundFontByNotePressed(),
+        StateId::ArmedSelectingSoundFont
+    );
+    EXPECT_CALL(
+        output,
+        selectSoundFontByNote(MidiRoute::LoopChannel, 2, 60)
+    );
+    fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 1ms);
+    EXPECT_EQ(fsm.stateId(), StateId::Armed);
+
+    MidiMessage recording_note{.channel = 0, .key = 67, .velocity = 90};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(5));
+    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
+    EXPECT_EQ(
+        fsm.midiMessage(
+            MidiMessageType::NoteOn,
+            recording_note,
+            start_time + 2ms
+        ),
+        5
+    );
+    EXPECT_EQ(fsm.stateId(), StateId::Recording);
+    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Recording);
+
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(8ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
+    }
+    fsm.recordingControlPressed(start_time + 10ms);
+
+    EXPECT_EQ(
+        fsm.soundFontByNotePressed(),
+        StateId::LoopingSelectingSoundFont
+    );
+    EXPECT_CALL(
+        output,
+        selectSoundFontByNote(MidiRoute::LiveChannel, 2, 60)
+    );
+    fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 11ms);
+    EXPECT_EQ(fsm.stateId(), StateId::Looping);
+}
+
+TEST(LooperFsmTest, SoundFontSelectionStatesRouteOtherMidiAndCancel) {
+    StrictMock<MockOutput> output;
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
+    MidiMessage message{.channel = 0, .key = 60, .velocity = 0};
+
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel)).WillOnce(Return(3));
+    EXPECT_EQ(fsm.midiMessage(MidiMessageType::NoteOn, message, start_time), 3);
+    EXPECT_EQ(fsm.stateId(), StateId::ReadySelectingSoundFont);
+    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Ready);
+
+    arm(fsm, output);
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(4));
+    EXPECT_EQ(
+        fsm.midiMessage(MidiMessageType::NoteOn, message, start_time + 1ms),
+        4
+    );
+    EXPECT_EQ(fsm.stateId(), StateId::ArmedSelectingSoundFont);
+    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Armed);
+
+    MidiMessage recording_note{.channel = 0, .key = 64, .velocity = 100};
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
+    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
+    fsm.midiMessage(MidiMessageType::NoteOn, recording_note, start_time + 2ms);
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(1ms));
+        EXPECT_CALL(output, startLoopPlayback());
+        EXPECT_CALL(output, showLooping());
+    }
+    fsm.recordingControlPressed(start_time + 3ms);
+
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel)).WillOnce(Return(6));
+    EXPECT_EQ(
+        fsm.midiMessage(MidiMessageType::NoteOn, message, start_time + 4ms),
+        6
+    );
+    EXPECT_EQ(fsm.stateId(), StateId::LoopingSelectingSoundFont);
+    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Looping);
+}
+
+TEST(LooperFsmTest, OtherControlsLeaveSoundFontSelectionStates) {
+    StrictMock<MockOutput> output;
+    LooperStateRegistry states{output};
+    LooperFsm fsm{states};
+
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Ready);
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
+
+    fsm.soundFontByNotePressed();
+    expectArm(output);
+    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Armed);
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LoopChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Armed);
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
+    }
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Armed);
+
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, showNoTake());
+        EXPECT_CALL(output, stopLoopPlayback());
+        EXPECT_CALL(output, silenceAllChannels());
+        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LiveChannel));
+    }
+    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Ready);
+
+    startLooping(fsm, output);
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Looping);
+    fsm.soundFontByNotePressed();
+    EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Looping);
+
+    fsm.soundFontByNotePressed();
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, stopLoopPlayback());
+        EXPECT_CALL(output, silenceAllChannels());
+    }
+    EXPECT_EQ(fsm.recordingControlPressed(start_time + 2ms), StateId::Ready);
+}
+
+TEST(LooperFsmTest, ShutdownFromEverySoundFontSelectionStateIsTerminal) {
+    {
+        StrictMock<MockOutput> output;
+        LooperStateRegistry states{output};
+        LooperFsm fsm{states};
+        fsm.soundFontByNotePressed();
+        {
+            InSequence sequence;
+            EXPECT_CALL(output, stopLoopPlayback());
+            EXPECT_CALL(output, silenceAllChannels());
+            EXPECT_CALL(output, stopPlaybackWorker());
+        }
+        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
+    }
+
+    {
+        StrictMock<MockOutput> output;
+        LooperStateRegistry states{output};
+        LooperFsm fsm{states};
+        arm(fsm, output);
+        fsm.soundFontByNotePressed();
+        {
+            InSequence sequence;
+            EXPECT_CALL(output, stopLoopPlayback());
+            EXPECT_CALL(output, silenceAllChannels());
+            EXPECT_CALL(output, stopPlaybackWorker());
+        }
+        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
+    }
+
+    {
+        StrictMock<MockOutput> output;
+        LooperStateRegistry states{output};
+        LooperFsm fsm{states};
+        startLooping(fsm, output);
+        fsm.soundFontByNotePressed();
+        {
+            InSequence sequence;
+            EXPECT_CALL(output, stopLoopPlayback());
+            EXPECT_CALL(output, silenceAllChannels());
+            EXPECT_CALL(output, stopPlaybackWorker());
+        }
+        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
+    }
 }
 
 TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
@@ -358,6 +610,7 @@ TEST(LooperFsmTest, ShutdownFromReadyIsTerminalAndIdempotent) {
         fsm.recordingControlPressed(start_time),
         StateId::Stopped
     );
+    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Stopped);
 }
 
 TEST(LooperFsmTest, ClassifiesKnownAndUnknownRawMidiTypes) {
