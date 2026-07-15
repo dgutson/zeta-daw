@@ -1,8 +1,9 @@
 # Zeta DAW MIDI Looper
 
-Zeta DAW is a C++20 MIDI looper for Linux, including Raspberry Pi 5. It can
-run as a desktop process or start automatically as a headless service and be
-controlled entirely from a MIDI controller.
+Zeta DAW is a Linux-only C++20 MIDI looper, including Raspberry Pi 5. Its ALSA
+MIDI input and POSIX lifecycle integration do not support macOS or Windows. It
+can run as a desktop process or start automatically as a headless service and
+be controlled entirely from a MIDI controller.
 
 The performance workflow is:
 
@@ -20,8 +21,9 @@ SIGTERM, or another process shutdown signal.
 
 ## Requirements and installation
 
-- Linux, including Raspberry Pi OS or Ubuntu
-- A C++20 compiler
+- Linux, including Raspberry Pi OS or Ubuntu; macOS and Windows are not
+  supported
+- A C++20-capable C++ compiler; GCC is the currently CI-tested toolchain
 - CMake 3.22 or newer
 - pkg-config
 - FluidSynth and ALSA development files

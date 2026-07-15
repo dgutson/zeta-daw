@@ -21,6 +21,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Clarified Linux-only platform support and the currently CI-tested compiler
+  without making GCC mandatory for normal builds.
 - Renamed the production CMake target and application executable from
   `midi_looper` to `zd`.
 - Renamed the FSM recording-control stimulus for consistency with the
