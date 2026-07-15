@@ -302,7 +302,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto& message = event.message;
 
         if (config_.recording_control.matches(type, message)) {
-            fsm_.primaryControlPressed(LooperClock::now());
+            fsm_.recordingControlPressed(LooperClock::now());
             return;
         }
 

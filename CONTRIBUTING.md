@@ -87,7 +87,7 @@ The looper deliberately uses a GoF State pattern. Preserve that style.
 - Do not replace this design with `std::variant`, visitation, a switch-based
   state machine, function tables, or a third-party FSM framework.
 - The virtual methods on `LooperState` are the FSM input alphabet: currently
-  `primaryControlPressed`, `nextSoundFontPressed`, `octaveDownPressed`,
+  `recordingControlPressed`, `nextSoundFontPressed`, `octaveDownPressed`,
   `octaveUpPressed`, `midiMessage`, and `shutdownRequested`. Add a virtual
   method when an agreed feature introduces a genuinely new stimulus.
 - The virtual methods on `LooperOutput` are the output alphabet. State objects

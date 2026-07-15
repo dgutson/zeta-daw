@@ -44,7 +44,7 @@ class ReadyState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(TimePoint) const override {
+    StateId recordingControlPressed(TimePoint) const override {
         output_.stopLoopPlayback();
         output_.silenceAllChannels();
         output_.selectCurrentSoundFont(MidiRoute::LoopChannel);
@@ -89,7 +89,7 @@ class ArmedState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(TimePoint) const override {
+    StateId recordingControlPressed(TimePoint) const override {
         output_.showNoTake();
         stopPlayback(output_);
         output_.selectCurrentSoundFont(MidiRoute::LiveChannel);
@@ -144,7 +144,7 @@ class RecordingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(TimePoint now) const override {
+    StateId recordingControlPressed(TimePoint now) const override {
         const auto duration = elapsedMilliseconds(
             data_.recording_started_at,
             now
@@ -198,7 +198,7 @@ class LoopingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId primaryControlPressed(TimePoint) const override {
+    StateId recordingControlPressed(TimePoint) const override {
         stopPlayback(output_);
         return StateId::Ready;
     }
@@ -237,7 +237,7 @@ class StoppedState final : public LooperState {
 public:
     using LooperState::LooperState;
 
-    StateId primaryControlPressed(TimePoint) const override {
+    StateId recordingControlPressed(TimePoint) const override {
         return StateId::Stopped;
     }
 
@@ -301,9 +301,9 @@ const LooperState& LooperStateRegistry::at(StateId id) const {
 
 LooperFsm::LooperFsm(LooperStateRegistry& states) noexcept : states_(states) {}
 
-StateId LooperFsm::primaryControlPressed(TimePoint now) {
+StateId LooperFsm::recordingControlPressed(TimePoint now) {
     std::lock_guard lock(mutex_);
-    const StateId next = states_.at(current_state_).primaryControlPressed(now);
+    const StateId next = states_.at(current_state_).recordingControlPressed(now);
     install(next);
     return current_state_;
 }
