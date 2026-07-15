@@ -31,13 +31,15 @@ public:
     }
 
     void start(Handler handler) override {
-        std::lock_guard lock(mutex_);
-        if (observer_) {
-            throw std::logic_error("MIDI input is already running");
-        }
+        {
+            std::lock_guard lock(mutex_);
+            if (observer_) {
+                throw std::logic_error("MIDI input is already running");
+            }
 
-        handler_ = std::move(handler);
-        stopping_ = false;
+            handler_ = std::move(handler);
+            stopping_ = false;
+        }
 
         libremidi::observer_configuration configuration{
             .on_error = [](std::string_view error, const auto&) {
@@ -56,17 +58,19 @@ public:
             .track_virtual = false,
             .track_network = false,
             .track_any = false,
-            .notify_in_constructor = false,
+            .notify_in_constructor = true,
         };
 
-        observer_ = std::make_unique<libremidi::observer>(
+        // Initial notifications populate libremidi's lifecycle registry and
+        // call connect(), so the observer must be constructed without mutex_.
+        auto observer = std::make_unique<libremidi::observer>(
             configuration,
             libremidi::observer_configuration_for(midi_api)
         );
 
-        const auto ports = observer_->get_input_ports();
-        for (const auto& port : ports) {
-            connectUnlocked(port);
+        {
+            std::lock_guard lock(mutex_);
+            observer_ = std::move(observer);
         }
     }
 
@@ -98,7 +102,7 @@ private:
     }
 
     void connectUnlocked(const libremidi::input_port& port) {
-        if (stopping_ || !observer_) {
+        if (stopping_) {
             return;
         }
 

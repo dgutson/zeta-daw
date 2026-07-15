@@ -28,6 +28,11 @@ All notable changes to Zeta DAW are documented in this file.
 - Contributor guidance now requires remote-base and complete PR-range audits so
   unpublished work is not silently mixed into a ticket branch.
 
+### Fixed
+
+- Restored MIDI input after hardware ports disconnect and reconnect by keeping
+  libremidi's observed-port lifecycle synchronized with active connections.
+
 ## [0.1.0] - 2026-07-14
 
 ### Added
