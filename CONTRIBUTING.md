@@ -153,11 +153,11 @@ FSMs may be `Looping` while the master is `Ready`, `Armed`, or `Recording`.
   selection change live output. Octave controls change live transposition.
   Pressing the loop-slot selector enters `ReadySelectingLoopSlot`.
 - `ReadySelectingLoopSlot`: the next positive-velocity raw physical Note On is
-  consumed. An empty configured slot copies the current live SoundFont and
-  octave, clears its pending take, and enters master `Armed`. A recorded muted
-  slot starts; a looping slot mutes. An unmapped note is consumed and returns
-  to `Ready` without changing a slot. Pressing the loop-slot control again
-  cancels selection and returns to `Ready`.
+  consumed. A muted configured slot copies the current live SoundFont and
+  octave, clears any previous take, and enters master `Armed`. A looping slot
+  is muted and returns to `Ready`; it cannot be resumed. An unmapped note is
+  consumed and returns to `Ready` without changing a slot. Pressing the
+  loop-slot control again cancels selection and returns to `Ready`.
 - `Armed`: MIDI is monitored on the selected slot's dedicated channel. The
   first positive-velocity Note On enters `Recording` and is stored at offset
   zero. SoundFont and octave controls may change the pending slot; octave
@@ -192,13 +192,14 @@ FluidSynth's MIDI-channel count is configured before synth construction and
 rounded to its sixteen-channel group size. Dedicated channels preserve each
 slot's SoundFont and allow muting to release only that slot's sustain and notes.
 
-Recorded muted takes are retained for the process lifetime and resume from the
-start when selected. They cannot currently be erased or replaced without
-restarting Zeta. Slot loops are free-running from the instant each take is
-completed; Zeta does not synchronize or quantize their cycle boundaries.
+A selected looping slot is muted without affecting its peers. Selecting that
+muted slot again clears its previous take and arms a replacement recording; a
+stopped take cannot be resumed. Slot loops are free-running from the instant
+each take is completed; Zeta does not synchronize or quantize their cycle
+boundaries.
 
 Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
-from three octaves down through four octaves up. An empty slot copies the live
+from three octaves down through four octaves up. A muted slot copies the live
 transposer when armed. Recorded keys are transposed before storage, so later
 live changes cannot affect a completed slot. Key-bearing messages whose shifted
 key would fall outside MIDI range 0 through 127 remain unchanged. The performer
@@ -293,8 +294,11 @@ required version is 7.
 - Every slot reserves the fixed maximum event count during startup. Any change
   to real-time allocation behavior or capacity policy needs explicit
   performance reasoning and tests.
-- A committed take is immutable for the process lifetime, so its playback
-  worker reads the slot-owned event storage without copying it on resume.
+- A committed take is immutable while its slot is looping, so its playback
+  worker checks the playback generation, copies each event value, and dispatches
+  it while holding the existing playback mutex. A stop therefore silences the
+  channel after any in-flight event, no whole-take copy is made, and a muted
+  slot's event storage can then be cleared safely for replacement.
 
 ## Coding rules
 
@@ -418,7 +422,7 @@ Configuration changes need rejection tests, not only a happy path. Run
   the synthesizer.
 - Confirm that the first played note still defines recording time zero.
 - Confirm that live and every slot channel remain independent.
-- Confirm existing slots continue while another slot records, and muting one
+- Confirm existing slots continue while another slot records, and stopping one
   slot does not interrupt its peers.
 - Confirm octave changes preserve the recorded loop's pitch after recording
   starts.

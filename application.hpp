@@ -35,7 +35,6 @@ private:
     void handleMidiEvent(MidiEvent event) noexcept;
 
     std::optional<SlotId> slotByKey(int key) const override;
-    bool slotHasTake(SlotId slot) const override;
     SlotPlaybackState slotPlaybackState(SlotId slot) const override;
 
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;
@@ -62,7 +61,7 @@ private:
 
     void showRecordingArmed(SlotId slot) override;
     void showLooping(SlotId slot) override;
-    void showMuted(SlotId slot) override;
+    void showStopped(SlotId slot) override;
     void showNoTake(SlotId slot) override;
     void showUnknownLoopSlot(int key) override;
 };

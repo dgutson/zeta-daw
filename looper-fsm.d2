@@ -21,8 +21,8 @@ master: {
   ready -> ready_soundfont: "soundFontByNotePressed"
   ready_soundfont -> ready: "selection note / select live SoundFont"
   ready -> ready_slot: "loopSlotControlPressed"
-  ready_slot -> armed: "empty slot / prepareTake"
-  ready_slot -> ready: "recorded slot / start or mute"
+  ready_slot -> armed: "Muted slot / prepare replacement take"
+  ready_slot -> ready: "Looping slot / mute"
 
   armed -> recording: "first positive NoteOn\n/ record at 0 ms"
   armed -> armed_soundfont: "soundFontByNotePressed"
@@ -40,7 +40,7 @@ slots: {
   label: "One enum FSM per configured LoopSlot"
   direction: right
 
-  muted: "Muted"
+  muted: "Muted\nEmpty or stopped"
   looping: "Looping"
   terminated: "Terminated\nTerminal"
 
@@ -51,7 +51,7 @@ slots: {
 }
 
 master.ready_slot -> slots.muted: {
-  label: "start/mute commands"
+  label: "mute command"
   style.stroke-dash: 4
 }
 

@@ -9,12 +9,12 @@ The multiple-loop performance workflow is:
 
 1. Press the configured SoundFont-by-note control, then a keyed piano note.
 2. Press the configured loop-slot control, then a configured slot key.
-3. If the slot is empty, it is armed. Play the first recording note; recording
-   starts on that note with no leading silence.
+3. If the slot is empty or stopped, it is armed for a new take. Play the first
+   recording note; recording starts on that note with no leading silence.
 4. Press the loop-slot control again to finish the take and start it looping.
 5. Select another empty slot to record it while the first loop continues.
-6. Select a looping slot to mute it, or select a recorded muted slot to resume
-   it. Other loops continue independently.
+6. Select a looping slot to stop it. Select that stopped slot again to arm a
+   replacement recording. Other loops continue independently.
 
 Pressing the loop-slot control again before playing a note cancels the pending
 take. At most one slot is armed or recording, while zero or more completed
@@ -152,14 +152,14 @@ sounded nor recorded. Duplicate keys and keys that collide with configured
 Note actions are rejected. A loop-slot key may also be a SoundFont-selection
 key because the preceding selector control disambiguates the gesture.
 
-An empty slot arms recording. Its first positive-velocity Note On starts at
-offset zero. Once armed, pressing the loop-slot control alone cancels before
-the first note or completes the take after recording has started. A completed
-take then starts its dedicated playback worker. Slot selection is unavailable
-while armed or recording, but existing loops continue. From Ready, selecting a
-looping slot mutes it without discarding the take; selecting that muted slot
-resumes it. A recorded slot is retained for the process lifetime and cannot
-currently be replaced without restarting Zeta.
+A stopped slot, including one with no previous take, arms recording. Its first
+positive-velocity Note On starts at offset zero. Once armed, pressing the
+loop-slot control alone cancels before the first note or completes the take
+after recording has started. A completed take then starts its dedicated
+playback worker. Slot selection is unavailable while armed or recording, but
+existing loops continue. From Ready, selecting a looping slot stops it.
+Selecting that stopped slot again clears its old take and arms a replacement
+recording. Stopped takes cannot be resumed.
 
 Every configured slot has a dedicated internal FluidSynth channel and an
 eagerly created sleeping worker. Slots run freely from the instant each take is
@@ -180,10 +180,11 @@ Only include the sounds needed for the performance. They are prepared during
 startup, and the first entry is selected initially. Next advances through the
 list and wraps to the first entry.
 
-The current SoundFont and live octave are copied to an empty slot when recording
-is armed. Next may change that slot's SoundFont while armed but before the first
-note. During recording, Next is ignored. Completed slots keep their SoundFont
-and octave while live selection changes independently. Canceling while armed
+The current SoundFont and live octave are copied to a stopped slot when
+recording is armed. Next may change that slot's SoundFont while armed but before
+the first note. During recording, Next is ignored. Looping slots keep their
+SoundFont and octave while live selection changes independently. Re-arming a
+stopped slot replaces its previous SoundFont and take. Canceling while armed
 adopts the pending SoundFont as the live sound before returning to Ready.
 
 ### Direct SoundFont selection by note
@@ -214,7 +215,8 @@ SoundFont. In Armed it
 changes the pending loop SoundFont without sounding the selection note or
 starting recording; the following positive-velocity note starts the take at
 offset zero. The selector is ignored during Recording. The recorded loop's
-SoundFont remains locked while its slot loops or is muted.
+SoundFont remains locked while its slot loops. Re-arming a stopped slot selects
+the current live SoundFont for its replacement take.
 
 `controls.soundfont_by_note` is optional, but when configured at least one
 SoundFont must have a `key`. Conversely, SoundFont keys are rejected when that
@@ -358,16 +360,17 @@ With `zeta.example.yaml`, during a performance:
 1. Press **Transpose Up**, then **G3** for piano or **A3** for bass.
 2. Press **Transpose Down**, then **C2** to arm that empty loop slot.
 3. Play the first note to begin recording.
-4. Press **Transpose Down**, then **C2** again to finish and start the loop.
+4. Press **Transpose Down** alone to finish and start the loop.
 5. Repeat with **D2**, **E2**, or **F2** while earlier slots keep looping.
-6. Select a looping slot to mute it; select the muted slot to resume it.
+6. Select a looping slot to stop it; select the stopped slot again to arm a
+   replacement recording.
 7. Press **Transpose Up** and a keyed note to change the live SoundFont without
    changing completed slots.
 8. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
    twelve semitones.
 
 The octave range is three octaves down through four octaves up and does not
-wrap. An empty slot copies the current live octave when armed. While armed,
+wrap. A stopped slot copies the current live octave when armed. While armed,
 octave changes affect both live playing and that slot. Octave changes are
 ignored while recording and later affect only live playing, so every completed
 slot keeps its recorded pitch. Notes whose shifted key would fall outside MIDI

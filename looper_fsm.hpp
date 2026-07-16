@@ -57,7 +57,6 @@ public:
     virtual ~LoopSlotView() = default;
 
     virtual std::optional<SlotId> slotByKey(int key) const = 0;
-    virtual bool slotHasTake(SlotId slot) const = 0;
     virtual SlotPlaybackState slotPlaybackState(SlotId slot) const = 0;
 };
 
@@ -89,7 +88,7 @@ public:
 
     virtual void showRecordingArmed(SlotId slot) = 0;
     virtual void showLooping(SlotId slot) = 0;
-    virtual void showMuted(SlotId slot) = 0;
+    virtual void showStopped(SlotId slot) = 0;
     virtual void showNoTake(SlotId slot) = 0;
     virtual void showUnknownLoopSlot(int key) = 0;
 };

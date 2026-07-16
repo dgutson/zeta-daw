@@ -45,7 +45,6 @@ public:
     int synthChannel() const noexcept;
 
     SlotPlaybackState playbackState() const;
-    bool hasTake() const noexcept;
 
     void prepareTake(
         const SoundFontDefinition& soundfont,

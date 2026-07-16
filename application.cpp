@@ -189,7 +189,7 @@ void Application::run() {
     }
     std::cout
         << "Use the configured loop-slot control, then a keyed note, to arm, "
-        << "start, or mute a loop slot.\n";
+        << "record, or stop a loop slot.\n";
 
     std::unique_lock lock(impl_->lifecycle_mutex);
     impl_->lifecycle_changed.wait(lock, [this] {
@@ -258,10 +258,6 @@ std::optional<SlotId> Application::slotByKey(int key) const {
         return std::nullopt;
     }
     return impl_->slots_by_key[static_cast<std::size_t>(key)];
-}
-
-bool Application::slotHasTake(SlotId slot) const {
-    return impl_->slot(slot).hasTake();
 }
 
 SlotPlaybackState Application::slotPlaybackState(SlotId slot) const {
@@ -350,12 +346,14 @@ void Application::showRecordingArmed(SlotId slot) {
 void Application::showLooping(SlotId slot) {
     std::cout
         << "Looping. Loop slot " << slot << " is active.\n"
-        << "Use the configured loop-slot control followed by its key to mute "
-        << "or resume it.\n";
+        << "Use the configured loop-slot control followed by its key to stop "
+        << "it. Select it again to record a replacement.\n";
 }
 
-void Application::showMuted(SlotId slot) {
-    std::cout << "Loop slot " << slot << " muted.\n";
+void Application::showStopped(SlotId slot) {
+    std::cout
+        << "Loop slot " << slot
+        << " stopped. Select it again to record a replacement.\n";
 }
 
 void Application::showNoTake(SlotId slot) {

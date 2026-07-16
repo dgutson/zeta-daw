@@ -33,20 +33,6 @@ StateId shutdownApplication(LooperOutput& output) {
     return StateId::Stopped;
 }
 
-void startOrMuteSlot(
-    LooperOutput& output,
-    const LoopSlotView& slots,
-    SlotId slot
-) {
-    if (slots.slotPlaybackState(slot) == SlotPlaybackState::Looping) {
-        output.muteSlotPlayback(slot);
-        output.showMuted(slot);
-    } else {
-        output.startSlotPlayback(slot);
-        output.showLooping(slot);
-    }
-}
-
 class ActiveState : public LooperState {
 public:
     using LooperState::LooperState;
@@ -146,8 +132,10 @@ public:
             return {.next_state = StateId::Ready, .native_result = midi_ok};
         }
 
-        if (slots_.slotHasTake(slot.value())) {
-            startOrMuteSlot(output_, slots_, slot.value());
+        if (slots_.slotPlaybackState(slot.value())
+            == SlotPlaybackState::Looping) {
+            output_.muteSlotPlayback(slot.value());
+            output_.showStopped(slot.value());
             return {.next_state = StateId::Ready, .native_result = midi_ok};
         }
 

@@ -42,21 +42,21 @@ SlotPlaybackState LoopSlot::playbackState() const {
     return playback_fsm_.state();
 }
 
-bool LoopSlot::hasTake() const noexcept {
-    return has_take_;
-}
-
 void LoopSlot::prepareTake(
     const SoundFontDefinition& soundfont,
     const OctaveTransposer& live_transposer
 ) {
-    if (playbackState() != SlotPlaybackState::Muted || has_take_) {
-        throw std::logic_error("Only an empty muted loop slot can be recorded");
+    if (playbackState() != SlotPlaybackState::Muted) {
+        throw std::logic_error("Only a stopped loop slot can be recorded");
     }
     transposer_ = live_transposer;
     selectSoundFont(soundfont);
-    events_.clear();
-    duration_ = SlotDuration::zero();
+    {
+        std::lock_guard lock(playback_mutex_);
+        events_.clear();
+        duration_ = SlotDuration::zero();
+        has_take_ = false;
+    }
 }
 
 int LoopSlot::monitorMidi(const MidiMessage& message) {
@@ -192,10 +192,22 @@ void LoopSlot::playbackMain(std::stop_token stop_token) {
         bool interrupted = false;
 
         while (!stop_token.stop_requested() && !interrupted) {
-            for (const auto& event : events_) {
-                const auto deadline = loop_started_at
-                    + SlotDuration(event.time_ms);
+            std::size_t event_index = 0;
+            while (true) {
+                RecordedNoteEvent event;
                 std::unique_lock lock(playback_mutex_);
+                if (stop_token.stop_requested()
+                    || playback_generation_ != active_generation) {
+                    interrupted = true;
+                    break;
+                }
+
+                if (event_index >= events_.size()) {
+                    break;
+                }
+
+                const auto deadline = loop_started_at
+                    + SlotDuration(events_[event_index].time_ms);
                 playback_changed_.wait_until(lock, deadline, [&] {
                     return stop_token.stop_requested()
                         || playback_generation_ != active_generation;
@@ -207,6 +219,8 @@ void LoopSlot::playbackMain(std::stop_token stop_token) {
                     break;
                 }
 
+                event = events_[event_index];
+                ++event_index;
                 playRecordedEvent(event);
             }
 
