@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <optional>
 
 namespace {
 
@@ -15,11 +16,14 @@ using ::testing::StrictMock;
 using zeta::LooperFsm;
 using zeta::LooperOutput;
 using zeta::LooperStateRegistry;
+using zeta::LoopSlotView;
 using zeta::Milliseconds;
 using zeta::MidiMessage;
 using zeta::MidiMessageType;
 using zeta::MidiRoute;
 using zeta::RecordedNoteKind;
+using zeta::SlotId;
+using zeta::SlotPlaybackState;
 using zeta::StateId;
 using zeta::TimePoint;
 
@@ -28,598 +32,316 @@ public:
     MOCK_METHOD(int, monitorMidi, (const MidiMessage&, MidiRoute), (override));
     MOCK_METHOD(void, selectCurrentSoundFont, (MidiRoute), (override));
     MOCK_METHOD(void, selectNextSoundFont, (MidiRoute), (override));
-    MOCK_METHOD(
-        void,
-        selectSoundFontByNote,
-        (MidiRoute, int),
-        (override)
-    );
+    MOCK_METHOD(void, selectSoundFontByNote, (MidiRoute, int), (override));
     MOCK_METHOD(void, octaveDown, (MidiRoute), (override));
     MOCK_METHOD(void, octaveUp, (MidiRoute), (override));
-    MOCK_METHOD(void, stopLoopPlayback, (), (override));
-    MOCK_METHOD(void, silenceAllChannels, (), (override));
-    MOCK_METHOD(void, resetTake, (), (override));
+    MOCK_METHOD(void, prepareTake, (SlotId), (override));
+    MOCK_METHOD(void, discardPendingTake, (SlotId), (override));
     MOCK_METHOD(
         void,
         recordNote,
-        (RecordedNoteKind, const MidiMessage&, Milliseconds),
+        (SlotId, RecordedNoteKind, const MidiMessage&, Milliseconds),
         (override)
     );
-    MOCK_METHOD(void, commitTake, (Milliseconds), (override));
-    MOCK_METHOD(void, startLoopPlayback, (), (override));
-    MOCK_METHOD(void, showRecordingArmed, (), (override));
-    MOCK_METHOD(void, showLooping, (), (override));
-    MOCK_METHOD(void, showNoTake, (), (override));
-    MOCK_METHOD(void, stopPlaybackWorker, (), (override));
+    MOCK_METHOD(void, commitTake, (SlotId, Milliseconds), (override));
+    MOCK_METHOD(void, startSlotPlayback, (SlotId), (override));
+    MOCK_METHOD(void, muteSlotPlayback, (SlotId), (override));
+    MOCK_METHOD(void, terminateSlots, (), (override));
+    MOCK_METHOD(void, silenceAllChannels, (), (override));
+    MOCK_METHOD(void, showRecordingArmed, (SlotId), (override));
+    MOCK_METHOD(void, showLooping, (SlotId), (override));
+    MOCK_METHOD(void, showMuted, (SlotId), (override));
+    MOCK_METHOD(void, showNoTake, (SlotId), (override));
+    MOCK_METHOD(void, showRecorderBusy, (SlotId), (override));
+    MOCK_METHOD(void, showUnknownLoopSlot, (int), (override));
 };
 
+class MockSlotView : public LoopSlotView {
+public:
+    MOCK_METHOD(std::optional<SlotId>, slotByKey, (int), (const, override));
+    MOCK_METHOD(bool, slotHasTake, (SlotId), (const, override));
+    MOCK_METHOD(
+        SlotPlaybackState,
+        slotPlaybackState,
+        (SlotId),
+        (const, override)
+    );
+};
+
+constexpr SlotId first_slot = 0;
+constexpr SlotId second_slot = 1;
+constexpr int first_slot_key = 60;
+constexpr int second_slot_key = 62;
 constexpr auto start_time = TimePoint{} + 100ms;
 
-void expectArm(StrictMock<MockOutput>& output) {
-    InSequence sequence;
-    EXPECT_CALL(output, stopLoopPlayback());
-    EXPECT_CALL(output, silenceAllChannels());
-    EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LoopChannel));
-    EXPECT_CALL(output, resetTake());
-    EXPECT_CALL(output, showRecordingArmed());
+MidiMessage positiveNote(int key = 67) {
+    return {.channel = 0, .key = key, .velocity = 100};
 }
 
-void arm(LooperFsm& fsm, StrictMock<MockOutput>& output) {
-    expectArm(output);
-    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Armed);
+void selectEmptySlot(
+    LooperFsm& fsm,
+    StrictMock<MockOutput>& output,
+    StrictMock<MockSlotView>& slots,
+    SlotId slot = first_slot,
+    int key = first_slot_key
+) {
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(key)).WillOnce(Return(slot));
+    EXPECT_CALL(slots, slotHasTake(slot)).WillOnce(Return(false));
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, prepareTake(slot));
+        EXPECT_CALL(output, showRecordingArmed(slot));
+    }
+    auto selection = positiveNote(key);
+    EXPECT_EQ(
+        fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time),
+        0
+    );
     EXPECT_EQ(fsm.stateId(), StateId::Armed);
 }
 
-void startLooping(LooperFsm& fsm, StrictMock<MockOutput>& output) {
-    arm(fsm, output);
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(1ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    EXPECT_EQ(fsm.recordingControlPressed(start_time + 1ms), StateId::Looping);
-}
-
-TEST(LooperFsmTest, ReadyMonitorsMidiOnTheDedicatedLiveChannel) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-    MidiMessage message{.channel = 7, .key = 64, .velocity = 90};
-
-    EXPECT_EQ(fsm.stateId(), StateId::Ready);
-    EXPECT_TRUE(fsm.shouldRun());
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel))
-        .WillOnce(Return(23));
-
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, message, start_time),
-        23
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Ready);
-}
-
-TEST(LooperFsmTest, NextSoundFontUsesStateSpecificRouteAndIsIgnoredRecording) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Ready);
-
-    arm(fsm, output);
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LoopChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
-
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel))
-        .WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time + 1ms);
-
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Recording);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(9ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    EXPECT_EQ(fsm.recordingControlPressed(start_time + 10ms), StateId::Looping);
-
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
-}
-
-TEST(LooperFsmTest, SoundFontByNoteUsesExplicitStateAndStateSpecificRoute) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-    MidiMessage selection_note{.channel = 2, .key = 60, .velocity = 100};
-
-    EXPECT_EQ(
-        fsm.soundFontByNotePressed(),
-        StateId::ReadySelectingSoundFont
-    );
+void beginRecording(
+    LooperFsm& fsm,
+    StrictMock<MockOutput>& output
+) {
+    auto note = positiveNote();
     EXPECT_CALL(
         output,
-        selectSoundFontByNote(MidiRoute::LiveChannel, 60)
+        monitorMidi(_, MidiRoute::recordingSlot(first_slot))
+    ).WillOnce(Return(17));
+    EXPECT_CALL(
+        output,
+        recordNote(first_slot, RecordedNoteKind::NoteOn, _, 0ms)
     );
+    EXPECT_EQ(fsm.midiMessage(MidiMessageType::NoteOn, note, start_time), 17);
+    EXPECT_EQ(fsm.stateId(), StateId::Recording);
+}
+
+TEST(LooperFsmTest, ReadyRoutesLiveMidiAndLiveControls) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+    auto note = positiveNote();
+
+    EXPECT_CALL(output, monitorMidi(_, MidiRoute::live())).WillOnce(Return(23));
+    EXPECT_EQ(fsm.midiMessage(MidiMessageType::NoteOn, note, start_time), 23);
+
+    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::live()));
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Ready);
+    EXPECT_CALL(output, octaveDown(MidiRoute::live()));
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
+    EXPECT_CALL(output, octaveUp(MidiRoute::live()));
+    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
+}
+
+TEST(LooperFsmTest, EmptySlotArmsAndFirstPositiveNoteStartsAtOffsetZero) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    beginRecording(fsm, output);
+}
+
+TEST(LooperFsmTest, RecordingCompletesOnlyAfterSelectingItsSlot) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    beginRecording(fsm, output);
+
     EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time),
-        0
+        fsm.loopSlotControlPressed(),
+        StateId::RecordingSelectingLoopSlot
+    );
+    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, commitTake(first_slot, 25ms));
+        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::live()));
+        EXPECT_CALL(output, startSlotPlayback(first_slot));
+        EXPECT_CALL(output, showLooping(first_slot));
+    }
+    auto selection = positiveNote(first_slot_key);
+    fsm.midiMessage(
+        MidiMessageType::NoteOn,
+        selection,
+        start_time + 25ms
     );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
+}
 
-    arm(fsm, output);
+TEST(LooperFsmTest, RecordedSlotSelectionStartsOrMutesOnlyThatSlot) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+    auto selection = positiveNote(first_slot_key);
+
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
+    EXPECT_CALL(slots, slotHasTake(first_slot)).WillOnce(Return(true));
+    EXPECT_CALL(slots, slotPlaybackState(first_slot))
+        .WillOnce(Return(SlotPlaybackState::Muted));
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, startSlotPlayback(first_slot));
+        EXPECT_CALL(output, showLooping(first_slot));
+    }
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
+
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
+    EXPECT_CALL(slots, slotHasTake(first_slot)).WillOnce(Return(true));
+    EXPECT_CALL(slots, slotPlaybackState(first_slot))
+        .WillOnce(Return(SlotPlaybackState::Looping));
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, muteSlotPlayback(first_slot));
+        EXPECT_CALL(output, showMuted(first_slot));
+    }
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
+    EXPECT_EQ(fsm.stateId(), StateId::Ready);
+}
+
+TEST(LooperFsmTest, OtherPlayingSlotsCanBeMutedWhileRecordingContinues) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    beginRecording(fsm, output);
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(),
+        StateId::RecordingSelectingLoopSlot
+    );
+
+    EXPECT_CALL(slots, slotByKey(second_slot_key)).WillOnce(Return(second_slot));
+    EXPECT_CALL(slots, slotHasTake(second_slot)).WillOnce(Return(true));
+    EXPECT_CALL(slots, slotPlaybackState(second_slot))
+        .WillOnce(Return(SlotPlaybackState::Looping));
+    EXPECT_CALL(output, muteSlotPlayback(second_slot));
+    EXPECT_CALL(output, showMuted(second_slot));
+    auto selection = positiveNote(second_slot_key);
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time + 10ms);
+    EXPECT_EQ(fsm.stateId(), StateId::Recording);
+
+    auto selection_release = MidiMessage{.key = second_slot_key};
+    fsm.midiMessage(
+        MidiMessageType::NoteOff,
+        selection_release,
+        start_time + 11ms
+    );
+    EXPECT_EQ(fsm.stateId(), StateId::Recording);
+}
+
+TEST(LooperFsmTest, ArmedSlotSelectionCancelsOnlyItsPendingTake) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ArmedSelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
+    {
+        InSequence sequence;
+        EXPECT_CALL(output, discardPendingTake(first_slot));
+        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::live()));
+        EXPECT_CALL(output, showNoTake(first_slot));
+    }
+    auto selection = positiveNote(first_slot_key);
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
+    EXPECT_EQ(fsm.stateId(), StateId::Ready);
+}
+
+TEST(LooperFsmTest, EmptyPeerCannotAcquireTheBusyRecorder) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ArmedSelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(second_slot_key)).WillOnce(Return(second_slot));
+    EXPECT_CALL(slots, slotHasTake(second_slot)).WillOnce(Return(false));
+    EXPECT_CALL(output, showRecorderBusy(second_slot));
+    auto selection = positiveNote(second_slot_key);
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
+    EXPECT_EQ(fsm.stateId(), StateId::Armed);
+}
+
+TEST(LooperFsmTest, ArmedSoundFontAndOctaveControlsTargetSelectedSlot) {
+    StrictMock<MockOutput> output;
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
+    LooperFsm fsm{states};
+
+    selectEmptySlot(fsm, output, slots);
+    EXPECT_CALL(
+        output,
+        selectNextSoundFont(MidiRoute::recordingSlot(first_slot))
+    );
+    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
+
+    EXPECT_CALL(output, octaveDown(MidiRoute::live()));
+    EXPECT_CALL(
+        output,
+        octaveDown(MidiRoute::recordingSlot(first_slot))
+    );
+    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Armed);
+
     EXPECT_EQ(
         fsm.soundFontByNotePressed(),
         StateId::ArmedSelectingSoundFont
     );
     EXPECT_CALL(
         output,
-        selectSoundFontByNote(MidiRoute::LoopChannel, 60)
+        selectSoundFontByNote(MidiRoute::recordingSlot(first_slot), 72)
     );
-    fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 1ms);
+    auto selection = positiveNote(72);
+    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
     EXPECT_EQ(fsm.stateId(), StateId::Armed);
-
-    MidiMessage recording_note{.channel = 0, .key = 67, .velocity = 90};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(5));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    EXPECT_EQ(
-        fsm.midiMessage(
-            MidiMessageType::NoteOn,
-            recording_note,
-            start_time + 2ms
-        ),
-        5
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Recording);
-    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Recording);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(8ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    fsm.recordingControlPressed(start_time + 10ms);
-
-    EXPECT_EQ(
-        fsm.soundFontByNotePressed(),
-        StateId::LoopingSelectingSoundFont
-    );
-    EXPECT_CALL(
-        output,
-        selectSoundFontByNote(MidiRoute::LiveChannel, 60)
-    );
-    fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 11ms);
-    EXPECT_EQ(fsm.stateId(), StateId::Looping);
 }
 
-TEST(LooperFsmTest, SoundFontSelectionStatesRouteOtherMidiAndCancel) {
+TEST(LooperFsmTest, UnknownSlotNoteIsConsumedAndLeavesSelection) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
     LooperFsm fsm{states};
-    MidiMessage message{.channel = 0, .key = 60, .velocity = 0};
+    auto selection = positiveNote(99);
 
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel)).WillOnce(Return(3));
-    EXPECT_EQ(fsm.midiMessage(MidiMessageType::NoteOn, message, start_time), 3);
-    EXPECT_EQ(fsm.stateId(), StateId::ReadySelectingSoundFont);
-    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Ready);
-
-    arm(fsm, output);
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(4));
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_CALL(slots, slotByKey(99)).WillOnce(Return(std::nullopt));
+    EXPECT_CALL(output, showUnknownLoopSlot(99));
     EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, message, start_time + 1ms),
-        4
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::ArmedSelectingSoundFont);
-    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Armed);
-
-    MidiMessage recording_note{.channel = 0, .key = 64, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, recording_note, start_time + 2ms);
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(1ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    fsm.recordingControlPressed(start_time + 3ms);
-
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel)).WillOnce(Return(6));
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, message, start_time + 4ms),
-        6
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::LoopingSelectingSoundFont);
-    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Looping);
-}
-
-TEST(LooperFsmTest, OtherControlsLeaveSoundFontSelectionStates) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Ready);
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
-
-    fsm.soundFontByNotePressed();
-    expectArm(output);
-    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Armed);
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LoopChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Armed);
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Armed);
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Armed);
-
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, showNoTake());
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LiveChannel));
-    }
-    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Ready);
-
-    startLooping(fsm, output);
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, selectNextSoundFont(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.nextSoundFontPressed(), StateId::Looping);
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Looping);
-    fsm.soundFontByNotePressed();
-    EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Looping);
-
-    fsm.soundFontByNotePressed();
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-    }
-    EXPECT_EQ(fsm.recordingControlPressed(start_time + 2ms), StateId::Ready);
-}
-
-TEST(LooperFsmTest, ShutdownFromEverySoundFontSelectionStateIsTerminal) {
-    {
-        StrictMock<MockOutput> output;
-        LooperStateRegistry states{output};
-        LooperFsm fsm{states};
-        fsm.soundFontByNotePressed();
-        {
-            InSequence sequence;
-            EXPECT_CALL(output, stopLoopPlayback());
-            EXPECT_CALL(output, silenceAllChannels());
-            EXPECT_CALL(output, stopPlaybackWorker());
-        }
-        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
-    }
-
-    {
-        StrictMock<MockOutput> output;
-        LooperStateRegistry states{output};
-        LooperFsm fsm{states};
-        arm(fsm, output);
-        fsm.soundFontByNotePressed();
-        {
-            InSequence sequence;
-            EXPECT_CALL(output, stopLoopPlayback());
-            EXPECT_CALL(output, silenceAllChannels());
-            EXPECT_CALL(output, stopPlaybackWorker());
-        }
-        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
-    }
-
-    {
-        StrictMock<MockOutput> output;
-        LooperStateRegistry states{output};
-        LooperFsm fsm{states};
-        startLooping(fsm, output);
-        fsm.soundFontByNotePressed();
-        {
-            InSequence sequence;
-            EXPECT_CALL(output, stopLoopPlayback());
-            EXPECT_CALL(output, silenceAllChannels());
-            EXPECT_CALL(output, stopPlaybackWorker());
-        }
-        EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
-    }
-}
-
-TEST(LooperFsmTest, OctaveControlsUseStateSpecificRoutes) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
-
-    arm(fsm, output);
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Armed);
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Armed);
-
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time);
-
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Recording);
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Recording);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(1ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    fsm.recordingControlPressed(start_time + 1ms);
-
-    EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Looping);
-    EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Looping);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-    }
-    EXPECT_EQ(
-        fsm.recordingControlPressed(start_time + 2ms),
-        StateId::Ready
-    );
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveDown(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveDown(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveDownPressed(), StateId::Ready);
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, octaveUp(MidiRoute::LiveChannel));
-        EXPECT_CALL(output, octaveUp(MidiRoute::LoopChannel));
-    }
-    EXPECT_EQ(fsm.octaveUpPressed(), StateId::Ready);
-}
-
-TEST(LooperFsmTest, FirstPositiveVelocityNoteOnMovesArmedToRecording) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-    arm(fsm, output);
-
-    MidiMessage note_off{.channel = 0, .key = 60, .velocity = 0};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOff, note_off, start_time + 1ms),
+        fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time),
         0
     );
-    EXPECT_EQ(fsm.stateId(), StateId::Armed);
-
-    MidiMessage zero_velocity_note_on{.channel = 0, .key = 60, .velocity = 0};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_EQ(
-        fsm.midiMessage(
-            MidiMessageType::NoteOn,
-            zero_velocity_note_on,
-            start_time + 2ms
-        ),
-        0
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Armed);
-
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(7));
-        EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    }
-
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time + 3ms),
-        7
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Recording);
-}
-
-TEST(LooperFsmTest, CompletedRecordingCanStopBackToReady) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-    arm(fsm, output);
-
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time + 1ms);
-
-    MidiMessage note_off{.channel = 0, .key = 60};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOff, _, 19ms));
-    fsm.midiMessage(MidiMessageType::NoteOff, note_off, start_time + 20ms);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(29ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-    EXPECT_EQ(
-        fsm.recordingControlPressed(start_time + 30ms),
-        StateId::Looping
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Looping);
-
-    MidiMessage live_note{.channel = 0, .key = 72, .velocity = 80};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel)).WillOnce(Return(11));
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, live_note, start_time + 31ms),
-        11
-    );
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-    }
-    EXPECT_EQ(
-        fsm.recordingControlPressed(start_time + 32ms),
-        StateId::Ready
-    );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
-    EXPECT_TRUE(fsm.shouldRun());
-
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel))
-        .WillOnce(Return(13));
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, live_note, start_time + 33ms),
-        13
-    );
 }
 
-TEST(LooperFsmTest, PressingControlWhileArmedCancelsBackToReady) {
+TEST(LooperFsmTest, ShutdownTerminatesAllSlotsAndIsIdempotent) {
     StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
+    StrictMock<MockSlotView> slots;
+    LooperStateRegistry states{output, slots};
     LooperFsm fsm{states};
-    arm(fsm, output);
 
     {
         InSequence sequence;
-        EXPECT_CALL(output, showNoTake());
-        EXPECT_CALL(output, stopLoopPlayback());
+        EXPECT_CALL(output, terminateSlots());
         EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::LiveChannel));
     }
-
-    EXPECT_EQ(
-        fsm.recordingControlPressed(start_time + 1ms),
-        StateId::Ready
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Ready);
-    EXPECT_TRUE(fsm.shouldRun());
-
-    MidiMessage live_note{.channel = 0, .key = 67, .velocity = 80};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LiveChannel))
-        .WillOnce(Return(17));
-    EXPECT_EQ(
-        fsm.midiMessage(MidiMessageType::NoteOn, live_note, start_time + 2ms),
-        17
-    );
-}
-
-TEST(LooperFsmTest, ZeroDurationTakeUsesTheNormalRecordingTransition) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-    arm(fsm, output);
-
-    MidiMessage note_on{.channel = 0, .key = 60, .velocity = 100};
-    EXPECT_CALL(output, monitorMidi(_, MidiRoute::LoopChannel)).WillOnce(Return(0));
-    EXPECT_CALL(output, recordNote(RecordedNoteKind::NoteOn, _, 0ms));
-    fsm.midiMessage(MidiMessageType::NoteOn, note_on, start_time);
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, commitTake(0ms));
-        EXPECT_CALL(output, startLoopPlayback());
-        EXPECT_CALL(output, showLooping());
-    }
-
-    EXPECT_EQ(fsm.recordingControlPressed(start_time), StateId::Looping);
-    EXPECT_EQ(fsm.stateId(), StateId::Looping);
-}
-
-TEST(LooperFsmTest, ShutdownFromReadyIsTerminalAndIdempotent) {
-    StrictMock<MockOutput> output;
-    LooperStateRegistry states{output};
-    LooperFsm fsm{states};
-
-    {
-        InSequence sequence;
-        EXPECT_CALL(output, stopLoopPlayback());
-        EXPECT_CALL(output, silenceAllChannels());
-        EXPECT_CALL(output, stopPlaybackWorker());
-    }
-    fsm.shutdownRequested();
-    EXPECT_EQ(fsm.stateId(), StateId::Stopped);
+    EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
     EXPECT_FALSE(fsm.shouldRun());
-
-    fsm.shutdownRequested();
-    EXPECT_EQ(
-        fsm.recordingControlPressed(start_time),
-        StateId::Stopped
-    );
-    EXPECT_EQ(fsm.soundFontByNotePressed(), StateId::Stopped);
-}
-
-TEST(LooperFsmTest, ClassifiesKnownAndUnknownRawMidiTypes) {
-    EXPECT_EQ(zeta::classifyMidiMessage(0x80), MidiMessageType::NoteOff);
-    EXPECT_EQ(zeta::classifyMidiMessage(0x90), MidiMessageType::NoteOn);
-    EXPECT_EQ(zeta::classifyMidiMessage(0xB0), MidiMessageType::ControlChange);
-    EXPECT_EQ(zeta::classifyMidiMessage(0xC0), MidiMessageType::ProgramChange);
-    EXPECT_EQ(zeta::classifyMidiMessage(0xE0), MidiMessageType::PitchBend);
-    EXPECT_EQ(zeta::classifyMidiMessage(0xF8), MidiMessageType::Other);
+    EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
+    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::Stopped);
 }
 
 } // namespace

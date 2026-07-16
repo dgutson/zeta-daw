@@ -20,6 +20,7 @@ public:
     int noteOff(int channel, int key);
 
     void select(const SoundFontDefinition& soundfont, int channel);
+    void silenceChannel(int channel);
     void allNotesOff();
 
 private:

@@ -39,9 +39,10 @@ struct SoundFontDefinition {
 };
 
 struct ApplicationConfig {
+    std::vector<int> loop_slot_keys;
     std::vector<SoundFontDefinition> soundfonts;
     std::vector<MidiControlChangeMapping> midi_control_change_mappings;
-    MidiControlBinding recording_control;
+    MidiControlBinding loop_slot_control;
     std::optional<MidiControlBinding> next_soundfont_control;
     std::optional<MidiControlBinding> soundfont_by_note_control;
     MidiControlBinding octave_down_control;

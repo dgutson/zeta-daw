@@ -1,4 +1,4 @@
-schema_version: 6
+schema_version: 7
 
 # The SE49 fader uses its DAW integration port while MMC mode is active. Treat
 # its channel-16 CC20 event as standard Channel Volume CC7. Omit this optional
@@ -8,6 +8,14 @@ midi_control_change_mappings:
     channel: 16
     controller: 20
     target_controller: 7
+
+# Press loop_slot_by_note followed by one of these physical keys to address an
+# independent loop slot. Slot keys are interpreted before octave transposition.
+loop_slots:
+  - C2
+  - D2
+  - E2
+  - F2
 
 # Entries are loaded eagerly, in this order, before MIDI input starts.
 soundfonts:
@@ -30,7 +38,7 @@ soundfonts:
 # selection. To use sequential selection instead, rename soundfont_by_note to
 # next_soundfont and omit the SoundFont key fields.
 controls:
-  recording:
+  loop_slot_by_note:
     type: machine_control
     command: rewind
 
@@ -47,7 +55,7 @@ controls:
     command: record_strobe
 
 # A momentary footswitch is a convenient hands-free alternative. Replace the
-# controls.recording binding with this mapping if desired:
+# controls.loop_slot_by_note binding with this mapping if desired:
 #    type: control_change
 #    channel: 1
 #    controller: 64

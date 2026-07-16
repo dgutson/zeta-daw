@@ -52,8 +52,9 @@ LooperFsm -> current LooperState -> LooperOutput
                                       v
                                   Application
                                   /         \
-                         SynthEngine      loop worker
-                         (FluidSynth)
+                         SynthEngine      LoopSlot objects
+                         (FluidSynth)      /      |      \
+                              playback FSM   take   worker
 ```
 
 The main layers and ownership boundaries are:
@@ -70,12 +71,19 @@ The main layers and ownership boundaries are:
 - `midi_event.*` owns the library-independent MIDI event model and raw-byte
   decoding, including channel-message data-byte validation and MMC SysEx
   recognition.
-- `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
-  libremidi, configuration parsing, or the playback thread.
+- `looper_fsm.*` owns global interaction, the single-recorder invariant, and
+  recording-state decisions. It does not own FluidSynth, libremidi,
+  configuration parsing, or playback threads.
 - `application.*` composes the system, matches configured controls, implements
-  the FSM output alphabet, stores a take, and owns the loop worker.
+  the master FSM output alphabet, and owns the ordered loop-slot catalog.
+- `loop_slot.*` encapsulates one configured slot's committed take, locked
+  transposition, dedicated FluidSynth channel, subordinate playback FSM, and
+  eagerly created worker thread.
+- `loop_slot_fsm.*` owns only a slot's `Muted`, `Looping`, and terminal
+  `Terminated` playback lifecycle. It never owns global arming or recording.
 - `octave_transposer.*` owns octave bounds and arithmetic transposition for one
-  MIDI route. `Application` owns independent live and loop instances.
+  MIDI route. `Application` owns the live instance and each `LoopSlot` owns its
+  locked instance.
 - `soundfont_selector.*` owns the ordered SoundFont selection, its current
   entry, and the bounded physical-key lookup shared by sequential and direct
   selection. It has no synthesizer or MIDI-channel responsibility.
@@ -87,7 +95,7 @@ leak past `midi_input.*`, and FluidSynth types must not leak past
 
 ## FSM design contract
 
-The looper deliberately uses a GoF State pattern. Preserve that style.
+The master looper deliberately uses a GoF State pattern. Preserve that style.
 
 - Each state is a polymorphic `LooperState` implementation. `LooperFsm` holds a
   `StateId` and dispatches stimuli to the object supplied by
@@ -101,17 +109,21 @@ The looper deliberately uses a GoF State pattern. Preserve that style.
   act as a second, implicit state machine.
 - Do not replace this design with `std::variant`, visitation, a switch-based
   state machine, function tables, or a third-party FSM framework.
+- A slot's subordinate playback machine is the deliberate exception: its
+  complete state is an encapsulated `SlotPlaybackState` enum with `Muted`,
+  `Looping`, and `Terminated`. Do not add `Armed`, `Recording`, selector modes,
+  or other master responsibilities to a slot.
 - The virtual methods on `LooperState` are the FSM input alphabet: currently
-  `recordingControlPressed`, `nextSoundFontPressed`,
+  `loopSlotControlPressed`, `nextSoundFontPressed`,
   `soundFontByNotePressed`, `octaveDownPressed`, `octaveUpPressed`,
   `midiMessage`, and `shutdownRequested`. Add a virtual method when an agreed
   feature introduces a genuinely new stimulus.
 - The virtual methods on `LooperOutput` are the output alphabet. State objects
   request effects through this interface; they must not reach into
   `Application`, `SynthEngine`, libremidi, or FluidSynth.
-- `LooperOutput&` and `LooperStateData&` are invariant for the FSM lifetime and
-  are constructor-injected into the `LooperState` base. Do not pass them
-  repeatedly through stimulus methods or replace them with setters.
+- `LooperOutput&`, `LoopSlotView&`, and `LooperStateData&` are invariant for the
+  FSM lifetime and are constructor-injected into the `LooperState` base. Do not
+  pass them repeatedly through stimulus methods or replace them with setters.
 - A stimulus should take only event-specific information. A button stimulus
   such as `nextSoundFontPressed()` needs no argument. Persistent transition
   data belongs in `LooperStateData`; effects belong in `LooperOutput`.
@@ -130,64 +142,70 @@ rewrite inside a feature or cleanup ticket.
 
 ## Current state semantics
 
-The states are `Ready`, `ReadySelectingSoundFont`, `Armed`,
-`ArmedSelectingSoundFont`, `Recording`, `Looping`,
-`LoopingSelectingSoundFont`, and `Stopped`.
+The master states are `Ready`, `ReadySelectingSoundFont`,
+`ReadySelectingLoopSlot`, `Armed`, `ArmedSelectingSoundFont`,
+`ArmedSelectingLoopSlot`, `Recording`, `RecordingSelectingLoopSlot`, and
+`Stopped`. Loop playback is deliberately not a master state: zero or more slot
+FSMs may be `Looping` while the master is `Ready`, `Armed`, or `Recording`.
 
-- `Ready`: MIDI is monitored on the live channel. Primary control arms a new
-  take and assigns the current SoundFont to the loop channel. Next changes the
-  live SoundFont. Octave controls change both live and loop transposition.
-- `Armed`: MIDI is monitored on the loop channel. The first positive-velocity
-  Note On enters `Recording` and is stored at offset zero. Next may change the
-  pending loop SoundFont before that first note. Octave controls change both
-  live and loop transposition. Primary control before that first note cancels
-  the pending take, adopts its SoundFont for live playing, and returns to
-  `Ready`.
-- `Recording`: Note On and Note Off events are timestamped and stored. Next is
-  consumed without effect, as are both octave controls. Primary control commits
-  the duration and starts loop playback.
-- `Looping`: recorded notes repeat on the loop channel while incoming MIDI is
-  monitored on the live channel. Next changes only the live SoundFont. Octave
-  controls change only live transposition. Primary control stops playback and
-  returns to `Ready` without stopping the playback worker.
-- `Stopped`: all stimuli are inert and the application terminates. Only the
-  shutdown stimulus enters this state.
+- `Ready`: MIDI is monitored on the live channel. Next and direct SoundFont
+  selection change live output. Octave controls change live transposition.
+  Pressing the loop-slot selector enters `ReadySelectingLoopSlot`.
+- `ReadySelectingLoopSlot`: the next positive-velocity raw physical Note On is
+  consumed. An empty configured slot copies the current live SoundFont and
+  octave, clears its pending take, and enters master `Armed`. A recorded muted
+  slot starts; a looping slot mutes. An unmapped note is consumed and returns
+  to `Ready` without changing a slot.
+- `Armed`: MIDI is monitored on the selected slot's dedicated channel. The
+  first positive-velocity Note On enters `Recording` and is stored at offset
+  zero. SoundFont and octave controls may change the pending slot; octave
+  changes also affect live output. Pressing the loop-slot selector enters
+  `ArmedSelectingLoopSlot`.
+- `ArmedSelectingLoopSlot`: selecting the armed slot cancels its pending take,
+  adopts the current SoundFont for live playing, and returns to `Ready`.
+  Selecting a recorded peer starts or mutes it without losing recorder
+  ownership. An empty peer is rejected because only one slot may own the
+  recorder.
+- `Recording`: Note On and Note Off events are timestamped into the selected
+  slot. SoundFont and octave controls are consumed without effect. Pressing the
+  loop-slot selector enters `RecordingSelectingLoopSlot`.
+- `RecordingSelectingLoopSlot`: selecting the recording slot commits its
+  duration and starts it looping. A recorded peer starts or mutes while the
+  current recording continues. An empty peer is rejected.
+- `Stopped`: all stimuli are inert. Only shutdown enters this state; shutdown
+  sends `terminationRequested()` to every slot before silencing all channels.
 
-`ReadySelectingSoundFont`, `ArmedSelectingSoundFont`, and
-`LoopingSelectingSoundFont` are explicit one-shot interaction states. The next
-positive-velocity Note On is consumed, selects the configured SoundFont for
-the originating state's route by its raw physical key regardless of incoming
-MIDI channel, and returns to that originating state. An
-unmapped note is consumed and returns without changing the selection. Pressing
-the selector control again cancels. Other MIDI retains the originating route
-and selection state; other configured actions perform their ordinary behavior
-and leave the selection state. Armed selection does not sound a note or start
-recording. Recording ignores the selector control.
+SoundFont and loop-slot selection are explicit one-shot interaction states.
+Both use positive-velocity Note On, raw physical keys before Zeta
+transposition, and ignore incoming MIDI channel. Selection notes are consumed
+and do not sound or begin recording. Pressing the active selector again
+cancels. Other configured actions perform their state-specific behavior.
 
-The same configured primary control arms, finishes, and cancels recording, and
-stops an active loop. Controller stimuli never terminate the application;
-SIGINT, SIGTERM, and destruction use the shutdown stimulus for that lifecycle
-transition.
+The master alone owns `Armed` and `Recording`, including the selected `SlotId`
+and recording start time. A slot owns only `Muted`, `Looping`, or `Terminated`.
+Its input alphabet is `startRequested`, `muteRequested`, and
+`terminationRequested`; outputs are `activatePlayback`, `deactivatePlayback`,
+and `terminatePlayback`. Start and mute are idempotent, and every stimulus is
+inert after termination.
 
-Live and loop output use fixed FluidSynth channels 0 and 1 respectively.
-Recorded notes retain their original velocity and store the key produced by
-the pending loop transposer. They play on the loop channel. Once recording
-begins, the loop channel's SoundFont and octave are locked. When a take starts
-looping, live output is synchronized to the current selection; later Next
-events affect only live output.
+Live output uses FluidSynth channel 0. Each configured slot is assigned the
+next dedicated channel and owns an eagerly created sleeping `std::jthread`.
+FluidSynth's MIDI-channel count is configured before synth construction and
+rounded to its sixteen-channel group size. Dedicated channels preserve each
+slot's SoundFont and allow muting to release only that slot's sustain and notes.
+
+Recorded muted takes are retained for the process lifetime and resume from the
+start when selected. They cannot currently be erased or replaced without
+restarting Zeta. Slot loops are free-running from the instant each take is
+completed; Zeta does not synchronize or quantize their cycle boundaries.
 
 Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
-from three octaves down through four octaves up. The performer changes octaves
-only while no notes are playing. Do not add held-note tracking or behavior for
-octave changes during active notes without changing this contract explicitly.
-Live and loop transposition start synchronized for the first take. Returning
-from `Looping` to `Ready` preserves their independent octave selections, and
-subsequent Ready octave controls move both from those preserved values. A later
-take therefore uses the preserved loop selection rather than synchronizing it
-to the live selection.
-Key-bearing messages whose shifted key would fall outside MIDI range 0 through
-127 are left unchanged. Recorded keys are transposed before storage, so the
-playback worker does not share octave state and the loop pitch stays locked.
+from three octaves down through four octaves up. An empty slot copies the live
+transposer when armed. Recorded keys are transposed before storage, so later
+live changes cannot affect a completed slot. Key-bearing messages whose shifted
+key would fall outside MIDI range 0 through 127 remain unchanged. The performer
+changes octaves only while no notes are playing; do not add held-note behavior
+without changing this contract explicitly.
 
 Source-port Control Change mappings are applied once after decoding and before
 configured application actions are matched. They replace only the controller
@@ -221,7 +239,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 6.
+required version is 7.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -240,13 +258,19 @@ required version is 6.
   They must be unique and must not reuse the physical key of any configured
   Note action. At least one entry has a key exactly when
   `controls.soundfont_by_note` is configured.
+- `loop_slots` is an ordered, non-empty list of unique controller note names in
+  the same `C0` through `G8` convention. The raw physical key addresses a slot
+  independently of incoming channel and Zeta octave. Slot keys must not overlap
+  configured Note actions, but may overlap SoundFont keys because their
+  selector controls disambiguate them.
 - `midi_control_change_mappings` is optional; omission means that no Control
   Change normalization is needed. Each entry matches one exact source-port
   display name, human-facing channel, and controller number, then replaces only
   the controller number. Duplicate source/channel/controller matches are
   rejected.
-- `controls.recording`, `controls.octave_down`, and `controls.octave_up` each
-  contain exactly one required binding. `controls.next_soundfont` and
+- `controls.loop_slot_by_note`, `controls.octave_down`, and
+  `controls.octave_up` each contain exactly one required binding.
+  `controls.next_soundfont` and
   `controls.soundfont_by_note` are individually optional, but at least one is
   required. Performance setup changes are made by editing bindings before
   startup. Supported binding types are Note On, exact Control Change, exact or
@@ -260,15 +284,19 @@ required version is 6.
 - `Application` owns dependencies in destruction-safe order. MIDI input is
   stopped before shutdown tears down the FSM output implementation.
 - `LooperFsm` protects its current state and shared state data with a mutex.
-- Playback uses `std::jthread`, a stop token, a condition variable, and a
-  generation counter so a take can be interrupted without polling or long
-  sleeps.
-- Shutdown is idempotent. It stops loop playback, releases sustained/active
-  notes, stops and joins the worker, and wakes `Application::run()`.
+- Every configured slot owns one `std::jthread` created before MIDI input is
+  activated. Each uses a stop token, condition variable, and generation counter
+  so it sleeps while inactive and can be interrupted without polling.
+- Shutdown is idempotent. Each slot's terminal stimulus releases that channel's
+  sustained/active notes, stops and joins its worker, and the master wakes
+  `Application::run()` after all slots terminate.
 - Do not put blocking I/O, SoundFont loading, or unbounded work on the MIDI
   callback or playback scheduling paths.
-- The take has a fixed maximum event count. Any change to real-time allocation
-  behavior or capacity policy needs explicit performance reasoning and tests.
+- Every slot reserves the fixed maximum event count during startup. Any change
+  to real-time allocation behavior or capacity policy needs explicit
+  performance reasoning and tests.
+- A committed take is immutable for the process lifetime, so its playback
+  worker reads the slot-owned event storage without copying it on resume.
 
 ## Coding rules
 
@@ -375,6 +403,8 @@ The test suites divide responsibilities as follows:
   non-key MIDI passthrough.
 - `soundfont_selector_tests`: sequential/direct current-selection consistency
   and bounded physical-key lookup against the ordered catalog.
+- `loop_slot_fsm_tests`: subordinate playback transitions, idempotence, terminal
+  behavior, and arbitrary command-sequence model agreement.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
 - `current_behavior_tests`: application-level behavior with fake MIDI and
   FluidSynth boundaries.
@@ -389,7 +419,9 @@ Configuration changes need rejection tests, not only a happy path. Run
 - Confirm that all playable notes and unbound expressive controls still reach
   the synthesizer.
 - Confirm that the first played note still defines recording time zero.
-- Confirm that live and loop channel behavior remain independent.
+- Confirm that live and every slot channel remain independent.
+- Confirm existing slots continue while another slot records, and muting one
+  slot does not interrupt its peers.
 - Confirm octave changes preserve the recorded loop's pitch after recording
   starts.
 - Confirm clean Ctrl-C/SIGTERM shutdown and no stuck notes.

@@ -6,11 +6,11 @@
 
 #include <atomic>
 #include <memory>
-#include <string>
+#include <optional>
 
 namespace zeta {
 
-class Application final : private LooperOutput {
+class Application final : private LooperOutput, private LoopSlotView {
 public:
     explicit Application(ApplicationConfig config);
     Application(ApplicationConfig config, std::unique_ptr<MidiInput> midi_input);
@@ -32,37 +32,40 @@ private:
     std::unique_ptr<MidiInput> midi_input_;
     std::atomic<bool> midi_ready_{false};
 
-    static bool isPlayableLoopDuration(Milliseconds duration) noexcept;
-
     void handleMidiEvent(MidiEvent event) noexcept;
+
+    std::optional<SlotId> slotByKey(int key) const override;
+    bool slotHasTake(SlotId slot) const override;
+    SlotPlaybackState slotPlaybackState(SlotId slot) const override;
 
     int monitorMidi(const MidiMessage& message, MidiRoute route) override;
     void selectCurrentSoundFont(MidiRoute route) override;
     void selectNextSoundFont(MidiRoute route) override;
-    void selectSoundFontByNote(
-        MidiRoute route,
-        int key
-    ) override;
+    void selectSoundFontByNote(MidiRoute route, int key) override;
     void octaveDown(MidiRoute route) override;
     void octaveUp(MidiRoute route) override;
 
-    void stopLoopPlayback() override;
-    void silenceAllChannels() override;
-
-    void resetTake() override;
+    void prepareTake(SlotId slot) override;
+    void discardPendingTake(SlotId slot) override;
     void recordNote(
+        SlotId slot,
         RecordedNoteKind kind,
         const MidiMessage& message,
         Milliseconds offset
     ) override;
-    void commitTake(Milliseconds duration) override;
-    void startLoopPlayback() override;
+    void commitTake(SlotId slot, Milliseconds duration) override;
 
-    void showRecordingArmed() override;
-    void showLooping() override;
-    void showNoTake() override;
+    void startSlotPlayback(SlotId slot) override;
+    void muteSlotPlayback(SlotId slot) override;
+    void terminateSlots() override;
+    void silenceAllChannels() override;
 
-    void stopPlaybackWorker() override;
+    void showRecordingArmed(SlotId slot) override;
+    void showLooping(SlotId slot) override;
+    void showMuted(SlotId slot) override;
+    void showNoTake(SlotId slot) override;
+    void showRecorderBusy(SlotId slot) override;
+    void showUnknownLoopSlot(int key) override;
 };
 
 } // namespace zeta

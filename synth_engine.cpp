@@ -12,6 +12,16 @@
 namespace zeta {
 namespace {
 
+constexpr int midi_channel_group_size = 16;
+
+int configuredMidiChannelCount(const ApplicationConfig& config) {
+    const auto required = static_cast<int>(config.loop_slot_keys.size()) + 1;
+    const int groups = (
+        required + midi_channel_group_size - 1
+    ) / midi_channel_group_size;
+    return groups * midi_channel_group_size;
+}
+
 struct SettingsDeleter {
     void operator()(fluid_settings_t* settings) const noexcept {
         if (settings) {
@@ -47,6 +57,7 @@ struct SynthEngine::Impl {
     FluidSynth synth;
     FluidAudioDriver audio_driver;
     std::unordered_map<std::string, int> soundfont_ids;
+    int midi_channel_count{};
 
     explicit Impl(const ApplicationConfig& config) {
         settings.reset(new_fluid_settings());
@@ -56,6 +67,12 @@ struct SynthEngine::Impl {
 
         fluid_settings_setint(settings.get(), "synth.threadsafe-api", 1);
         fluid_settings_setnum(settings.get(), "synth.gain", 0.5);
+        midi_channel_count = configuredMidiChannelCount(config);
+        fluid_settings_setint(
+            settings.get(),
+            "synth.midi-channels",
+            midi_channel_count
+        );
 
         synth.reset(new_fluid_synth(settings.get()));
         if (!synth) {
@@ -158,10 +175,14 @@ void SynthEngine::select(const SoundFontDefinition& soundfont, int channel) {
 }
 
 void SynthEngine::allNotesOff() {
-    for (int channel = 0; channel < 16; ++channel) {
-        fluid_synth_cc(impl_->synth.get(), channel, 64, 0);
-        fluid_synth_cc(impl_->synth.get(), channel, 123, 0);
+    for (int channel = 0; channel < impl_->midi_channel_count; ++channel) {
+        silenceChannel(channel);
     }
+}
+
+void SynthEngine::silenceChannel(int channel) {
+    fluid_synth_cc(impl_->synth.get(), channel, 64, 0);
+    fluid_synth_cc(impl_->synth.get(), channel, 123, 0);
 }
 
 } // namespace zeta

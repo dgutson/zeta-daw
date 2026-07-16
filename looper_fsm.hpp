@@ -1,5 +1,6 @@
 #pragma once
 
+#include "loop_slot.hpp"
 #include "midi_event.hpp"
 
 #include <array>
@@ -7,6 +8,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace zeta {
 
@@ -14,24 +16,30 @@ using LooperClock = std::chrono::steady_clock;
 using TimePoint = LooperClock::time_point;
 using Milliseconds = std::chrono::milliseconds;
 
-enum class MidiRoute {
-    LiveChannel,
-    LoopChannel,
+enum class MidiRouteKind {
+    Live,
+    RecordingSlot,
 };
 
-enum class RecordedNoteKind {
-    NoteOn,
-    NoteOff,
+struct MidiRoute {
+    MidiRouteKind kind{MidiRouteKind::Live};
+    SlotId slot{};
+
+    static MidiRoute live() noexcept;
+    static MidiRoute recordingSlot(SlotId slot) noexcept;
+
+    bool operator==(const MidiRoute&) const = default;
 };
 
 enum class StateId : std::size_t {
     Ready,
     ReadySelectingSoundFont,
+    ReadySelectingLoopSlot,
     Armed,
     ArmedSelectingSoundFont,
+    ArmedSelectingLoopSlot,
     Recording,
-    Looping,
-    LoopingSelectingSoundFont,
+    RecordingSelectingLoopSlot,
     Stopped,
     Count,
 };
@@ -42,7 +50,18 @@ struct MidiHandlingResult {
 };
 
 struct LooperStateData {
+    std::optional<SlotId> recording_slot;
+    std::optional<int> selection_release_to_suppress;
     TimePoint recording_started_at{};
+};
+
+class LoopSlotView {
+public:
+    virtual ~LoopSlotView() = default;
+
+    virtual std::optional<SlotId> slotByKey(int key) const = 0;
+    virtual bool slotHasTake(SlotId slot) const = 0;
+    virtual SlotPlaybackState slotPlaybackState(SlotId slot) const = 0;
 };
 
 class LooperOutput {
@@ -52,42 +71,45 @@ public:
     virtual int monitorMidi(const MidiMessage& message, MidiRoute route) = 0;
     virtual void selectCurrentSoundFont(MidiRoute route) = 0;
     virtual void selectNextSoundFont(MidiRoute route) = 0;
-    virtual void selectSoundFontByNote(
-        MidiRoute route,
-        int key
-    ) = 0;
+    virtual void selectSoundFontByNote(MidiRoute route, int key) = 0;
     virtual void octaveDown(MidiRoute route) = 0;
     virtual void octaveUp(MidiRoute route) = 0;
 
-    virtual void stopLoopPlayback() = 0;
-    virtual void silenceAllChannels() = 0;
-
-    virtual void resetTake() = 0;
+    virtual void prepareTake(SlotId slot) = 0;
+    virtual void discardPendingTake(SlotId slot) = 0;
     virtual void recordNote(
+        SlotId slot,
         RecordedNoteKind kind,
         const MidiMessage& message,
         Milliseconds offset
     ) = 0;
-    virtual void commitTake(Milliseconds duration) = 0;
-    virtual void startLoopPlayback() = 0;
+    virtual void commitTake(SlotId slot, Milliseconds duration) = 0;
 
-    virtual void showRecordingArmed() = 0;
-    virtual void showLooping() = 0;
-    virtual void showNoTake() = 0;
+    virtual void startSlotPlayback(SlotId slot) = 0;
+    virtual void muteSlotPlayback(SlotId slot) = 0;
+    virtual void terminateSlots() = 0;
+    virtual void silenceAllChannels() = 0;
 
-    virtual void stopPlaybackWorker() = 0;
+    virtual void showRecordingArmed(SlotId slot) = 0;
+    virtual void showLooping(SlotId slot) = 0;
+    virtual void showMuted(SlotId slot) = 0;
+    virtual void showNoTake(SlotId slot) = 0;
+    virtual void showRecorderBusy(SlotId slot) = 0;
+    virtual void showUnknownLoopSlot(int key) = 0;
 };
 
 class LooperState {
 public:
-    LooperState(LooperOutput& output, LooperStateData& data) noexcept;
+    LooperState(
+        LooperOutput& output,
+        const LoopSlotView& slots,
+        LooperStateData& data
+    ) noexcept;
     virtual ~LooperState() = default;
 
-    virtual StateId recordingControlPressed(TimePoint now) const = 0;
-
+    virtual StateId loopSlotControlPressed() const = 0;
     virtual StateId nextSoundFontPressed() const = 0;
     virtual StateId soundFontByNotePressed() const = 0;
-
     virtual StateId octaveDownPressed() const = 0;
     virtual StateId octaveUpPressed() const = 0;
 
@@ -101,12 +123,13 @@ public:
 
 protected:
     LooperOutput& output_;
+    const LoopSlotView& slots_;
     LooperStateData& data_;
 };
 
 class LooperStateRegistry {
 public:
-    explicit LooperStateRegistry(LooperOutput& output);
+    LooperStateRegistry(LooperOutput& output, const LoopSlotView& slots);
     ~LooperStateRegistry();
 
     LooperStateRegistry(const LooperStateRegistry&) = delete;
@@ -129,7 +152,7 @@ public:
     LooperFsm(const LooperFsm&) = delete;
     LooperFsm& operator=(const LooperFsm&) = delete;
 
-    StateId recordingControlPressed(TimePoint now);
+    StateId loopSlotControlPressed();
     StateId nextSoundFontPressed();
     StateId soundFontByNotePressed();
     StateId octaveDownPressed();

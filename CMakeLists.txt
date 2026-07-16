@@ -59,6 +59,8 @@ add_executable(
     main.cpp
     application.cpp
     configuration.cpp
+    loop_slot.cpp
+    loop_slot_fsm.cpp
     looper_fsm.cpp
     midi_control_change_mapping.cpp
     midi_event.cpp
@@ -124,6 +126,8 @@ if(BUILD_TESTING)
         tests/fake_midi_input.cpp
         application.cpp
         configuration.cpp
+        loop_slot.cpp
+        loop_slot_fsm.cpp
         looper_fsm.cpp
         midi_control_change_mapping.cpp
         midi_event.cpp
@@ -157,6 +161,20 @@ if(BUILD_TESTING)
     target_link_libraries(
         configuration_tests
         PRIVATE GTest::gtest_main ${ZETA_YAML_TARGET} hegel
+    )
+
+    add_executable(
+        loop_slot_fsm_tests
+        tests/loop_slot_fsm_test.cpp
+        loop_slot_fsm.cpp
+    )
+    target_compile_options(
+        loop_slot_fsm_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        loop_slot_fsm_tests
+        PRIVATE GTest::gmock_main Threads::Threads hegel
     )
 
     add_executable(
@@ -222,6 +240,7 @@ if(BUILD_TESTING)
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
+    gtest_discover_tests(loop_slot_fsm_tests)
     gtest_discover_tests(looper_fsm_tests)
     gtest_discover_tests(midi_control_change_mapping_tests)
     gtest_discover_tests(midi_tests)

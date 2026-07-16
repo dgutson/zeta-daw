@@ -6,6 +6,13 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added multiple independently recorded loop slots selected by a one-shot
+  controller-button-then-note gesture. Completed slots can loop together,
+  remain active while another slot records, and be muted or resumed without
+  affecting peers.
+- Added one encapsulated playback FSM, dedicated FluidSynth channel, retained
+  take, and eagerly created worker thread per configured loop slot, with an
+  explicit terminal stimulus for deterministic shutdown.
 - Added direct SoundFont selection by pressing a configured controller action
   and then a keyed piano note, with explicit Ready, Armed, and Looping
   selection states for live performance.
@@ -24,6 +31,13 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Configuration schema 7 replaces the single recording action with required
+  `loop_slots` and `controls.loop_slot_by_note` fields.
+- The master GoF FSM now owns only global interaction and the single armed or
+  recording slot; concurrent loop playback is subordinate per-slot state.
+- Empty slots snapshot the live SoundFont and octave when armed. Recorded slots
+  retain their take, SoundFont, and pitch for the process lifetime and run
+  freely without cycle synchronization.
 - Configuration schema 6 makes sequential Next and direct note selection
   independently optional while requiring at least one SoundFont-selection
   mechanism.
