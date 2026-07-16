@@ -229,11 +229,12 @@ required version is 6.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- Each `soundfonts` entry has an optional note-name `key` in the configured
-  physical-key range `C0` through `G9`. Keys are interpreted before octave
-  transposition and independently of MIDI channel. They must be unique and
-  must not reuse the physical key of any configured Note action. At least one
-  entry has a key exactly when `controls.soundfont_by_note` is configured.
+- Each `soundfonts` entry has an optional SE49 note-name `key` in its physical
+  keybed range `C1` through `C5` (MIDI 36 through 84). Keys are interpreted
+  before octave transposition and independently of MIDI channel. They must be
+  unique and must not reuse the physical key of any configured Note action.
+  At least one entry has a key exactly when `controls.soundfont_by_note` is
+  configured.
 - `midi_control_change_mappings` is optional; omission means that no Control
   Change normalization is needed. Each entry matches one exact source-port
   display name, human-facing channel, and controller number, then replaces only

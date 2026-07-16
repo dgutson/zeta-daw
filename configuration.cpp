@@ -128,14 +128,14 @@ int parseSoundFontKey(
             const char octave_digit = target[note.size()];
             if (octave_digit >= '0' && octave_digit <= '9') {
                 const int octave = octave_digit - '0';
-                const int key = (octave + 1) * 12 + semitone;
-                if (key <= 127) {
+                const int key = (octave + 2) * 12 + semitone;
+                if (key >= 36 && key <= 84) {
                     return key;
                 }
             } else {
                 fail(
                     location + ".key",
-                    "expected a MIDI note name from C0 through G9"
+                    "expected an SE49 key name from C1 through C5"
                 );
             }
         }
@@ -144,7 +144,7 @@ int parseSoundFontKey(
 
     fail(
         location + ".key",
-        "expected a MIDI note name from C0 through G9"
+        "expected an SE49 key name from C1 through C5"
     );
 }
 

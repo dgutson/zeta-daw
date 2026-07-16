@@ -160,9 +160,9 @@ as the live sound before returning to Ready.
 
 Add an optional `key` to each directly selectable entry in `soundfonts`. Press
 `controls.soundfont_by_note`, then press that positive-velocity physical key to
-select the SoundFont. Keys use canonical note names with sharps, such as `G3`
-or `C#4`; MIDI key 60 is `C4`. The supported configured range is `C0`
-through `G9` (MIDI keys 12 through 127).
+select the SoundFont. Keys use the SE49 manual's note names with sharps, such
+as `G3` or `C#4`; MIDI key 60 is `C3`. The configured range is the physical
+SE49 keybed, `C1` through `C5` (MIDI keys 36 through 84).
 
 Selection matches the raw physical key before Zeta octave transposition and is
 independent of the incoming MIDI channel. This keeps the key fixed when the

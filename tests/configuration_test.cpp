@@ -299,9 +299,9 @@ controls:
     EXPECT_EQ(config.octave_up_control.number, 0x06);
 
     ASSERT_TRUE(config.soundfonts[0].key);
-    EXPECT_EQ(*config.soundfonts[0].key, 55);
+    EXPECT_EQ(*config.soundfonts[0].key, 67);
     ASSERT_TRUE(config.soundfonts[1].key);
-    EXPECT_EQ(*config.soundfonts[1].key, 61);
+    EXPECT_EQ(*config.soundfonts[1].key, 73);
 }
 
 TEST(ConfigurationTest, AcceptsEitherOrBothSoundFontSelectionControls) {
@@ -474,8 +474,10 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
         std::string_view{"60"},
         std::string_view{"Cb4"},
         std::string_view{"G#9"},
+        std::string_view{"C0"},
         std::string_view{"C-1"},
         std::string_view{"C-2"},
+        std::string_view{"C#5"},
         std::string_view{"c4"},
     };
 
@@ -497,12 +499,12 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
     }
 }
 
-TEST(ConfigurationTest, ParsesSoundFontKeyDomainBoundaries) {
+TEST(ConfigurationTest, ParsesSe49PhysicalKeybedBoundaries) {
     TemporaryConfig source{R"yaml(
 schema_version: 6
 soundfonts:
-  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C0 }
-  - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: G9 }
+  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C1 }
+  - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: C5 }
 controls:
   recording: { type: machine_control, command: rewind }
   soundfont_by_note: { type: machine_control, command: stop }
@@ -513,9 +515,9 @@ controls:
     const auto config = zeta::loadConfiguration(source.path());
 
     ASSERT_TRUE(config.soundfonts[0].key);
-    EXPECT_EQ(config.soundfonts[0].key.value(), 12);
+    EXPECT_EQ(config.soundfonts[0].key.value(), 36);
     ASSERT_TRUE(config.soundfonts[1].key);
-    EXPECT_EQ(config.soundfonts[1].key.value(), 127);
+    EXPECT_EQ(config.soundfonts[1].key.value(), 84);
 }
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontKeys) {
@@ -540,7 +542,7 @@ schema_version: 6
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: C4 }
 controls:
-  recording: { type: note, channel: 16, key: 60 }
+  recording: { type: note, channel: 16, key: 72 }
   soundfont_by_note: { type: machine_control, command: stop }
   octave_down: { type: machine_control, command: play }
   octave_up: { type: machine_control, command: record_strobe }
