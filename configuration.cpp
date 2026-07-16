@@ -115,39 +115,36 @@ int parseSoundFontKey(
     const YAML::Node& node,
     const std::string& location
 ) {
-    constexpr int semitones_per_octave = 12;
-    constexpr int maximum_midi_key = 127;
     static constexpr std::array<std::string_view, 12> note_names{
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B",
     };
-    const auto configured = nonEmptyString(node, "key", location);
-    const std::string_view note{configured};
-    const auto note_name_length = note.size() > 1 && note[1] == '#' ? 2U : 1U;
-    const auto note_name = note.substr(0, note_name_length);
-    const auto found = std::ranges::find(note_names, note_name);
-    const auto octave_text = note.substr(note_name_length);
+    const auto target = nonEmptyString(node, "key", location);
 
-    std::optional<int> octave;
-    if (octave_text == "-1") {
-        octave = -1;
-    } else if (octave_text.size() == 1
-        && octave_text.front() >= '0'
-        && octave_text.front() <= '9') {
-        octave = octave_text.front() - '0';
-    }
-
-    if (found != note_names.end() && octave) {
-        const int semitone = static_cast<int>(found - note_names.begin());
-        const int key = (octave.value() + 1) * semitones_per_octave + semitone;
-        if (key <= maximum_midi_key) {
-            return key;
+    int semitone = 0;
+    for (const auto note : note_names) {
+        if (target.size() == note.size() + 1
+            && target.find(note) == 0) {
+            const char octave_digit = target[note.size()];
+            if (octave_digit >= '0' && octave_digit <= '9') {
+                const int octave = octave_digit - '0';
+                const int key = (octave + 1) * 12 + semitone;
+                if (key <= 127) {
+                    return key;
+                }
+            } else {
+                fail(
+                    location + ".key",
+                    "expected a MIDI note name from C0 through G9"
+                );
+            }
         }
+        ++semitone;
     }
 
     fail(
         location + ".key",
-        "expected a canonical MIDI note name from C-1 through G9"
+        "expected a MIDI note name from C0 through G9"
     );
 }
 

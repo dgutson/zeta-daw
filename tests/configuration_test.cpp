@@ -474,6 +474,7 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
         std::string_view{"60"},
         std::string_view{"Cb4"},
         std::string_view{"G#9"},
+        std::string_view{"C-1"},
         std::string_view{"C-2"},
         std::string_view{"c4"},
     };
@@ -500,7 +501,7 @@ TEST(ConfigurationTest, ParsesSoundFontKeyDomainBoundaries) {
     TemporaryConfig source{R"yaml(
 schema_version: 6
 soundfonts:
-  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C-1 }
+  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C0 }
   - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: G9 }
 controls:
   recording: { type: machine_control, command: rewind }
@@ -512,7 +513,7 @@ controls:
     const auto config = zeta::loadConfiguration(source.path());
 
     ASSERT_TRUE(config.soundfonts[0].key);
-    EXPECT_EQ(config.soundfonts[0].key.value(), 0);
+    EXPECT_EQ(config.soundfonts[0].key.value(), 12);
     ASSERT_TRUE(config.soundfonts[1].key);
     EXPECT_EQ(config.soundfonts[1].key.value(), 127);
 }

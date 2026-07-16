@@ -161,8 +161,8 @@ as the live sound before returning to Ready.
 Add an optional `key` to each directly selectable entry in `soundfonts`. Press
 `controls.soundfont_by_note`, then press that positive-velocity physical key to
 select the SoundFont. Keys use canonical note names with sharps, such as `G3`
-or `C#4`; MIDI key 60 is `C4`. The supported physical-key domain is `C-1`
-through `G9` (MIDI keys 0 through 127).
+or `C#4`; MIDI key 60 is `C4`. The supported configured range is `C0`
+through `G9` (MIDI keys 12 through 127).
 
 Selection matches the raw physical key before Zeta octave transposition and is
 independent of the incoming MIDI channel. This keeps the key fixed when the
