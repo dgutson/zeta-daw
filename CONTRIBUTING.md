@@ -30,6 +30,10 @@ decisions must preserve these constraints:
   zero. This deliberate behavior removes leading silence and must not regress.
 - SoundFonts needed on stage are selected in configuration before the
   performance. Runtime selection chooses among that bounded, preloaded list.
+- Controller-specific hardware and documentation may inspire workflows,
+  examples, and naming conventions, but must not become core restrictions
+  unless explicitly agreed. Configuration and runtime behavior must remain
+  usable with equivalent MIDI controllers.
 
 ## Architecture at a glance
 
@@ -72,6 +76,9 @@ The main layers and ownership boundaries are:
   the FSM output alphabet, stores a take, and owns the loop worker.
 - `octave_transposer.*` owns octave bounds and arithmetic transposition for one
   MIDI route. `Application` owns independent live and loop instances.
+- `soundfont_selector.*` owns the ordered SoundFont selection, its current
+  entry, and the bounded physical-key lookup shared by sequential and direct
+  selection. It has no synthesizer or MIDI-channel responsibility.
 - `synth_engine.*` is the narrow RAII wrapper around the FluidSynth C API.
 
 Keep dependency-specific types at their adapters. libremidi types must not
@@ -85,12 +92,20 @@ The looper deliberately uses a GoF State pattern. Preserve that style.
 - Each state is a polymorphic `LooperState` implementation. `LooperFsm` holds a
   `StateId` and dispatches stimuli to the object supplied by
   `LooperStateRegistry`.
+- A performer-visible interaction phase that changes how later stimuli are
+  interpreted is an FSM state. Represent it with an explicit `StateId` and
+  `LooperState` implementation; do not encode it as a boolean, enum, or other
+  hidden mode in `LooperStateData`, `Application`, or an adapter.
+- `LooperStateData` stores values used by explicit states and transitions, such
+  as the recording start time. It must not duplicate the current `StateId` or
+  act as a second, implicit state machine.
 - Do not replace this design with `std::variant`, visitation, a switch-based
   state machine, function tables, or a third-party FSM framework.
 - The virtual methods on `LooperState` are the FSM input alphabet: currently
-  `recordingControlPressed`, `nextSoundFontPressed`, `octaveDownPressed`,
-  `octaveUpPressed`, `midiMessage`, and `shutdownRequested`. Add a virtual
-  method when an agreed feature introduces a genuinely new stimulus.
+  `recordingControlPressed`, `nextSoundFontPressed`,
+  `soundFontByNotePressed`, `octaveDownPressed`, `octaveUpPressed`,
+  `midiMessage`, and `shutdownRequested`. Add a virtual method when an agreed
+  feature introduces a genuinely new stimulus.
 - The virtual methods on `LooperOutput` are the output alphabet. State objects
   request effects through this interface; they must not reach into
   `Application`, `SynthEngine`, libremidi, or FluidSynth.
@@ -115,7 +130,9 @@ rewrite inside a feature or cleanup ticket.
 
 ## Current state semantics
 
-The states are `Ready`, `Armed`, `Recording`, `Looping`, and `Stopped`.
+The states are `Ready`, `ReadySelectingSoundFont`, `Armed`,
+`ArmedSelectingSoundFont`, `Recording`, `Looping`,
+`LoopingSelectingSoundFont`, and `Stopped`.
 
 - `Ready`: MIDI is monitored on the live channel. Primary control arms a new
   take and assigns the current SoundFont to the loop channel. Next changes the
@@ -135,6 +152,17 @@ The states are `Ready`, `Armed`, `Recording`, `Looping`, and `Stopped`.
   returns to `Ready` without stopping the playback worker.
 - `Stopped`: all stimuli are inert and the application terminates. Only the
   shutdown stimulus enters this state.
+
+`ReadySelectingSoundFont`, `ArmedSelectingSoundFont`, and
+`LoopingSelectingSoundFont` are explicit one-shot interaction states. The next
+positive-velocity Note On is consumed, selects the configured SoundFont for
+the originating state's route by its raw physical key regardless of incoming
+MIDI channel, and returns to that originating state. An
+unmapped note is consumed and returns without changing the selection. Pressing
+the selector control again cancels. Other MIDI retains the originating route
+and selection state; other configured actions perform their ordinary behavior
+and leave the selection state. Armed selection does not sound a note or start
+recording. Recording ignores the selector control.
 
 The same configured primary control arms, finishes, and cancels recording, and
 stops an active loop. Controller stimuli never terminate the application;
@@ -193,7 +221,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 5.
+required version is 6.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -205,16 +233,24 @@ required version is 5.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
+- Each `soundfonts` entry has an optional controller note-name `key`. Names use
+  the SE49-documented octave convention, where MIDI 60 is `C3`, across the
+  one-digit MIDI domain `C0` through `G8` (MIDI 24 through 127). Keys are
+  interpreted before octave transposition and independently of MIDI channel.
+  They must be unique and must not reuse the physical key of any configured
+  Note action. At least one entry has a key exactly when
+  `controls.soundfont_by_note` is configured.
 - `midi_control_change_mappings` is optional; omission means that no Control
   Change normalization is needed. Each entry matches one exact source-port
   display name, human-facing channel, and controller number, then replaces only
   the controller number. Duplicate source/channel/controller matches are
   rejected.
-- `controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
-  `controls.octave_up` each contain exactly one required binding. Performance
-  setup changes are made by editing that binding before startup. Supported
-  binding types are Note On, exact Control Change, exact or any Program Change,
-  and named MMC commands.
+- `controls.recording`, `controls.octave_down`, and `controls.octave_up` each
+  contain exactly one required binding. `controls.next_soundfont` and
+  `controls.soundfont_by_note` are individually optional, but at least one is
+  required. Performance setup changes are made by editing bindings before
+  startup. Supported binding types are Note On, exact Control Change, exact or
+  any Program Change, and named MMC commands.
 - A schema shape change requires incrementing the exact version constant,
   updating `zeta.example.yaml` and README usage, and adding positive and
   negative parser tests.
@@ -257,6 +293,9 @@ required version is 5.
 - Do not introduce `std::variant` into the FSM design.
 - Follow the existing naming and formatting, compile with `-Wall -Wextra
   -Wpedantic`, and keep warnings clean.
+- Do not use unexplained numeric literals for domain limits, encodings, or
+  conversions. Introduce named constants and comments for non-obvious numeric
+  conventions so their meaning and source remain visible at the use site.
 - Preserve user changes in a dirty worktree and avoid unrelated formatting or
   cleanup.
 - Update tests and documentation in the same change as behavior or schema.
@@ -334,6 +373,8 @@ The test suites divide responsibilities as follows:
   passthrough, value preservation, and one-pass behavior.
 - `octave_transposer_tests`: octave bounds, arithmetic key transposition, and
   non-key MIDI passthrough.
+- `soundfont_selector_tests`: sequential/direct current-selection consistency
+  and bounded physical-key lookup against the ordered catalog.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
 - `current_behavior_tests`: application-level behavior with fake MIDI and
   FluidSynth boundaries.

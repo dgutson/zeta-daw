@@ -27,12 +27,32 @@ ready: {
   }
 }
 
+ready_selecting_soundfont: {
+  label: "ReadySelectingSoundFont\nWaiting for a direct-selection note"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#d8eaff"
+    stroke: "#285f9e"
+  }
+}
+
 armed: {
   label: "Armed\nWaiting for the first NoteOn"
   shape: rectangle
   style: {
     border-radius: 8
     fill: "#fff4d6"
+    stroke: "#9b6a00"
+  }
+}
+
+armed_selecting_soundfont: {
+  label: "ArmedSelectingSoundFont\nWaiting for a pending-loop selection note"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#ffebbd"
     stroke: "#9b6a00"
   }
 }
@@ -57,6 +77,16 @@ looping: {
   }
 }
 
+looping_selecting_soundfont: {
+  label: "LoopingSelectingSoundFont\nWaiting for a live selection note"
+  shape: rectangle
+  style: {
+    border-radius: 8
+    fill: "#d8f2d8"
+    stroke: "#317a3b"
+  }
+}
+
 stopped: {
   label: "Stopped\nTerminal state"
   shape: rectangle
@@ -73,29 +103,51 @@ start -> ready
 ready -> armed: "recordingControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LoopChannel); resetTake(); showRecordingArmed()"
 ready -> ready: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel)"
 ready -> ready: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
+ready -> ready_selecting_soundfont: "soundFontByNotePressed()"
 ready -> ready: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel and LoopChannel"
+ready_selecting_soundfont -> ready: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ selectSoundFontByNote(LiveChannel, key)"
+ready_selecting_soundfont -> ready: "soundFontByNotePressed()\n/ cancel"
+ready_selecting_soundfont -> armed: "recordingControlPressed(now)\n/ normal Ready effects"
+ready_selecting_soundfont -> ready: "Next or octave control\n/ normal Ready effects"
+ready_selecting_soundfont -> ready_selecting_soundfont: "midiMessage(other, message, now)\n/ monitorMidi(message, LiveChannel)"
 
 armed -> recording: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ monitorMidi(message, LoopChannel); recordNote(NoteOn, message, 0ms)"
 armed -> armed: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
 armed -> armed: "nextSoundFontPressed()\n/ selectNextSoundFont(LoopChannel)"
+armed -> armed_selecting_soundfont: "soundFontByNotePressed()"
 armed -> armed: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel and LoopChannel"
 armed -> ready: "recordingControlPressed(now)\n/ showNoTake(); stopLoopPlayback(); silenceAllChannels(); selectCurrentSoundFont(LiveChannel)"
+armed_selecting_soundfont -> armed: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ selectSoundFontByNote(LoopChannel, key)"
+armed_selecting_soundfont -> armed: "soundFontByNotePressed()\n/ cancel"
+armed_selecting_soundfont -> ready: "recordingControlPressed(now)\n/ normal Armed effects"
+armed_selecting_soundfont -> armed: "Next or octave control\n/ normal Armed effects"
+armed_selecting_soundfont -> armed_selecting_soundfont: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel)"
 
 recording -> recording: "midiMessage(NoteOn | NoteOff, message, now)\n/ monitorMidi(message, LoopChannel); recordNote(kind, message, now - recordingStartedAt)"
 recording -> recording: "midiMessage(other, message, now)\n/ monitorMidi(message, LoopChannel) [unless suppressed]"
 recording -> recording: "nextSoundFontPressed()\n/ no action"
+recording -> recording: "soundFontByNotePressed()\n/ no action"
 recording -> recording: "octaveDownPressed() | octaveUpPressed()\n/ no action"
 recording -> looping: "recordingControlPressed(now)\n/ commitTake(duration); startLoopPlayback(); showLooping()"
 
 looping -> looping: "midiMessage(type, message, now)\n/ monitorMidi(message, LiveChannel) [unless suppressed]"
 looping -> looping: "nextSoundFontPressed()\n/ selectNextSoundFont(LiveChannel)"
+looping -> looping_selecting_soundfont: "soundFontByNotePressed()"
 looping -> looping: "octaveDownPressed() | octaveUpPressed()\n/ forward to LiveChannel"
 looping -> ready: "recordingControlPressed(now)\n/ stopLoopPlayback(); silenceAllChannels()"
+looping_selecting_soundfont -> looping: "midiMessage(NoteOn, message, now) [velocity > 0]\n/ selectSoundFontByNote(LiveChannel, key)"
+looping_selecting_soundfont -> looping: "soundFontByNotePressed()\n/ cancel"
+looping_selecting_soundfont -> ready: "recordingControlPressed(now)\n/ normal Looping effects"
+looping_selecting_soundfont -> looping: "Next or octave control\n/ normal Looping effects"
+looping_selecting_soundfont -> looping_selecting_soundfont: "midiMessage(other, message, now)\n/ monitorMidi(message, LiveChannel)"
 
 ready -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 armed -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 recording -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 looping -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+ready_selecting_soundfont -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+armed_selecting_soundfont -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
+looping_selecting_soundfont -> stopped: "shutdownRequested()\n/ stopLoopPlayback(); silenceAllChannels(); stopPlaybackWorker()"
 
 stopped -> stopped: "any stimulus\n/ no action"
 
@@ -109,12 +161,12 @@ legend: {
   }
 
   inputs: {
-    label: "Stimuli (virtual State methods)\n• recordingControlPressed(now)\n• nextSoundFontPressed()\n• octaveDownPressed() / octaveUpPressed()\n• midiMessage(type, message, now)\n• shutdownRequested()"
+    label: "Stimuli (virtual State methods)\n• recordingControlPressed(now)\n• nextSoundFontPressed()\n• soundFontByNotePressed()\n• octaveDownPressed() / octaveUpPressed()\n• midiMessage(type, message, now)\n• shutdownRequested()"
     shape: rectangle
   }
 
   outputs: {
-    label: "Actions (invariant LooperOutput injected into each State)\n• monitorMidi / silenceAllChannels\n• selectCurrentSoundFont / selectNextSoundFont\n• octaveDown / octaveUp\n• resetTake / recordNote / commitTake\n• startLoopPlayback / stopLoopPlayback\n• showRecordingArmed / showLooping / showNoTake\n• stopPlaybackWorker"
+    label: "Actions (invariant LooperOutput injected into each State)\n• monitorMidi / silenceAllChannels\n• selectCurrentSoundFont / selectNextSoundFont / selectSoundFontByNote\n• octaveDown / octaveUp\n• resetTake / recordNote / commitTake\n• startLoopPlayback / stopLoopPlayback\n• showRecordingArmed / showLooping / showNoTake\n• stopPlaybackWorker"
     shape: rectangle
   }
 }

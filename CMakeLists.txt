@@ -64,6 +64,7 @@ add_executable(
     midi_event.cpp
     midi_input.cpp
     octave_transposer.cpp
+    soundfont_selector.cpp
     synth_engine.cpp
 )
 target_link_libraries(
@@ -128,6 +129,7 @@ if(BUILD_TESTING)
         midi_event.cpp
         midi_input.cpp
         octave_transposer.cpp
+        soundfont_selector.cpp
         synth_engine.cpp
     )
     target_include_directories(
@@ -189,6 +191,20 @@ if(BUILD_TESTING)
     target_link_libraries(midi_tests PRIVATE GTest::gtest_main hegel)
 
     add_executable(
+        soundfont_selector_tests
+        tests/soundfont_selector_test.cpp
+        soundfont_selector.cpp
+    )
+    target_compile_options(
+        soundfont_selector_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        soundfont_selector_tests
+        PRIVATE GTest::gtest_main hegel
+    )
+
+    add_executable(
         octave_transposer_tests
         tests/octave_transposer_test.cpp
         octave_transposer.cpp
@@ -209,5 +225,6 @@ if(BUILD_TESTING)
     gtest_discover_tests(looper_fsm_tests)
     gtest_discover_tests(midi_control_change_mapping_tests)
     gtest_discover_tests(midi_tests)
+    gtest_discover_tests(soundfont_selector_tests)
     gtest_discover_tests(octave_transposer_tests)
 endif()

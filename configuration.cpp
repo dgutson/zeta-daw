@@ -11,7 +11,7 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 5;
+constexpr int required_schema_version = 6;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -111,6 +111,55 @@ std::string nonEmptyString(
     return value;
 }
 
+int parseSoundFontKey(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    constexpr int semitones_per_octave = 12;
+    constexpr int configured_octave_to_midi_offset = 2;
+    constexpr int maximum_midi_key = 127;
+    constexpr std::size_t octave_digit_count = 1;
+
+    // The SE49 convention labels MIDI 60 as C3, so configured octave numbers
+    // are two lower than the zero-based octave index used by MIDI arithmetic.
+    static constexpr std::array<
+        std::string_view,
+        semitones_per_octave
+    > note_names{
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B",
+    };
+    const auto target = nonEmptyString(node, "key", location);
+
+    int semitone = 0;
+    for (const auto note : note_names) {
+        if (target.size() == note.size() + octave_digit_count
+            && target.find(note) == 0) {
+            const char octave_digit = target[note.size()];
+            if (octave_digit >= '0' && octave_digit <= '9') {
+                const int octave = octave_digit - '0';
+                const int key =
+                    (octave + configured_octave_to_midi_offset)
+                    * semitones_per_octave + semitone;
+                if (key <= maximum_midi_key) {
+                    return key;
+                }
+            } else {
+                fail(
+                    location + ".key",
+                    "expected a controller key name from C0 through G8"
+                );
+            }
+        }
+        ++semitone;
+    }
+
+    fail(
+        location + ".key",
+        "expected a controller key name from C0 through G8"
+    );
+}
+
 int parseMachineControlCommand(
     const YAML::Node& node,
     const std::string& location
@@ -199,6 +248,16 @@ MidiControlBinding parseActionControl(
 ) {
     const std::string location = "controls." + std::string{name};
     return parseControl(controls[name], location);
+}
+
+std::optional<MidiControlBinding> parseOptionalActionControl(
+    const YAML::Node& controls,
+    const char* name
+) {
+    if (!controls[name]) {
+        return std::nullopt;
+    }
+    return parseActionControl(controls, name);
 }
 
 std::vector<MidiControlChangeMapping> parseMidiControlChangeMappings(
@@ -363,15 +422,28 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         fail("soundfonts", "must contain at least one entry");
     }
 
-    std::unordered_set<std::string> ids;
+    std::unordered_set<std::string> soundfont_ids;
+    std::unordered_set<int> soundfont_keys;
     for (std::size_t index = 0; index < soundfonts.size(); ++index) {
         const auto node = soundfonts[index];
         const std::string location = "soundfonts[" + std::to_string(index) + "]";
-        rejectUnknownKeys(node, location, {"id", "file", "bank", "preset"});
+        rejectUnknownKeys(
+            node,
+            location,
+            {"id", "file", "bank", "preset", "key"}
+        );
 
         auto id = nonEmptyString(node, "id", location);
-        if (!ids.insert(id).second) {
+        if (!soundfont_ids.insert(id).second) {
             fail(location + ".id", "duplicate SoundFont id '" + id + "'");
+        }
+
+        std::optional<int> key;
+        if (node["key"]) {
+            key = parseSoundFontKey(node, location);
+            if (!soundfont_keys.insert(*key).second) {
+                fail(location + ".key", "duplicate SoundFont selection key");
+            }
         }
 
         config.soundfonts.push_back({
@@ -382,6 +454,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
             ),
             .bank = boundedInt(node, "bank", location, 0, 16383),
             .preset = boundedInt(node, "preset", location, 0, 127),
+            .key = key,
         });
     }
 
@@ -389,31 +462,83 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     rejectUnknownKeys(controls, "controls", {
         "recording",
         "next_soundfont",
+        "soundfont_by_note",
         "octave_down",
         "octave_up",
     });
     config.recording_control = parseActionControl(controls, "recording");
-    config.next_soundfont_control = parseActionControl(
+    config.next_soundfont_control = parseOptionalActionControl(
         controls,
         "next_soundfont"
+    );
+    config.soundfont_by_note_control = parseOptionalActionControl(
+        controls,
+        "soundfont_by_note"
     );
     config.octave_down_control = parseActionControl(controls, "octave_down");
     config.octave_up_control = parseActionControl(controls, "octave_up");
 
+    if (!config.next_soundfont_control && !config.soundfont_by_note_control) {
+        fail(
+            "controls",
+            "at least one of next_soundfont or soundfont_by_note is required"
+        );
+    }
+
+    if (config.soundfont_by_note_control && soundfont_keys.empty()) {
+        fail(
+            "soundfonts",
+            "at least one entry requires key when controls.soundfont_by_note "
+            "is configured"
+        );
+    }
+    if (!config.soundfont_by_note_control && !soundfont_keys.empty()) {
+        fail(
+            "soundfonts",
+            "SoundFont keys require controls.soundfont_by_note"
+        );
+    }
+
     struct NamedControl {
         std::string_view name;
-        const MidiControlBinding& binding;
+        const MidiControlBinding* binding;
     };
-    const std::array actions{
-        NamedControl{"recording", config.recording_control},
-        NamedControl{"next_soundfont", config.next_soundfont_control},
-        NamedControl{"octave_down", config.octave_down_control},
-        NamedControl{"octave_up", config.octave_up_control},
+    std::vector<NamedControl> actions{
+        NamedControl{"recording", &config.recording_control},
+        NamedControl{"octave_down", &config.octave_down_control},
+        NamedControl{"octave_up", &config.octave_up_control},
     };
+    if (config.next_soundfont_control) {
+        actions.push_back({"next_soundfont", &*config.next_soundfont_control});
+    }
+    if (config.soundfont_by_note_control) {
+        actions.push_back({
+            "soundfont_by_note",
+            &*config.soundfont_by_note_control,
+        });
+    }
+
+    for (std::size_t index = 0; index < config.soundfonts.size(); ++index) {
+        const auto& soundfont = config.soundfonts[index];
+        if (!soundfont.key) {
+            continue;
+        }
+        const int soundfont_key = soundfont.key.value();
+        for (const auto& action : actions) {
+            if (action.binding->type == MidiControlType::Note
+                && action.binding->number == soundfont_key) {
+                fail(
+                    "soundfonts[" + std::to_string(index) + "].key",
+                    "physical key overlaps controls."
+                        + std::string{action.name}
+                );
+            }
+        }
+    }
 
     for (std::size_t first = 0; first < actions.size(); ++first) {
         for (std::size_t second = first + 1; second < actions.size(); ++second) {
-            if (actions[first].binding.overlaps(actions[second].binding)) {
+            if (actions[first].binding->overlaps(*actions[second].binding)) {
                 fail(
                     "controls",
                     std::string{actions[first].name} + " and "

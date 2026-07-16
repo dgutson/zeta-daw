@@ -40,7 +40,7 @@ public:
     }
 };
 
-class ReadyState final : public ActiveState {
+class ReadyState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
@@ -56,6 +56,10 @@ public:
     StateId nextSoundFontPressed() const override {
         output_.selectNextSoundFont(MidiRoute::LiveChannel);
         return StateId::Ready;
+    }
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::ReadySelectingSoundFont;
     }
 
     StateId octaveDownPressed() const override {
@@ -85,7 +89,41 @@ public:
     }
 };
 
-class ArmedState final : public ActiveState {
+class ReadySelectingSoundFontState final : public ReadyState {
+public:
+    using ReadyState::ReadyState;
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::Ready;
+    }
+
+    MidiHandlingResult midiMessage(
+        MidiMessageType type,
+        MidiMessage& message,
+        TimePoint
+    ) const override {
+        if (type == MidiMessageType::NoteOn && message.velocity > 0) {
+            output_.selectSoundFontByNote(
+                MidiRoute::LiveChannel,
+                message.key
+            );
+            return {
+                .next_state = StateId::Ready,
+                .native_result = midi_ok,
+            };
+        }
+
+        return {
+            .next_state = StateId::ReadySelectingSoundFont,
+            .native_result = output_.monitorMidi(
+                message,
+                MidiRoute::LiveChannel
+            ),
+        };
+    }
+};
+
+class ArmedState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
@@ -99,6 +137,10 @@ public:
     StateId nextSoundFontPressed() const override {
         output_.selectNextSoundFont(MidiRoute::LoopChannel);
         return StateId::Armed;
+    }
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::ArmedSelectingSoundFont;
     }
 
     StateId octaveDownPressed() const override {
@@ -140,6 +182,40 @@ public:
     }
 };
 
+class ArmedSelectingSoundFontState final : public ArmedState {
+public:
+    using ArmedState::ArmedState;
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::Armed;
+    }
+
+    MidiHandlingResult midiMessage(
+        MidiMessageType type,
+        MidiMessage& message,
+        TimePoint
+    ) const override {
+        if (type == MidiMessageType::NoteOn && message.velocity > 0) {
+            output_.selectSoundFontByNote(
+                MidiRoute::LoopChannel,
+                message.key
+            );
+            return {
+                .next_state = StateId::Armed,
+                .native_result = midi_ok,
+            };
+        }
+
+        return {
+            .next_state = StateId::ArmedSelectingSoundFont,
+            .native_result = output_.monitorMidi(
+                message,
+                MidiRoute::LoopChannel
+            ),
+        };
+    }
+};
+
 class RecordingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
@@ -156,6 +232,10 @@ public:
     }
 
     StateId nextSoundFontPressed() const override {
+        return StateId::Recording;
+    }
+
+    StateId soundFontByNotePressed() const override {
         return StateId::Recording;
     }
 
@@ -194,7 +274,7 @@ public:
     }
 };
 
-class LoopingState final : public ActiveState {
+class LoopingState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
@@ -206,6 +286,10 @@ public:
     StateId nextSoundFontPressed() const override {
         output_.selectNextSoundFont(MidiRoute::LiveChannel);
         return StateId::Looping;
+    }
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::LoopingSelectingSoundFont;
     }
 
     StateId octaveDownPressed() const override {
@@ -233,6 +317,40 @@ public:
     }
 };
 
+class LoopingSelectingSoundFontState final : public LoopingState {
+public:
+    using LoopingState::LoopingState;
+
+    StateId soundFontByNotePressed() const override {
+        return StateId::Looping;
+    }
+
+    MidiHandlingResult midiMessage(
+        MidiMessageType type,
+        MidiMessage& message,
+        TimePoint
+    ) const override {
+        if (type == MidiMessageType::NoteOn && message.velocity > 0) {
+            output_.selectSoundFontByNote(
+                MidiRoute::LiveChannel,
+                message.key
+            );
+            return {
+                .next_state = StateId::Looping,
+                .native_result = midi_ok,
+            };
+        }
+
+        return {
+            .next_state = StateId::LoopingSelectingSoundFont,
+            .native_result = output_.monitorMidi(
+                message,
+                MidiRoute::LiveChannel
+            ),
+        };
+    }
+};
+
 class StoppedState final : public LooperState {
 public:
     using LooperState::LooperState;
@@ -242,6 +360,10 @@ public:
     }
 
     StateId nextSoundFontPressed() const override {
+        return StateId::Stopped;
+    }
+
+    StateId soundFontByNotePressed() const override {
         return StateId::Stopped;
     }
 
@@ -279,12 +401,18 @@ LooperState::LooperState(
 LooperStateRegistry::LooperStateRegistry(LooperOutput& output) {
     states_[stateIndex(StateId::Ready)] =
         std::make_unique<ReadyState>(output, data_);
+    states_[stateIndex(StateId::ReadySelectingSoundFont)] =
+        std::make_unique<ReadySelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Armed)] =
         std::make_unique<ArmedState>(output, data_);
+    states_[stateIndex(StateId::ArmedSelectingSoundFont)] =
+        std::make_unique<ArmedSelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Recording)] =
         std::make_unique<RecordingState>(output, data_);
     states_[stateIndex(StateId::Looping)] =
         std::make_unique<LoopingState>(output, data_);
+    states_[stateIndex(StateId::LoopingSelectingSoundFont)] =
+        std::make_unique<LoopingSelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Stopped)] =
         std::make_unique<StoppedState>(output, data_);
 }
@@ -311,6 +439,13 @@ StateId LooperFsm::recordingControlPressed(TimePoint now) {
 StateId LooperFsm::nextSoundFontPressed() {
     std::lock_guard lock(mutex_);
     const StateId next = states_.at(current_state_).nextSoundFontPressed();
+    install(next);
+    return current_state_;
+}
+
+StateId LooperFsm::soundFontByNotePressed() {
+    std::lock_guard lock(mutex_);
+    const StateId next = states_.at(current_state_).soundFontByNotePressed();
     install(next);
     return current_state_;
 }

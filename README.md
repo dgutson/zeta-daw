@@ -5,11 +5,11 @@ MIDI input and POSIX lifecycle integration do not support macOS or Windows. It
 can run as a desktop process or start automatically as a headless service and
 be controlled entirely from a MIDI controller.
 
-The performance workflow is:
+The direct-selection performance workflow is:
 
-1. Use the configured Next control to select a SoundFont.
+1. Press the configured SoundFont-by-note control, then a keyed piano note.
 2. Press the configured recording control to arm the looper.
-3. Play the first note. Recording starts on that note, with no leading
+3. Play the first recording note. Recording starts on that note, with no leading
    silence.
 4. Press the recording control again to finish the take and start looping.
 5. Keep playing live and select other SoundFonts without changing the loop.
@@ -88,7 +88,7 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 5
+schema_version: 6
 
 midi_control_change_mappings:
   - source_port: "SE49 MIDI2"
@@ -101,20 +101,27 @@ soundfonts:
     file: /srv/zeta-daw/soundfonts/grand-piano.sf2
     bank: 0
     preset: 0
+    key: G3
 
   - id: bass
     file: /srv/zeta-daw/soundfonts/electric-bass.sf2
     bank: 0
     preset: 34
+    key: A3
 
 controls:
   recording:
     type: machine_control
     command: rewind
 
-  next_soundfont:
+  soundfont_by_note:
     type: machine_control
     command: stop
+
+  next_soundfont:
+    type: program_change
+    channel: 1
+    program: 12
 
   octave_down:
     type: machine_control
@@ -125,7 +132,7 @@ controls:
     command: record_strobe
 ```
 
-Only schema version 5 is accepted. A configuration error stops startup and
+Only schema version 6 is accepted. A configuration error stops startup and
 reports the invalid field.
 
 ### SoundFonts
@@ -136,6 +143,8 @@ reports the invalid field.
 - `file`: an absolute path or a path relative to the YAML file
 - `bank`: the SoundFont bank, from 0 through 16383
 - `preset`: the preset, from 0 through 127
+- `key`: an optional physical keyboard note that selects this SoundFont after
+  the SoundFont-by-note control is pressed
 
 Only include the sounds needed for the performance. They are prepared during
 startup, and the first entry is selected initially. Next advances through the
@@ -146,6 +155,42 @@ change that selection while armed but before the first note. During recording,
 Next is ignored. During loop playback, Next changes the live sound without
 changing the recorded loop. Canceling while armed adopts the pending selection
 as the live sound before returning to Ready.
+
+### Direct SoundFont selection by note
+
+Add an optional `key` to each directly selectable entry in `soundfonts`. Press
+`controls.soundfont_by_note`, then press that positive-velocity physical key to
+select the SoundFont. Keys use the octave convention documented by the SE49
+manual, with sharps such as `G3` or `C#4`; MIDI key 60 is `C3`. The convention
+is supported across the one-digit MIDI domain `C0` through `G8` (MIDI keys 24
+through 127), so equivalent controllers are not restricted to the SE49 keybed.
+
+Selection matches the raw key emitted by the controller before Zeta octave
+transposition and is independent of the incoming MIDI channel. This keeps the
+key fixed when Zeta's performance octave or the controller's transmit channel
+changes. The controller's own stored octave or transpose setting changes the
+emitted key and therefore moves the binding; clear those settings before a
+performance. Configured SoundFont keys must be unique. A SoundFont key may not
+reuse the physical key of any configured Note action, regardless of that
+action's MIDI channel.
+
+The selector is one-shot. Pressing it again cancels. The selection note is
+consumed and does not sound; an unmapped note is also consumed, reports an
+error, changes nothing, and leaves selection mode. All notes remain ordinarily
+playable when the selector is not armed.
+
+In Ready and Looping, direct selection changes the live SoundFont. In Armed it
+changes the pending loop SoundFont without sounding the selection note or
+starting recording; the following positive-velocity note starts the take at
+offset zero. The selector is ignored during Recording. The recorded loop's
+SoundFont remains locked while Looping.
+
+`controls.soundfont_by_note` is optional, but when configured at least one
+SoundFont must have a `key`. Conversely, SoundFont keys are rejected when that
+control is absent. `controls.next_soundfont` is also optional, but at least one
+of these two selection controls is required. Configure both for direct and
+sequential selection, or configure either one alone. SoundFonts without `key`
+remain available through sequential selection.
 
 To inspect the banks and presets in a SoundFont, start FluidSynth with the
 file, then use its `fonts` and `inst` shell commands. Consult your distribution's
@@ -178,11 +223,12 @@ in Ready and Looping, and the pending-loop channel in Armed and Recording.
 
 ### Controller bindings
 
-`controls.recording`, `controls.next_soundfont`, `controls.octave_down`, and
-`controls.octave_up` each require exactly one binding. A matched control event
-is reserved for the action: it does not sound and is not recorded. Actions may
-not use overlapping bindings. Edit a binding before the performance when the
-physical control setup changes.
+`controls.recording`, `controls.octave_down`, and `controls.octave_up` each
+require exactly one binding. `controls.next_soundfont` and
+`controls.soundfont_by_note` are individually optional, with at least one
+required. A matched control event is reserved for the action: it does not sound
+and is not recorded. Actions may not use overlapping bindings. Edit a binding
+before the performance when the physical control setup changes.
 
 YAML MIDI channels use the human-facing range 1 through 16.
 
@@ -253,7 +299,8 @@ commands. In that mode, Transpose Down sends Rewind, Transpose Up sends Stop,
 Octave Down sends Play, and Octave Up sends Record Strobe, matching
 `zeta.example.yaml`.
 
-Configure MMC and enable transport mode:
+Configure MMC, clear the controller's stored pitch offsets, and enable
+transport mode:
 
 1. Press **Octave Up + Transpose Up** simultaneously. The Setup LED should
    blink orange.
@@ -261,16 +308,26 @@ Configure MMC and enable transport mode:
    printed setup action on the controller.
 3. Press the numeric key **3**.
 4. Press **Enter (C5)** to save and leave Setup.
-5. Press **Octave Down + Transpose Down** simultaneously to enable MMC
+5. Re-enter Setup, press the low **F#1** key for Transpose, enter numeric
+   **0**, and press **Enter (C5)**.
+6. Re-enter Setup, press the low **G1** key for Octave, enter numeric **0**,
+   and press **Enter (C5)**.
+7. Press **Octave Down + Transpose Down** simultaneously to enable MMC
    transport mode.
 
-During a performance:
+Use the explicit Setup entries in steps 5 and 6. The Transpose button-pair
+reset works only while the buttons retain their native Transpose assignment,
+and a stored pitch offset would make a configured key such as `G3` arrive as a
+different MIDI key.
 
-1. Press **Transpose Up** to select the next SoundFont.
+With `zeta.example.yaml`, during a performance:
+
+1. Press **Transpose Up**, then **G3** for piano or **A3** for bass.
 2. Press **Transpose Down** to arm recording with the current SoundFont.
 3. Play the first note to begin recording.
 4. Press **Transpose Down** again to finish the take and start the loop.
-5. Press **Transpose Up** while looping to change the live SoundFont.
+5. Press **Transpose Up** and a keyed note while looping to change the live
+   SoundFont.
 6. Press **Transpose Down** while looping to stop it and return to Ready.
 7. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
    twelve semitones.
@@ -286,6 +343,11 @@ a later take uses the preserved loop selection.
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**
 together again to restore the buttons' native functions.
+
+To retain sequential selection on Transpose Up, bind its MMC Stop event to
+`controls.next_soundfont` instead, omit `controls.soundfont_by_note`, and omit
+the SoundFont `key` fields. To configure both mechanisms, give `next_soundfont`
+a different non-overlapping controller binding.
 
 The setup procedure and control assignments are documented in the
 [Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/my-downloads/Owners_Manuals/SE49_61_printed_guide_v1_3_ENGLISH.pdf).
