@@ -31,6 +31,9 @@ All notable changes to Zeta DAW are documented in this file.
   their `soundfonts` entries, using the SE49-inspired octave convention across
   the generic one-digit MIDI domain and independently of MIDI channel; the
   separate arbitrary channel/key mapping list was removed.
+- Documented that direct selection uses the controller-emitted raw MIDI key
+  and that stored SE49 octave and transpose offsets must be cleared before
+  enabling MMC transport mode.
 - SoundFont catalog navigation and bounded physical-key lookup are encapsulated
   in a dependency-free selector shared by sequential and direct selection.
 - Clarified that performer-visible interaction phases must be explicit looper

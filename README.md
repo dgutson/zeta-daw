@@ -165,11 +165,14 @@ manual, with sharps such as `G3` or `C#4`; MIDI key 60 is `C3`. The convention
 is supported across the one-digit MIDI domain `C0` through `G8` (MIDI keys 24
 through 127), so equivalent controllers are not restricted to the SE49 keybed.
 
-Selection matches the raw physical key before Zeta octave transposition and is
-independent of the incoming MIDI channel. This keeps the key fixed when the
-performance octave or the controller's transmit channel changes. Configured
-SoundFont keys must be unique. A SoundFont key may not reuse the physical key
-of any configured Note action, regardless of that action's MIDI channel.
+Selection matches the raw key emitted by the controller before Zeta octave
+transposition and is independent of the incoming MIDI channel. This keeps the
+key fixed when Zeta's performance octave or the controller's transmit channel
+changes. The controller's own stored octave or transpose setting changes the
+emitted key and therefore moves the binding; clear those settings before a
+performance. Configured SoundFont keys must be unique. A SoundFont key may not
+reuse the physical key of any configured Note action, regardless of that
+action's MIDI channel.
 
 The selector is one-shot. Pressing it again cancels. The selection note is
 consumed and does not sound; an unmapped note is also consumed, reports an
@@ -296,7 +299,8 @@ commands. In that mode, Transpose Down sends Rewind, Transpose Up sends Stop,
 Octave Down sends Play, and Octave Up sends Record Strobe, matching
 `zeta.example.yaml`.
 
-Configure MMC and enable transport mode:
+Configure MMC, clear the controller's stored pitch offsets, and enable
+transport mode:
 
 1. Press **Octave Up + Transpose Up** simultaneously. The Setup LED should
    blink orange.
@@ -304,8 +308,17 @@ Configure MMC and enable transport mode:
    printed setup action on the controller.
 3. Press the numeric key **3**.
 4. Press **Enter (C5)** to save and leave Setup.
-5. Press **Octave Down + Transpose Down** simultaneously to enable MMC
+5. Re-enter Setup, press the low **F#1** key for Transpose, enter numeric
+   **0**, and press **Enter (C5)**.
+6. Re-enter Setup, press the low **G1** key for Octave, enter numeric **0**,
+   and press **Enter (C5)**.
+7. Press **Octave Down + Transpose Down** simultaneously to enable MMC
    transport mode.
+
+Use the explicit Setup entries in steps 5 and 6. The Transpose button-pair
+reset works only while the buttons retain their native Transpose assignment,
+and a stored pitch offset would make a configured key such as `G3` arrive as a
+different MIDI key.
 
 With `zeta.example.yaml`, during a performance:
 
