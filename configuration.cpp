@@ -115,16 +115,32 @@ int parseSoundFontKey(
     const YAML::Node& node,
     const std::string& location
 ) {
+    constexpr int semitones_per_octave = 12;
+    constexpr int maximum_midi_key = 127;
     static constexpr std::array<std::string_view, 12> note_names{
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B",
     };
     const auto configured = nonEmptyString(node, "key", location);
-    for (int key = 0; key < 128; ++key) {
-        const auto note_index = static_cast<std::size_t>(key % 12);
-        const auto name = std::string{note_names[note_index]}
-            + std::to_string(key / 12 - 1);
-        if (configured == name) {
+    const std::string_view note{configured};
+    const auto note_name_length = note.size() > 1 && note[1] == '#' ? 2U : 1U;
+    const auto note_name = note.substr(0, note_name_length);
+    const auto found = std::ranges::find(note_names, note_name);
+    const auto octave_text = note.substr(note_name_length);
+
+    std::optional<int> octave;
+    if (octave_text == "-1") {
+        octave = -1;
+    } else if (octave_text.size() == 1
+        && octave_text.front() >= '0'
+        && octave_text.front() <= '9') {
+        octave = octave_text.front() - '0';
+    }
+
+    if (found != note_names.end() && octave) {
+        const int semitone = static_cast<int>(found - note_names.begin());
+        const int key = (octave.value() + 1) * semitones_per_octave + semitone;
+        if (key <= maximum_midi_key) {
             return key;
         }
     }

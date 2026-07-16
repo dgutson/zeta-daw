@@ -496,6 +496,27 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
     }
 }
 
+TEST(ConfigurationTest, ParsesSoundFontKeyDomainBoundaries) {
+    TemporaryConfig source{R"yaml(
+schema_version: 6
+soundfonts:
+  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C-1 }
+  - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: G9 }
+controls:
+  recording: { type: machine_control, command: rewind }
+  soundfont_by_note: { type: machine_control, command: stop }
+  octave_down: { type: machine_control, command: play }
+  octave_up: { type: machine_control, command: record_strobe }
+)yaml"};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    ASSERT_TRUE(config.soundfonts[0].key);
+    EXPECT_EQ(config.soundfonts[0].key.value(), 0);
+    ASSERT_TRUE(config.soundfonts[1].key);
+    EXPECT_EQ(config.soundfonts[1].key.value(), 127);
+}
+
 TEST(ConfigurationTest, RejectsDuplicateSoundFontKeys) {
     TemporaryConfig source{R"yaml(
 schema_version: 6
