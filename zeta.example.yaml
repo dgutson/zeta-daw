@@ -1,4 +1,10 @@
-schema_version: 6
+schema_version: 7
+
+# Each entry is one independently controlled loop slot. Keys are raw physical
+# controller notes and are consumed only after loop_slot_by_note is pressed.
+loop_slots:
+  - { key: C2 }
+  - { key: D2 }
 
 # The SE49 fader uses its DAW integration port while MMC mode is active. Treat
 # its channel-16 CC20 event as standard Channel Volume CC7. Omit this optional
@@ -26,11 +32,10 @@ soundfonts:
 
 # Put the SE49 in MMC transport mode. In that mode Transpose Down sends
 # Rewind, Transpose Up sends Stop, Octave Down sends Play, and Octave Up sends
-# Record Strobe. This example uses Transpose Up to arm direct SoundFont
-# selection. To use sequential selection instead, rename soundfont_by_note to
-# next_soundfont and omit the SoundFont key fields.
+# Record Strobe. This example uses Transpose Down for loop-slot selection and
+# Transpose Up for direct SoundFont selection.
 controls:
-  recording:
+  loop_slot_by_note:
     type: machine_control
     command: rewind
 
@@ -47,7 +52,7 @@ controls:
     command: record_strobe
 
 # A momentary footswitch is a convenient hands-free alternative. Replace the
-# controls.recording binding with this mapping if desired:
+# controls.loop_slot_by_note binding with this mapping if desired:
 #    type: control_change
 #    channel: 1
 #    controller: 64

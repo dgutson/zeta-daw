@@ -20,14 +20,9 @@ Milliseconds elapsedMilliseconds(TimePoint start, TimePoint finish) {
     return elapsed < Milliseconds::zero() ? Milliseconds::zero() : elapsed;
 }
 
-void stopPlayback(LooperOutput& output) {
-    output.stopLoopPlayback();
-    output.silenceAllChannels();
-}
-
 StateId shutdownApplication(LooperOutput& output) {
-    stopPlayback(output);
-    output.stopPlaybackWorker();
+    output.terminateLoopSlots();
+    output.silenceAllChannels();
     return StateId::Stopped;
 }
 
@@ -44,17 +39,12 @@ class ReadyState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId recordingControlPressed(TimePoint) const override {
-        output_.stopLoopPlayback();
-        output_.silenceAllChannels();
-        output_.selectCurrentSoundFont(MidiRoute::LoopChannel);
-        output_.resetTake();
-        output_.showRecordingArmed();
-        return StateId::Armed;
+    StateId loopSlotControlPressed(TimePoint) const override {
+        return StateId::ReadySelectingLoopSlot;
     }
 
     StateId nextSoundFontPressed() const override {
-        output_.selectNextSoundFont(MidiRoute::LiveChannel);
+        output_.selectNextLiveSoundFont();
         return StateId::Ready;
     }
 
@@ -63,14 +53,12 @@ public:
     }
 
     StateId octaveDownPressed() const override {
-        output_.octaveDown(MidiRoute::LiveChannel);
-        output_.octaveDown(MidiRoute::LoopChannel);
+        output_.octaveDownLive();
         return StateId::Ready;
     }
 
     StateId octaveUpPressed() const override {
-        output_.octaveUp(MidiRoute::LiveChannel);
-        output_.octaveUp(MidiRoute::LoopChannel);
+        output_.octaveUpLive();
         return StateId::Ready;
     }
 
@@ -81,10 +69,54 @@ public:
     ) const override {
         return {
             .next_state = StateId::Ready,
-            .native_result = output_.monitorMidi(
-                message,
-                MidiRoute::LiveChannel
-            ),
+            .native_result = output_.monitorLiveMidi(message),
+        };
+    }
+};
+
+class ReadySelectingLoopSlotState final : public ReadyState {
+public:
+    using ReadyState::ReadyState;
+
+    StateId loopSlotControlPressed(TimePoint) const override {
+        return StateId::Ready;
+    }
+
+    MidiHandlingResult midiMessage(
+        MidiMessageType type,
+        MidiMessage& message,
+        TimePoint
+    ) const override {
+        if (type == MidiMessageType::NoteOn && message.velocity > 0) {
+            const auto selection = output_.loopSlotByKey(message.key);
+            if (!selection) {
+                return {
+                    .next_state = StateId::Ready,
+                    .native_result = midi_ok,
+                };
+            }
+
+            if (selection->state == SelectableLoopSlotState::Looping) {
+                output_.muteLoopSlot(selection->id);
+                return {
+                    .next_state = StateId::Ready,
+                    .native_result = midi_ok,
+                };
+            }
+
+            output_.prepareLoopSlot(selection->id);
+            output_.resetPendingTake();
+            data_.selected_recording_slot = selection->id;
+            output_.showRecordingArmed(selection->id);
+            return {
+                .next_state = StateId::Armed,
+                .native_result = midi_ok,
+            };
+        }
+
+        return {
+            .next_state = StateId::ReadySelectingLoopSlot,
+            .native_result = output_.monitorLiveMidi(message),
         };
     }
 };
@@ -103,10 +135,7 @@ public:
         TimePoint
     ) const override {
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
-            output_.selectSoundFontByNote(
-                MidiRoute::LiveChannel,
-                message.key
-            );
+            output_.selectLiveSoundFontByNote(message.key);
             return {
                 .next_state = StateId::Ready,
                 .native_result = midi_ok,
@@ -115,10 +144,7 @@ public:
 
         return {
             .next_state = StateId::ReadySelectingSoundFont,
-            .native_result = output_.monitorMidi(
-                message,
-                MidiRoute::LiveChannel
-            ),
+            .native_result = output_.monitorLiveMidi(message),
         };
     }
 };
@@ -127,15 +153,18 @@ class ArmedState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId recordingControlPressed(TimePoint) const override {
-        output_.showNoTake();
-        stopPlayback(output_);
-        output_.selectCurrentSoundFont(MidiRoute::LiveChannel);
+    StateId loopSlotControlPressed(TimePoint) const override {
+        const SlotId slot = selectedRecordingSlot();
+        output_.cancelLoopSlotRecording(slot);
+        output_.resetPendingTake();
+        output_.selectCurrentLiveSoundFont();
+        output_.showNoTake(slot);
+        data_.selected_recording_slot.reset();
         return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
-        output_.selectNextSoundFont(MidiRoute::LoopChannel);
+        output_.selectNextLoopSlotSoundFont(selectedRecordingSlot());
         return StateId::Armed;
     }
 
@@ -144,14 +173,14 @@ public:
     }
 
     StateId octaveDownPressed() const override {
-        output_.octaveDown(MidiRoute::LiveChannel);
-        output_.octaveDown(MidiRoute::LoopChannel);
+        output_.octaveDownLive();
+        output_.octaveDownLoopSlot(selectedRecordingSlot());
         return StateId::Armed;
     }
 
     StateId octaveUpPressed() const override {
-        output_.octaveUp(MidiRoute::LiveChannel);
-        output_.octaveUp(MidiRoute::LoopChannel);
+        output_.octaveUpLive();
+        output_.octaveUpLoopSlot(selectedRecordingSlot());
         return StateId::Armed;
     }
 
@@ -160,11 +189,13 @@ public:
         MidiMessage& message,
         TimePoint received_at
     ) const override {
-        const int result = output_.monitorMidi(message, MidiRoute::LoopChannel);
+        const SlotId slot = selectedRecordingSlot();
+        const int result = output_.monitorLoopSlotMidi(slot, message);
 
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
             data_.recording_started_at = received_at;
             output_.recordNote(
+                slot,
                 RecordedNoteKind::NoteOn,
                 message,
                 Milliseconds::zero()
@@ -195,11 +226,9 @@ public:
         MidiMessage& message,
         TimePoint
     ) const override {
+        const SlotId slot = selectedRecordingSlot();
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
-            output_.selectSoundFontByNote(
-                MidiRoute::LoopChannel,
-                message.key
-            );
+            output_.selectLoopSlotSoundFontByNote(slot, message.key);
             return {
                 .next_state = StateId::Armed,
                 .native_result = midi_ok,
@@ -208,10 +237,7 @@ public:
 
         return {
             .next_state = StateId::ArmedSelectingSoundFont,
-            .native_result = output_.monitorMidi(
-                message,
-                MidiRoute::LoopChannel
-            ),
+            .native_result = output_.monitorLoopSlotMidi(slot, message),
         };
     }
 };
@@ -220,15 +246,18 @@ class RecordingState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId recordingControlPressed(TimePoint now) const override {
+    StateId loopSlotControlPressed(TimePoint now) const override {
+        const SlotId slot = selectedRecordingSlot();
         const auto duration = elapsedMilliseconds(
             data_.recording_started_at,
             now
         );
-        output_.commitTake(duration);
-        output_.startLoopPlayback();
-        output_.showLooping();
-        return StateId::Looping;
+        output_.commitTake(slot, duration);
+        output_.startLoopSlot(slot);
+        output_.selectCurrentLiveSoundFont();
+        output_.showLooping(slot);
+        data_.selected_recording_slot.reset();
+        return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
@@ -252,7 +281,8 @@ public:
         MidiMessage& message,
         TimePoint received_at
     ) const override {
-        const int result = output_.monitorMidi(message, MidiRoute::LoopChannel);
+        const SlotId slot = selectedRecordingSlot();
+        const int result = output_.monitorLoopSlotMidi(slot, message);
         const auto offset = elapsedMilliseconds(
             data_.recording_started_at,
             received_at
@@ -262,9 +292,14 @@ public:
             const auto kind = message.velocity > 0
                 ? RecordedNoteKind::NoteOn
                 : RecordedNoteKind::NoteOff;
-            output_.recordNote(kind, message, offset);
+            output_.recordNote(slot, kind, message, offset);
         } else if (type == MidiMessageType::NoteOff) {
-            output_.recordNote(RecordedNoteKind::NoteOff, message, offset);
+            output_.recordNote(
+                slot,
+                RecordedNoteKind::NoteOff,
+                message,
+                offset
+            );
         }
 
         return {
@@ -274,88 +309,11 @@ public:
     }
 };
 
-class LoopingState : public ActiveState {
-public:
-    using ActiveState::ActiveState;
-
-    StateId recordingControlPressed(TimePoint) const override {
-        stopPlayback(output_);
-        return StateId::Ready;
-    }
-
-    StateId nextSoundFontPressed() const override {
-        output_.selectNextSoundFont(MidiRoute::LiveChannel);
-        return StateId::Looping;
-    }
-
-    StateId soundFontByNotePressed() const override {
-        return StateId::LoopingSelectingSoundFont;
-    }
-
-    StateId octaveDownPressed() const override {
-        output_.octaveDown(MidiRoute::LiveChannel);
-        return StateId::Looping;
-    }
-
-    StateId octaveUpPressed() const override {
-        output_.octaveUp(MidiRoute::LiveChannel);
-        return StateId::Looping;
-    }
-
-    MidiHandlingResult midiMessage(
-        MidiMessageType,
-        MidiMessage& message,
-        TimePoint
-    ) const override {
-        return {
-            .next_state = StateId::Looping,
-            .native_result = output_.monitorMidi(
-                message,
-                MidiRoute::LiveChannel
-            ),
-        };
-    }
-};
-
-class LoopingSelectingSoundFontState final : public LoopingState {
-public:
-    using LoopingState::LoopingState;
-
-    StateId soundFontByNotePressed() const override {
-        return StateId::Looping;
-    }
-
-    MidiHandlingResult midiMessage(
-        MidiMessageType type,
-        MidiMessage& message,
-        TimePoint
-    ) const override {
-        if (type == MidiMessageType::NoteOn && message.velocity > 0) {
-            output_.selectSoundFontByNote(
-                MidiRoute::LiveChannel,
-                message.key
-            );
-            return {
-                .next_state = StateId::Looping,
-                .native_result = midi_ok,
-            };
-        }
-
-        return {
-            .next_state = StateId::LoopingSelectingSoundFont,
-            .native_result = output_.monitorMidi(
-                message,
-                MidiRoute::LiveChannel
-            ),
-        };
-    }
-};
-
 class StoppedState final : public LooperState {
 public:
     using LooperState::LooperState;
 
-    StateId recordingControlPressed(TimePoint) const override {
+    StateId loopSlotControlPressed(TimePoint) const override {
         return StateId::Stopped;
     }
 
@@ -398,9 +356,18 @@ LooperState::LooperState(
     LooperStateData& data
 ) noexcept : output_(output), data_(data) {}
 
+SlotId LooperState::selectedRecordingSlot() const {
+    if (!data_.selected_recording_slot) {
+        throw std::logic_error("Looper state has no selected recording slot");
+    }
+    return data_.selected_recording_slot.value();
+}
+
 LooperStateRegistry::LooperStateRegistry(LooperOutput& output) {
     states_[stateIndex(StateId::Ready)] =
         std::make_unique<ReadyState>(output, data_);
+    states_[stateIndex(StateId::ReadySelectingLoopSlot)] =
+        std::make_unique<ReadySelectingLoopSlotState>(output, data_);
     states_[stateIndex(StateId::ReadySelectingSoundFont)] =
         std::make_unique<ReadySelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Armed)] =
@@ -409,10 +376,6 @@ LooperStateRegistry::LooperStateRegistry(LooperOutput& output) {
         std::make_unique<ArmedSelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Recording)] =
         std::make_unique<RecordingState>(output, data_);
-    states_[stateIndex(StateId::Looping)] =
-        std::make_unique<LoopingState>(output, data_);
-    states_[stateIndex(StateId::LoopingSelectingSoundFont)] =
-        std::make_unique<LoopingSelectingSoundFontState>(output, data_);
     states_[stateIndex(StateId::Stopped)] =
         std::make_unique<StoppedState>(output, data_);
 }
@@ -429,9 +392,9 @@ const LooperState& LooperStateRegistry::at(StateId id) const {
 
 LooperFsm::LooperFsm(LooperStateRegistry& states) noexcept : states_(states) {}
 
-StateId LooperFsm::recordingControlPressed(TimePoint now) {
+StateId LooperFsm::loopSlotControlPressed(TimePoint now) {
     std::lock_guard lock(mutex_);
-    const StateId next = states_.at(current_state_).recordingControlPressed(now);
+    const StateId next = states_.at(current_state_).loopSlotControlPressed(now);
     install(next);
     return current_state_;
 }

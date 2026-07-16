@@ -38,10 +38,15 @@ struct SoundFontDefinition {
     std::optional<int> key;
 };
 
+struct LoopSlotDefinition {
+    int key{};
+};
+
 struct ApplicationConfig {
+    std::vector<LoopSlotDefinition> loop_slots;
     std::vector<SoundFontDefinition> soundfonts;
     std::vector<MidiControlChangeMapping> midi_control_change_mappings;
-    MidiControlBinding recording_control;
+    MidiControlBinding loop_slot_by_note_control;
     std::optional<MidiControlBinding> next_soundfont_control;
     std::optional<MidiControlBinding> soundfont_by_note_control;
     MidiControlBinding octave_down_control;

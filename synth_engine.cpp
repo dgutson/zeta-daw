@@ -2,6 +2,7 @@
 
 #include <fluidsynth.h>
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -47,6 +48,7 @@ struct SynthEngine::Impl {
     FluidSynth synth;
     FluidAudioDriver audio_driver;
     std::unordered_map<std::string, int> soundfont_ids;
+    int midi_channel_count{};
 
     explicit Impl(const ApplicationConfig& config) {
         settings.reset(new_fluid_settings());
@@ -56,6 +58,21 @@ struct SynthEngine::Impl {
 
         fluid_settings_setint(settings.get(), "synth.threadsafe-api", 1);
         fluid_settings_setnum(settings.get(), "synth.gain", 0.5);
+        constexpr int fluidsynth_default_midi_channels = 16;
+        midi_channel_count = std::max(
+            fluidsynth_default_midi_channels,
+            static_cast<int>(config.loop_slots.size()) + 1
+        );
+        const int channel_result = fluid_settings_setint(
+            settings.get(),
+            "synth.midi-channels",
+            midi_channel_count
+        );
+        if (channel_result == 0) {
+            throw std::runtime_error(
+                "Could not configure FluidSynth MIDI-channel count"
+            );
+        }
 
         synth.reset(new_fluid_synth(settings.get()));
         if (!synth) {
@@ -158,10 +175,14 @@ void SynthEngine::select(const SoundFontDefinition& soundfont, int channel) {
 }
 
 void SynthEngine::allNotesOff() {
-    for (int channel = 0; channel < 16; ++channel) {
-        fluid_synth_cc(impl_->synth.get(), channel, 64, 0);
-        fluid_synth_cc(impl_->synth.get(), channel, 123, 0);
+    for (int channel = 0; channel < impl_->midi_channel_count; ++channel) {
+        allNotesOff(channel);
     }
+}
+
+void SynthEngine::allNotesOff(int channel) {
+    fluid_synth_cc(impl_->synth.get(), channel, 64, 0);
+    fluid_synth_cc(impl_->synth.get(), channel, 123, 0);
 }
 
 } // namespace zeta

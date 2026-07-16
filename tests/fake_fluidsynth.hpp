@@ -10,6 +10,7 @@
 namespace fake_fluidsynth {
 
 enum class CallKind {
+    ConfigureMidiChannels,
     LoadSoundFont,
     SelectProgram,
     HandleMidi,

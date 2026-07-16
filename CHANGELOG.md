@@ -6,9 +6,15 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added ordered loop slots that can be recorded, stopped, replaced, and played
+  concurrently from one-shot raw-note selection gestures, with one dedicated
+  FluidSynth channel and eagerly created worker per configured slot.
+- Added a subordinate Muted/Looping/Terminated playback FSM and an independent
+  Hegel command-sequence model property alongside deterministic master-FSM and
+  application concurrency regressions.
 - Added direct SoundFont selection by pressing a configured controller action
-  and then a keyed piano note, with explicit Ready, Armed, and Looping
-  selection states for live performance.
+  and then a keyed piano note, with explicit Ready and Armed selection states
+  for live and pending-slot routes.
 - Added a selective Hegel property-testing pilot and contributor guide for
   octave transposition, Control Change mapping, and MIDI control-binding
   overlap contracts while retaining the deterministic GoogleTest examples.
@@ -24,9 +30,16 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
-- Configuration schema 6 makes sequential Next and direct note selection
-  independently optional while requiring at least one SoundFont-selection
-  mechanism.
+- Configuration schema 7 replaces `controls.recording` with
+  `controls.loop_slot_by_note` and requires a non-empty ordered `loop_slots`
+  catalog with unique raw physical-note keys.
+- The master GoF FSM now owns the sole armed/recording slot while subordinate
+  slot FSMs own only playback; completing or canceling a take needs only the
+  loop-slot control, and stopping or replacing one slot leaves peers running.
+- FluidSynth's MIDI-channel count is configured before synth creation so live
+  output remains on channel 0 and every loop slot has an isolated channel.
+- Sequential Next and direct note selection are independently optional while
+  at least one SoundFont-selection mechanism remains required.
 - Direct-selection keys are now optional controller physical-key names on
   their `soundfonts` entries, using the SE49-inspired octave convention across
   the generic one-digit MIDI domain and independently of MIDI channel; the
@@ -43,15 +56,12 @@ All notable changes to Zeta DAW are documented in this file.
   without making GCC mandatory for normal builds.
 - Renamed the production CMake target and application executable from
   `midi_looper` to `zd`.
-- Renamed the FSM recording-control stimulus for consistency with the
-  configured action, without changing state behavior.
-- The recording control now cancels an armed take or stops an active loop and
-  returns to Ready; only process shutdown stops the playback worker and exits
-  the application, and returning to Ready preserves independent live and loop
-  octave selections for later takes.
-- Recording completion now always follows one FSM transition into looping;
-  zero-length playback requests are rejected by the playback worker so they
-  cannot busy-loop.
+- The loop-slot control cancels an armed take or completes an active recording
+  without requiring the slot note again; only process shutdown terminates slot
+  workers and exits the application.
+- Recording completion now follows one master transition back to `Ready` while
+  requesting playback from the selected slot; zero-length playback requests
+  are rejected by the slot worker so they cannot busy-loop.
 - Configuration schema 5 accepts optional `midi_control_change_mappings` for
   controllers needing normalization, and requires dedicated `octave_down` and
   `octave_up` bindings with overlap rejection among all four application
