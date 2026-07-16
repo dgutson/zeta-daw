@@ -68,7 +68,7 @@ struct SynthEngine::Impl {
             "synth.midi-channels",
             midi_channel_count
         );
-        if (channel_result == 0) {
+        if (channel_result != FLUID_OK) {
             throw std::runtime_error(
                 "Could not configure FluidSynth MIDI-channel count"
             );

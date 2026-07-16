@@ -86,7 +86,7 @@ int fluid_settings_setstr(fluid_settings_t*, const char*, const char*) {
 }
 
 int fluid_settings_setnum(fluid_settings_t*, const char*, double) {
-    return 1;
+    return FLUID_OK;
 }
 
 int fluid_settings_setint(
@@ -102,7 +102,7 @@ int fluid_settings_setint(
             .text = name,
         });
     }
-    return 1;
+    return FLUID_OK;
 }
 
 fluid_synth_t* new_fluid_synth(fluid_settings_t* settings) {

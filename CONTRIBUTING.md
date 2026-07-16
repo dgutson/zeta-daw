@@ -75,6 +75,8 @@ The main layers and ownership boundaries are:
 - `application.*` composes the system, matches configured controls, implements
   the master FSM output alphabet, owns the pending take, and indexes the
   ordered loop-slot catalog by raw physical key.
+- `loop_slot_fsm.*` owns the dependency-free subordinate playback state
+  machine and its start, mute, and termination command semantics.
 - `loop_slot.*` encapsulates one slot's identity, key, FluidSynth channel,
   locked SoundFont/octave state, immutable committed take, subordinate playback
   FSM, synchronization, and eagerly created worker.
@@ -233,9 +235,9 @@ required version is 7.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- The `loop_slots` list is ordered and non-empty. Every entry has one raw
-  physical controller note-name `key`; catalog order defines its stable
-  `SlotId`. Keys must be unique and must not reuse any configured Note action.
+- The `loop_slots` list is ordered and non-empty. Every scalar entry is one raw
+  physical controller note name; catalog order defines its stable `SlotId`.
+  Keys must be unique and must not reuse any configured Note action.
   They may overlap SoundFont-selection keys because the selector controls
   disambiguate those one-shot gestures.
 - Each `soundfonts` entry has an optional controller note-name `key`. Names use
@@ -389,7 +391,7 @@ The test suites divide responsibilities as follows:
 - `soundfont_selector_tests`: sequential/direct current-selection consistency
   and bounded physical-key lookup against the ordered catalog.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
-- `loop_slot_tests`: subordinate playback-FSM transitions and its Hegel
+- `loop_slot_fsm_tests`: subordinate playback-FSM transitions and its Hegel
   command-sequence model property.
 - `current_behavior_tests`: multi-slot application behavior, worker isolation,
   replacement, raw-note consumption, and shutdown with fake MIDI and

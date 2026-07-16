@@ -93,8 +93,8 @@ A complete configuration looks like this:
 schema_version: 7
 
 loop_slots:
-  - { key: C2 }
-  - { key: D2 }
+  - C2
+  - D2
 
 midi_control_change_mappings:
   - source_port: "SE49 MIDI2"
@@ -143,11 +143,10 @@ reports the invalid field.
 
 ### Loop slots
 
-`loop_slots` is an ordered, non-empty catalog. Each entry has one `key`, using
-the same physical note-name convention described below for direct SoundFont
-selection. Catalog order defines the stable loop-slot identity; live output
-uses FluidSynth channel 0 and loop slots use independent channels starting at
-1.
+`loop_slots` is an ordered, non-empty catalog of physical note names using the
+same convention described below for direct SoundFont selection. Catalog order
+defines the stable loop-slot identity; live output uses FluidSynth channel 0
+and loop slots use independent channels starting at 1.
 
 Press `controls.loop_slot_by_note`, then a slot key. Selection uses the raw key
 before Zeta octave transposition and ignores incoming MIDI channel. The note is

@@ -520,6 +520,37 @@ TEST_F(CurrentBehaviorTest, SoundFontAndOctaveSnapshotsAreIndependentPerSlot) {
     ));
 }
 
+TEST_F(CurrentBehaviorTest, RecordingRestoresLockedProgramBeforePlayback) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+
+    selectSlot(first_slot_key);
+    ASSERT_EQ(emitNoteOn(64), 0);
+    ASSERT_EQ(fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::ProgramChange),
+        .channel = 0,
+        .program = 99,
+    }), 0);
+
+    const auto locked_program_selections = [] {
+        return std::ranges::count_if(
+            fake_fluidsynth::calls(),
+            [](const Call& call) {
+                return call.kind == CallKind::SelectProgram
+                    && call.channel == first_slot_channel
+                    && call.soundfont_id == 1
+                    && call.bank == 0
+                    && call.preset == 0;
+            }
+        );
+    };
+    const auto before_completion = locked_program_selections();
+
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressLoopSlotControl(), 0);
+
+    EXPECT_EQ(locked_program_selections(), before_completion + 1);
+}
+
 TEST_F(CurrentBehaviorTest, LivePlayingRemainsAvailableWhileSlotsLoop) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     completeTake(first_slot_key, 60, 10ms);

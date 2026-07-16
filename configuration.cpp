@@ -111,7 +111,7 @@ std::string nonEmptyString(
     return value;
 }
 
-int parseControllerKey(
+int parseControllerKeyName(
     const YAML::Node& node,
     const std::string& location
 ) {
@@ -129,7 +129,19 @@ int parseControllerKey(
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B",
     };
-    const auto target = nonEmptyString(node, "key", location);
+    if (!node || !node.IsScalar()) {
+        fail(location, "expected a controller key name from C0 through G8");
+    }
+
+    std::string target;
+    try {
+        target = node.as<std::string>();
+    } catch (const YAML::Exception& error) {
+        fail(location, error.what());
+    }
+    if (target.empty()) {
+        fail(location, "expected a controller key name from C0 through G8");
+    }
 
     int semitone = 0;
     for (const auto note : note_names) {
@@ -146,7 +158,7 @@ int parseControllerKey(
                 }
             } else {
                 fail(
-                    location + ".key",
+                    location,
                     "expected a controller key name from C0 through G8"
                 );
             }
@@ -155,9 +167,16 @@ int parseControllerKey(
     }
 
     fail(
-        location + ".key",
+        location,
         "expected a controller key name from C0 through G8"
     );
+}
+
+int parseControllerKey(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    return parseControllerKeyName(node["key"], location + ".key");
 }
 
 int parseMachineControlCommand(
@@ -425,14 +444,11 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
     std::unordered_set<int> loop_slot_keys;
     for (std::size_t index = 0; index < loop_slots.size(); ++index) {
-        const auto node = loop_slots[index];
         const std::string location =
             "loop_slots[" + std::to_string(index) + "]";
-        rejectUnknownKeys(node, location, {"key"});
-
-        const int key = parseControllerKey(node, location);
+        const int key = parseControllerKeyName(loop_slots[index], location);
         if (!loop_slot_keys.insert(key).second) {
-            fail(location + ".key", "duplicate loop-slot selection key");
+            fail(location, "duplicate loop-slot selection key");
         }
         config.loop_slots.push_back({.key = key});
     }
@@ -551,7 +567,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
             if (action.binding->type == MidiControlType::Note
                 && action.binding->number == loop_slot_key) {
                 fail(
-                    "loop_slots[" + std::to_string(index) + "].key",
+                    "loop_slots[" + std::to_string(index) + "]",
                     "physical key overlaps controls."
                         + std::string{action.name}
                 );

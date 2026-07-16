@@ -1,4 +1,4 @@
-#include "../loop_slot.hpp"
+#include "../loop_slot_fsm.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>

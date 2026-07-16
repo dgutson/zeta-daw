@@ -32,12 +32,16 @@ All notable changes to Zeta DAW are documented in this file.
 
 - Configuration schema 7 replaces `controls.recording` with
   `controls.loop_slot_by_note` and requires a non-empty ordered `loop_slots`
-  catalog with unique raw physical-note keys.
+  catalog of unique raw physical-note names.
 - The master GoF FSM now owns the sole armed/recording slot while subordinate
   slot FSMs own only playback; completing or canceling a take needs only the
   loop-slot control, and stopping or replacing one slot leaves peers running.
+- The pure subordinate playback FSM and its Hegel model test now build without
+  FluidSynth or worker dependencies.
 - FluidSynth's MIDI-channel count is configured before synth creation so live
   output remains on channel 0 and every loop slot has an isolated channel.
+- FluidSynth setting return codes now use `FLUID_OK`, fixing startup failures
+  after successfully configuring the MIDI-channel count.
 - Sequential Next and direct note selection are independently optional while
   at least one SoundFont-selection mechanism remains required.
 - Direct-selection keys are now optional controller physical-key names on

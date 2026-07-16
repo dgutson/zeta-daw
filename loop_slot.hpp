@@ -1,6 +1,7 @@
 #pragma once
 
 #include "configuration.hpp"
+#include "loop_slot_fsm.hpp"
 #include "looper_fsm.hpp"
 #include "octave_transposer.hpp"
 
@@ -16,36 +17,6 @@
 namespace zeta {
 
 class SynthEngine;
-
-enum class LoopSlotPlaybackState {
-    Muted,
-    Looping,
-    Terminated,
-};
-
-class LoopSlotPlaybackOutput {
-public:
-    virtual ~LoopSlotPlaybackOutput() = default;
-
-    virtual void activatePlayback() = 0;
-    virtual void deactivatePlayback() = 0;
-    virtual void terminatePlayback() = 0;
-};
-
-class LoopSlotPlaybackFsm final {
-public:
-    explicit LoopSlotPlaybackFsm(LoopSlotPlaybackOutput& output) noexcept;
-
-    LoopSlotPlaybackState startRequested();
-    LoopSlotPlaybackState muteRequested();
-    LoopSlotPlaybackState terminationRequested();
-
-    LoopSlotPlaybackState state() const noexcept;
-
-private:
-    LoopSlotPlaybackOutput& output_;
-    LoopSlotPlaybackState state_{LoopSlotPlaybackState::Muted};
-};
 
 struct RecordedLoopEvent {
     std::uint64_t time_ms{};

@@ -58,7 +58,7 @@ std::string configWithMmcCommands(
         << "schema_version: 7\n"
         << "midi_control_change_mappings: []\n"
         << "loop_slots:\n"
-        << "  - { key: F8 }\n"
+        << "  - F8\n"
         << "soundfonts:\n"
         << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
         << "controls:\n"
@@ -80,7 +80,7 @@ std::string configWithMapping(std::string_view mapping) {
         << "midi_control_change_mappings:\n"
         << "  - { " << mapping << " }\n"
         << "loop_slots:\n"
-        << "  - { key: F8 }\n"
+        << "  - F8\n"
         << "soundfonts:\n"
         << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
         << "controls:\n"
@@ -98,7 +98,7 @@ std::string configWithAllMmcCommands(
     config
         << "schema_version: 7\n"
         << "loop_slots:\n"
-        << "  - { key: F8 }\n"
+        << "  - F8\n"
         << "soundfonts:\n"
         << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: C4 }\n"
         << "controls:\n"
@@ -242,8 +242,8 @@ TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
-  - { key: G8 }
+  - F8
+  - G8
 midi_control_change_mappings:
   - source_port: Controller MIDI2
     channel: 16
@@ -323,7 +323,7 @@ TEST(ConfigurationTest, RequiresOrderedNonEmptyLoopSlots) {
         "play",
         "record_strobe",
     });
-    const std::string slots = "loop_slots:\n  - { key: F8 }\n";
+    const std::string slots = "loop_slots:\n  - F8\n";
     missing_contents.erase(missing_contents.find(slots), slots.size());
     TemporaryConfig missing{std::move(missing_contents)};
     EXPECT_THROW(zeta::loadConfiguration(missing.path()), ConfigurationError);
@@ -343,15 +343,16 @@ TEST(ConfigurationTest, RequiresOrderedNonEmptyLoopSlots) {
     EXPECT_THROW(zeta::loadConfiguration(empty.path()), ConfigurationError);
 }
 
-TEST(ConfigurationTest, RejectsInvalidDuplicateAndUnknownLoopSlotKeys) {
+TEST(ConfigurationTest, RejectsInvalidDuplicateAndNonscalarLoopSlotKeys) {
     constexpr std::array invalid_slot_catalogs{
-        std::string_view{"loop_slots:\n  - { key: H3 }\n"},
+        std::string_view{"loop_slots:\n  - H3\n"},
         std::string_view{
-            "loop_slots:\n  - { key: C3 }\n  - { key: C3 }\n"
+            "loop_slots:\n  - C3\n  - C3\n"
         },
+        std::string_view{"loop_slots:\n  - { key: C3 }\n"},
         std::string_view{"loop_slots:\n  - { key: C3, typo: true }\n"},
     };
-    const std::string valid_slots = "loop_slots:\n  - { key: F8 }\n";
+    const std::string valid_slots = "loop_slots:\n  - F8\n";
 
     for (const auto catalog : invalid_slot_catalogs) {
         auto contents = configWithMmcCommands({
@@ -375,7 +376,7 @@ TEST(ConfigurationTest, LoopSlotKeysMayOverlapSoundFontKeys) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: C4 }
+  - C4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: C4 }
 controls:
@@ -394,7 +395,7 @@ TEST(ConfigurationTest, RejectsLoopSlotKeysOverlappingNoteActions) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: C4 }
+  - C4
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -589,7 +590,7 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
         contents
             << "schema_version: 7\n"
             << "loop_slots:\n"
-            << "  - { key: F8 }\n"
+            << "  - F8\n"
             << "soundfonts:\n"
             << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: '"
             << key << "' }\n"
@@ -608,7 +609,7 @@ TEST(ConfigurationTest, ParsesControllerKeyDomainBoundaries) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 soundfonts:
   - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C0 }
   - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: G8 }
@@ -631,7 +632,7 @@ TEST(ConfigurationTest, RejectsDuplicateSoundFontKeys) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: G3 }
   - { id: bass, file: bass.sf2, bank: 0, preset: 34, key: G3 }
@@ -649,7 +650,7 @@ TEST(ConfigurationTest, RejectsSelectionNotesOverlappingActionBindings) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0, key: C4 }
 controls:
@@ -693,7 +694,7 @@ TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - id: piano
@@ -718,7 +719,7 @@ TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -758,7 +759,7 @@ controls:
     TemporaryConfig removed_parts{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -776,7 +777,7 @@ TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -791,7 +792,7 @@ controls:
     TemporaryConfig bad_mmc_command{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
@@ -848,7 +849,7 @@ TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
     TemporaryConfig source{R"yaml(
 schema_version: 7
 loop_slots:
-  - { key: F8 }
+  - F8
 midi_control_change_mappings: []
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
