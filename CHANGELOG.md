@@ -6,8 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
-- Added multiple independently recorded loop slots selected by a one-shot
-  controller-button-then-note gesture. Completed slots can loop together,
+- Added multiple independently recorded loop slots selected from Ready by a
+  one-shot controller-button-then-note gesture. The same control alone cancels
+  an armed take or completes a recording. Completed slots can loop together,
   remain active while another slot records, and be muted or resumed without
   affecting peers.
 - Added one encapsulated playback FSM, dedicated FluidSynth channel, retained

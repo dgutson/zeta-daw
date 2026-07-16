@@ -15,9 +15,7 @@ master: {
   ready_slot: "ReadySelectingLoopSlot"
   armed: "Armed(slot)\nWaiting for first NoteOn"
   armed_soundfont: "ArmedSelectingSoundFont"
-  armed_slot: "ArmedSelectingLoopSlot"
   recording: "Recording(slot)\nTimestamping notes"
-  recording_slot: "RecordingSelectingLoopSlot"
   stopped: "Stopped\nTerminal"
 
   ready -> ready_soundfont: "soundFontByNotePressed"
@@ -29,13 +27,9 @@ master: {
   armed -> recording: "first positive NoteOn\n/ record at 0 ms"
   armed -> armed_soundfont: "soundFontByNotePressed"
   armed_soundfont -> armed: "selection note / select slot SoundFont"
-  armed -> armed_slot: "loopSlotControlPressed"
-  armed_slot -> ready: "same slot / cancel pending take"
-  armed_slot -> armed: "recorded peer / start or mute"
+  armed -> ready: "loopSlotControlPressed\n/ cancel pending take"
 
-  recording -> recording_slot: "loopSlotControlPressed"
-  recording_slot -> ready: "same slot / commit and start"
-  recording_slot -> recording: "recorded peer / start or mute"
+  recording -> ready: "loopSlotControlPressed\n/ commit and start"
 
   ready -> stopped: "shutdownRequested / terminate all slots"
   armed -> stopped: "shutdownRequested / terminate all slots"
@@ -61,7 +55,7 @@ master.ready_slot -> slots.muted: {
   style.stroke-dash: 4
 }
 
-master.recording_slot -> slots.looping: {
-  label: "start/mute commands"
+master.recording -> slots.looping: {
+  label: "start command"
   style.stroke-dash: 4
 }

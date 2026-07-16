@@ -52,7 +52,6 @@ public:
     MOCK_METHOD(void, showLooping, (SlotId), (override));
     MOCK_METHOD(void, showMuted, (SlotId), (override));
     MOCK_METHOD(void, showNoTake, (SlotId), (override));
-    MOCK_METHOD(void, showRecorderBusy, (SlotId), (override));
     MOCK_METHOD(void, showUnknownLoopSlot, (int), (override));
 };
 
@@ -69,9 +68,7 @@ public:
 };
 
 constexpr SlotId first_slot = 0;
-constexpr SlotId second_slot = 1;
 constexpr int first_slot_key = 60;
-constexpr int second_slot_key = 62;
 constexpr auto start_time = TimePoint{} + 100ms;
 
 MidiMessage positiveNote(int key = 67) {
@@ -85,7 +82,10 @@ void selectEmptySlot(
     SlotId slot = first_slot,
     int key = first_slot_key
 ) {
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(start_time),
+        StateId::ReadySelectingLoopSlot
+    );
     EXPECT_CALL(slots, slotByKey(key)).WillOnce(Return(slot));
     EXPECT_CALL(slots, slotHasTake(slot)).WillOnce(Return(false));
     {
@@ -146,7 +146,7 @@ TEST(LooperFsmTest, EmptySlotArmsAndFirstPositiveNoteStartsAtOffsetZero) {
     beginRecording(fsm, output);
 }
 
-TEST(LooperFsmTest, RecordingCompletesOnlyAfterSelectingItsSlot) {
+TEST(LooperFsmTest, RecordingControlImmediatelyCompletesTheCurrentSlot) {
     StrictMock<MockOutput> output;
     StrictMock<MockSlotView> slots;
     LooperStateRegistry states{output, slots};
@@ -155,11 +155,6 @@ TEST(LooperFsmTest, RecordingCompletesOnlyAfterSelectingItsSlot) {
     selectEmptySlot(fsm, output, slots);
     beginRecording(fsm, output);
 
-    EXPECT_EQ(
-        fsm.loopSlotControlPressed(),
-        StateId::RecordingSelectingLoopSlot
-    );
-    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
     {
         InSequence sequence;
         EXPECT_CALL(output, commitTake(first_slot, 25ms));
@@ -167,11 +162,9 @@ TEST(LooperFsmTest, RecordingCompletesOnlyAfterSelectingItsSlot) {
         EXPECT_CALL(output, startSlotPlayback(first_slot));
         EXPECT_CALL(output, showLooping(first_slot));
     }
-    auto selection = positiveNote(first_slot_key);
-    fsm.midiMessage(
-        MidiMessageType::NoteOn,
-        selection,
-        start_time + 25ms
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(start_time + 25ms),
+        StateId::Ready
     );
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
 }
@@ -183,7 +176,10 @@ TEST(LooperFsmTest, RecordedSlotSelectionStartsOrMutesOnlyThatSlot) {
     LooperFsm fsm{states};
     auto selection = positiveNote(first_slot_key);
 
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(start_time),
+        StateId::ReadySelectingLoopSlot
+    );
     EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
     EXPECT_CALL(slots, slotHasTake(first_slot)).WillOnce(Return(true));
     EXPECT_CALL(slots, slotPlaybackState(first_slot))
@@ -195,7 +191,10 @@ TEST(LooperFsmTest, RecordedSlotSelectionStartsOrMutesOnlyThatSlot) {
     }
     fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
 
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(start_time),
+        StateId::ReadySelectingLoopSlot
+    );
     EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
     EXPECT_CALL(slots, slotHasTake(first_slot)).WillOnce(Return(true));
     EXPECT_CALL(slots, slotPlaybackState(first_slot))
@@ -209,72 +208,33 @@ TEST(LooperFsmTest, RecordedSlotSelectionStartsOrMutesOnlyThatSlot) {
     EXPECT_EQ(fsm.stateId(), StateId::Ready);
 }
 
-TEST(LooperFsmTest, OtherPlayingSlotsCanBeMutedWhileRecordingContinues) {
+TEST(LooperFsmTest, LoopSlotControlCancelsReadySelection) {
     StrictMock<MockOutput> output;
     StrictMock<MockSlotView> slots;
     LooperStateRegistry states{output, slots};
     LooperFsm fsm{states};
 
-    selectEmptySlot(fsm, output, slots);
-    beginRecording(fsm, output);
     EXPECT_EQ(
-        fsm.loopSlotControlPressed(),
-        StateId::RecordingSelectingLoopSlot
+        fsm.loopSlotControlPressed(start_time),
+        StateId::ReadySelectingLoopSlot
     );
-
-    EXPECT_CALL(slots, slotByKey(second_slot_key)).WillOnce(Return(second_slot));
-    EXPECT_CALL(slots, slotHasTake(second_slot)).WillOnce(Return(true));
-    EXPECT_CALL(slots, slotPlaybackState(second_slot))
-        .WillOnce(Return(SlotPlaybackState::Looping));
-    EXPECT_CALL(output, muteSlotPlayback(second_slot));
-    EXPECT_CALL(output, showMuted(second_slot));
-    auto selection = positiveNote(second_slot_key);
-    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time + 10ms);
-    EXPECT_EQ(fsm.stateId(), StateId::Recording);
-
-    auto selection_release = MidiMessage{.key = second_slot_key};
-    fsm.midiMessage(
-        MidiMessageType::NoteOff,
-        selection_release,
-        start_time + 11ms
-    );
-    EXPECT_EQ(fsm.stateId(), StateId::Recording);
+    EXPECT_EQ(fsm.loopSlotControlPressed(start_time), StateId::Ready);
 }
 
-TEST(LooperFsmTest, ArmedSlotSelectionCancelsOnlyItsPendingTake) {
+TEST(LooperFsmTest, ArmedControlImmediatelyCancelsItsPendingTake) {
     StrictMock<MockOutput> output;
     StrictMock<MockSlotView> slots;
     LooperStateRegistry states{output, slots};
     LooperFsm fsm{states};
 
     selectEmptySlot(fsm, output, slots);
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ArmedSelectingLoopSlot);
-    EXPECT_CALL(slots, slotByKey(first_slot_key)).WillOnce(Return(first_slot));
     {
         InSequence sequence;
         EXPECT_CALL(output, discardPendingTake(first_slot));
         EXPECT_CALL(output, selectCurrentSoundFont(MidiRoute::live()));
         EXPECT_CALL(output, showNoTake(first_slot));
     }
-    auto selection = positiveNote(first_slot_key);
-    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
-    EXPECT_EQ(fsm.stateId(), StateId::Ready);
-}
-
-TEST(LooperFsmTest, EmptyPeerCannotAcquireTheBusyRecorder) {
-    StrictMock<MockOutput> output;
-    StrictMock<MockSlotView> slots;
-    LooperStateRegistry states{output, slots};
-    LooperFsm fsm{states};
-
-    selectEmptySlot(fsm, output, slots);
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ArmedSelectingLoopSlot);
-    EXPECT_CALL(slots, slotByKey(second_slot_key)).WillOnce(Return(second_slot));
-    EXPECT_CALL(slots, slotHasTake(second_slot)).WillOnce(Return(false));
-    EXPECT_CALL(output, showRecorderBusy(second_slot));
-    auto selection = positiveNote(second_slot_key);
-    fsm.midiMessage(MidiMessageType::NoteOn, selection, start_time);
-    EXPECT_EQ(fsm.stateId(), StateId::Armed);
+    EXPECT_EQ(fsm.loopSlotControlPressed(start_time), StateId::Ready);
 }
 
 TEST(LooperFsmTest, ArmedSoundFontAndOctaveControlsTargetSelectedSlot) {
@@ -317,7 +277,10 @@ TEST(LooperFsmTest, UnknownSlotNoteIsConsumedAndLeavesSelection) {
     LooperFsm fsm{states};
     auto selection = positiveNote(99);
 
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::ReadySelectingLoopSlot);
+    EXPECT_EQ(
+        fsm.loopSlotControlPressed(start_time),
+        StateId::ReadySelectingLoopSlot
+    );
     EXPECT_CALL(slots, slotByKey(99)).WillOnce(Return(std::nullopt));
     EXPECT_CALL(output, showUnknownLoopSlot(99));
     EXPECT_EQ(
@@ -341,7 +304,7 @@ TEST(LooperFsmTest, ShutdownTerminatesAllSlotsAndIsIdempotent) {
     EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
     EXPECT_FALSE(fsm.shouldRun());
     EXPECT_EQ(fsm.shutdownRequested(), StateId::Stopped);
-    EXPECT_EQ(fsm.loopSlotControlPressed(), StateId::Stopped);
+    EXPECT_EQ(fsm.loopSlotControlPressed(start_time), StateId::Stopped);
 }
 
 } // namespace

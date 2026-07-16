@@ -37,9 +37,7 @@ enum class StateId : std::size_t {
     ReadySelectingLoopSlot,
     Armed,
     ArmedSelectingSoundFont,
-    ArmedSelectingLoopSlot,
     Recording,
-    RecordingSelectingLoopSlot,
     Stopped,
     Count,
 };
@@ -51,7 +49,6 @@ struct MidiHandlingResult {
 
 struct LooperStateData {
     std::optional<SlotId> recording_slot;
-    std::optional<int> selection_release_to_suppress;
     TimePoint recording_started_at{};
 };
 
@@ -94,7 +91,6 @@ public:
     virtual void showLooping(SlotId slot) = 0;
     virtual void showMuted(SlotId slot) = 0;
     virtual void showNoTake(SlotId slot) = 0;
-    virtual void showRecorderBusy(SlotId slot) = 0;
     virtual void showUnknownLoopSlot(int key) = 0;
 };
 
@@ -107,7 +103,7 @@ public:
     ) noexcept;
     virtual ~LooperState() = default;
 
-    virtual StateId loopSlotControlPressed() const = 0;
+    virtual StateId loopSlotControlPressed(TimePoint received_at) const = 0;
     virtual StateId nextSoundFontPressed() const = 0;
     virtual StateId soundFontByNotePressed() const = 0;
     virtual StateId octaveDownPressed() const = 0;
@@ -152,7 +148,7 @@ public:
     LooperFsm(const LooperFsm&) = delete;
     LooperFsm& operator=(const LooperFsm&) = delete;
 
-    StateId loopSlotControlPressed();
+    StateId loopSlotControlPressed(TimePoint received_at);
     StateId nextSoundFontPressed();
     StateId soundFontByNotePressed();
     StateId octaveDownPressed();

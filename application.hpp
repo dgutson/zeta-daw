@@ -64,7 +64,6 @@ private:
     void showLooping(SlotId slot) override;
     void showMuted(SlotId slot) override;
     void showNoTake(SlotId slot) override;
-    void showRecorderBusy(SlotId slot) override;
     void showUnknownLoopSlot(int key) override;
 };
 

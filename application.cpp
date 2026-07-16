@@ -212,7 +212,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
         const auto& message = event.message;
 
         if (config_.loop_slot_control.matches(type, message)) {
-            fsm_.loopSlotControlPressed();
+            fsm_.loopSlotControlPressed(LooperClock::now());
             return;
         }
 
@@ -362,12 +362,6 @@ void Application::showNoTake(SlotId slot) {
     std::cout
         << "No notes were recorded. Ready for a new loop. Loop slot "
         << slot << " recording canceled.\n";
-}
-
-void Application::showRecorderBusy(SlotId slot) {
-    std::cout
-        << "Loop slot " << slot
-        << " is empty; another slot already owns the recorder.\n";
 }
 
 void Application::showUnknownLoopSlot(int key) {

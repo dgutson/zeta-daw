@@ -60,7 +60,7 @@ class ReadyState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId loopSlotControlPressed() const override {
+    StateId loopSlotControlPressed(TimePoint) const override {
         return StateId::ReadySelectingLoopSlot;
     }
 
@@ -124,7 +124,7 @@ class ReadySelectingLoopSlotState final : public ReadyState {
 public:
     using ReadyState::ReadyState;
 
-    StateId loopSlotControlPressed() const override {
+    StateId loopSlotControlPressed(TimePoint) const override {
         return StateId::Ready;
     }
 
@@ -152,7 +152,6 @@ public:
         }
 
         data_.recording_slot = slot;
-        data_.selection_release_to_suppress.reset();
         output_.prepareTake(slot.value());
         output_.showRecordingArmed(slot.value());
         return {.next_state = StateId::Armed, .native_result = midi_ok};
@@ -163,8 +162,13 @@ class ArmedState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId loopSlotControlPressed() const override {
-        return StateId::ArmedSelectingLoopSlot;
+    StateId loopSlotControlPressed(TimePoint) const override {
+        const SlotId slot = recordingSlot(data_);
+        output_.discardPendingTake(slot);
+        output_.selectCurrentSoundFont(MidiRoute::live());
+        output_.showNoTake(slot);
+        data_.recording_slot.reset();
+        return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
@@ -240,58 +244,22 @@ public:
     }
 };
 
-class ArmedSelectingLoopSlotState final : public ArmedState {
-public:
-    using ArmedState::ArmedState;
-
-    StateId loopSlotControlPressed() const override {
-        return StateId::Armed;
-    }
-
-    MidiHandlingResult midiMessage(
-        MidiMessageType type,
-        MidiMessage& message,
-        TimePoint
-    ) const override {
-        const SlotId current = recordingSlot(data_);
-        const auto route = MidiRoute::recordingSlot(current);
-        if (type != MidiMessageType::NoteOn || message.velocity <= 0) {
-            return {
-                .next_state = StateId::ArmedSelectingLoopSlot,
-                .native_result = output_.monitorMidi(message, route),
-            };
-        }
-
-        const auto selected = slots_.slotByKey(message.key);
-        if (!selected) {
-            output_.showUnknownLoopSlot(message.key);
-            return {.next_state = StateId::Armed, .native_result = midi_ok};
-        }
-
-        if (selected.value() == current) {
-            output_.discardPendingTake(current);
-            output_.selectCurrentSoundFont(MidiRoute::live());
-            output_.showNoTake(current);
-            data_.recording_slot.reset();
-            return {.next_state = StateId::Ready, .native_result = midi_ok};
-        }
-
-        if (!slots_.slotHasTake(selected.value())) {
-            output_.showRecorderBusy(selected.value());
-            return {.next_state = StateId::Armed, .native_result = midi_ok};
-        }
-
-        startOrMuteSlot(output_, slots_, selected.value());
-        return {.next_state = StateId::Armed, .native_result = midi_ok};
-    }
-};
-
 class RecordingState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
-    StateId loopSlotControlPressed() const override {
-        return StateId::RecordingSelectingLoopSlot;
+    StateId loopSlotControlPressed(TimePoint received_at) const override {
+        const SlotId slot = recordingSlot(data_);
+        const auto duration = elapsedMilliseconds(
+            data_.recording_started_at,
+            received_at
+        );
+        output_.commitTake(slot, duration);
+        output_.selectCurrentSoundFont(MidiRoute::live());
+        output_.startSlotPlayback(slot);
+        output_.showLooping(slot);
+        data_.recording_slot.reset();
+        return StateId::Ready;
     }
 
     StateId nextSoundFontPressed() const override {
@@ -315,14 +283,6 @@ public:
         MidiMessage& message,
         TimePoint received_at
     ) const override {
-        const bool is_note_release = type == MidiMessageType::NoteOff
-            || (type == MidiMessageType::NoteOn && message.velocity <= 0);
-        if (is_note_release
-            && data_.selection_release_to_suppress == message.key) {
-            data_.selection_release_to_suppress.reset();
-            return {.next_state = StateId::Recording, .native_result = midi_ok};
-        }
-
         const SlotId slot = recordingSlot(data_);
         const int result = output_.monitorMidi(
             message,
@@ -351,62 +311,13 @@ public:
     }
 };
 
-class RecordingSelectingLoopSlotState final : public RecordingState {
-public:
-    using RecordingState::RecordingState;
-
-    StateId loopSlotControlPressed() const override {
-        return StateId::Recording;
-    }
-
-    MidiHandlingResult midiMessage(
-        MidiMessageType type,
-        MidiMessage& message,
-        TimePoint received_at
-    ) const override {
-        const SlotId current = recordingSlot(data_);
-        if (type != MidiMessageType::NoteOn || message.velocity <= 0) {
-            return RecordingState::midiMessage(type, message, received_at);
-        }
-
-        const auto selected = slots_.slotByKey(message.key);
-        if (!selected) {
-            data_.selection_release_to_suppress = message.key;
-            output_.showUnknownLoopSlot(message.key);
-            return {.next_state = StateId::Recording, .native_result = midi_ok};
-        }
-
-        if (selected.value() == current) {
-            data_.selection_release_to_suppress.reset();
-            const auto duration = elapsedMilliseconds(
-                data_.recording_started_at,
-                received_at
-            );
-            output_.commitTake(current, duration);
-            output_.selectCurrentSoundFont(MidiRoute::live());
-            output_.startSlotPlayback(current);
-            output_.showLooping(current);
-            data_.recording_slot.reset();
-            return {.next_state = StateId::Ready, .native_result = midi_ok};
-        }
-
-        if (!slots_.slotHasTake(selected.value())) {
-            data_.selection_release_to_suppress = message.key;
-            output_.showRecorderBusy(selected.value());
-            return {.next_state = StateId::Recording, .native_result = midi_ok};
-        }
-
-        data_.selection_release_to_suppress = message.key;
-        startOrMuteSlot(output_, slots_, selected.value());
-        return {.next_state = StateId::Recording, .native_result = midi_ok};
-    }
-};
-
 class StoppedState final : public LooperState {
 public:
     using LooperState::LooperState;
 
-    StateId loopSlotControlPressed() const override { return StateId::Stopped; }
+    StateId loopSlotControlPressed(TimePoint) const override {
+        return StateId::Stopped;
+    }
     StateId nextSoundFontPressed() const override { return StateId::Stopped; }
     StateId soundFontByNotePressed() const override { return StateId::Stopped; }
     StateId octaveDownPressed() const override { return StateId::Stopped; }
@@ -453,12 +364,8 @@ LooperStateRegistry::LooperStateRegistry(
         std::make_unique<ArmedState>(output, slots, data_);
     states_[stateIndex(StateId::ArmedSelectingSoundFont)] =
         std::make_unique<ArmedSelectingSoundFontState>(output, slots, data_);
-    states_[stateIndex(StateId::ArmedSelectingLoopSlot)] =
-        std::make_unique<ArmedSelectingLoopSlotState>(output, slots, data_);
     states_[stateIndex(StateId::Recording)] =
         std::make_unique<RecordingState>(output, slots, data_);
-    states_[stateIndex(StateId::RecordingSelectingLoopSlot)] =
-        std::make_unique<RecordingSelectingLoopSlotState>(output, slots, data_);
     states_[stateIndex(StateId::Stopped)] =
         std::make_unique<StoppedState>(output, slots, data_);
 }
@@ -475,9 +382,11 @@ const LooperState& LooperStateRegistry::at(StateId id) const {
 
 LooperFsm::LooperFsm(LooperStateRegistry& states) noexcept : states_(states) {}
 
-StateId LooperFsm::loopSlotControlPressed() {
+StateId LooperFsm::loopSlotControlPressed(TimePoint received_at) {
     std::lock_guard lock(mutex_);
-    const StateId next = states_.at(current_state_).loopSlotControlPressed();
+    const StateId next = states_.at(current_state_).loopSlotControlPressed(
+        received_at
+    );
     install(next);
     return current_state_;
 }

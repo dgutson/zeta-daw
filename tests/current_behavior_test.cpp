@@ -173,21 +173,21 @@ ApplicationConfig testConfig() {
     };
 }
 
-int selectLoopSlot(int key) {
-    fake_midi_input::emitMidi({
+int pressLoopSlotControl() {
+    return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
         .machine_control_command = 0x05,
     });
+}
+
+int selectLoopSlot(int key) {
+    pressLoopSlotControl();
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
         .channel = 0,
         .key = key,
         .velocity = 100,
     });
-}
-
-int pressRecordingControl() {
-    return selectLoopSlot(60);
 }
 
 int pressNextSoundFontControl() {
@@ -328,11 +328,11 @@ TEST_F(CurrentBehaviorTest, EagerlyLoadsEveryUniqueConfiguredSoundFont) {
     }));
 }
 
-TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
+TEST_F(CurrentBehaviorTest, LoopSlotControlIsConsumedBeforeSynthRouting) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     const auto calls = fake_fluidsynth::calls();
@@ -341,7 +341,7 @@ TEST_F(CurrentBehaviorTest, RecordingControlIsConsumedBeforeSynthRouting) {
             && call.type == raw(MidiMessageType::MachineControl);
     }));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Ready for a new loop."));
 }
 
@@ -404,7 +404,7 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     EXPECT_EQ(fake_midi_input::emitMidi({
@@ -427,7 +427,7 @@ TEST_F(CurrentBehaviorTest, ArmedMonitorsOnLoopChannelButDoesNotStartOnNoteOff) 
     ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("SoundFont selected: live"));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Ready for a new loop."));
 
     const auto calls = fake_fluidsynth::calls();
@@ -448,7 +448,7 @@ TEST_F(CurrentBehaviorTest, CompletedTakeCanBeMutedAndResumed) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     EXPECT_EQ(fake_midi_input::emitMidi({
@@ -467,7 +467,7 @@ TEST_F(CurrentBehaviorTest, CompletedTakeCanBeMutedAndResumed) {
     }), FLUID_OK);
 
     std::this_thread::sleep_for(10ms);
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Looping."));
 
     ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
@@ -487,13 +487,13 @@ TEST_F(CurrentBehaviorTest, CompletedTakeCanBeMutedAndResumed) {
         .pitch = 16383,
     }), FLUID_OK);
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("muted."));
     const auto call_count_while_muted = fake_fluidsynth::calls().size();
     std::this_thread::sleep_for(30ms);
     EXPECT_EQ(fake_fluidsynth::calls().size(), call_count_while_muted);
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(fake_fluidsynth::waitUntil([call_count_while_muted](
         const std::vector<Call>& calls
     ) {
@@ -537,7 +537,7 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresCurrentProgram) {
         .program = 99,
     }), FLUID_OK);
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
     EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
@@ -546,7 +546,7 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresCurrentProgram) {
         .velocity = 100,
     }), FLUID_OK);
     std::this_thread::sleep_for(2ms);
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Looping."));
 
     const auto calls = fake_fluidsynth::calls();
@@ -558,7 +558,7 @@ TEST_F(CurrentBehaviorTest, StartingLoopPlaybackRestoresCurrentProgram) {
             && call.preset == 34;
     }), 2);
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
 }
 
 TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
@@ -568,7 +568,7 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
     ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("SoundFont selected: live"));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
 
     ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
@@ -597,7 +597,7 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
     );
 
     std::this_thread::sleep_for(2ms);
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Looping."));
 
     ASSERT_EQ(pressNextSoundFontControl(), FLUID_OK);
@@ -619,7 +619,7 @@ TEST_F(CurrentBehaviorTest, CyclesSoundFontsWithoutChangingActiveRecording) {
         std::pair{0, 2}
     ));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
 }
 
 TEST_F(CurrentBehaviorTest, SelectsSoundFontsByNoteOnStateSpecificRoutes) {
@@ -643,7 +643,7 @@ TEST_F(CurrentBehaviorTest, SelectsSoundFontsByNoteOnStateSpecificRoutes) {
         });
     }));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Recording..."));
     ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
     EXPECT_EQ(fake_midi_input::emitMidi({
@@ -688,7 +688,7 @@ TEST_F(CurrentBehaviorTest, SelectsSoundFontsByNoteOnStateSpecificRoutes) {
     );
 
     std::this_thread::sleep_for(2ms);
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(session.waitForOutput("Looping."));
     ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
     EXPECT_EQ(fake_midi_input::emitMidi({
@@ -714,7 +714,7 @@ TEST_F(CurrentBehaviorTest, SelectsSoundFontsByNoteOnStateSpecificRoutes) {
             && call.soundfont_id == 2;
     }));
 
-    ASSERT_EQ(pressRecordingControl(), FLUID_OK);
+    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
 }
 
 TEST_F(CurrentBehaviorTest, CancelsOrReportsOneShotSoundFontSelection) {
@@ -806,7 +806,7 @@ TEST_F(CurrentBehaviorTest, RecordsAndControlsTwoLoopsIndependently) {
         .key = 64,
     }), FLUID_OK);
     std::this_thread::sleep_for(20ms);
-    ASSERT_EQ(selectLoopSlot(60), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
         return hasCall(calls, CallKind::SynthNoteOn, 1, 64);
     }));
@@ -841,7 +841,7 @@ TEST_F(CurrentBehaviorTest, RecordsAndControlsTwoLoopsIndependently) {
     }));
 
     std::this_thread::sleep_for(20ms);
-    ASSERT_EQ(selectLoopSlot(61), FLUID_OK);
+    ASSERT_EQ(pressLoopSlotControl(), FLUID_OK);
     ASSERT_TRUE(fake_fluidsynth::waitUntil([](const std::vector<Call>& calls) {
         return hasCall(calls, CallKind::SynthNoteOn, 2, 67);
     }));

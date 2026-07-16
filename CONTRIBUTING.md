@@ -124,9 +124,11 @@ The master looper deliberately uses a GoF State pattern. Preserve that style.
 - `LooperOutput&`, `LoopSlotView&`, and `LooperStateData&` are invariant for the
   FSM lifetime and are constructor-injected into the `LooperState` base. Do not
   pass them repeatedly through stimulus methods or replace them with setters.
-- A stimulus should take only event-specific information. A button stimulus
-  such as `nextSoundFontPressed()` needs no argument. Persistent transition
-  data belongs in `LooperStateData`; effects belong in `LooperOutput`.
+- A stimulus should take only event-specific information. Most button stimuli,
+  such as `nextSoundFontPressed()`, need no argument. The loop-slot control
+  carries its receipt time because pressing it while recording defines the
+  take duration. Persistent transition data belongs in `LooperStateData`;
+  effects belong in `LooperOutput`.
 - State methods return the next `StateId`. `midiMessage` returns
   `MidiHandlingResult` because it must also propagate the synthesizer's native
   result. Do not generalize that special case without a concrete need.
@@ -143,8 +145,7 @@ rewrite inside a feature or cleanup ticket.
 ## Current state semantics
 
 The master states are `Ready`, `ReadySelectingSoundFont`,
-`ReadySelectingLoopSlot`, `Armed`, `ArmedSelectingSoundFont`,
-`ArmedSelectingLoopSlot`, `Recording`, `RecordingSelectingLoopSlot`, and
+`ReadySelectingLoopSlot`, `Armed`, `ArmedSelectingSoundFont`, `Recording`, and
 `Stopped`. Loop playback is deliberately not a master state: zero or more slot
 FSMs may be `Looping` while the master is `Ready`, `Armed`, or `Recording`.
 
@@ -155,31 +156,28 @@ FSMs may be `Looping` while the master is `Ready`, `Armed`, or `Recording`.
   consumed. An empty configured slot copies the current live SoundFont and
   octave, clears its pending take, and enters master `Armed`. A recorded muted
   slot starts; a looping slot mutes. An unmapped note is consumed and returns
-  to `Ready` without changing a slot.
+  to `Ready` without changing a slot. Pressing the loop-slot control again
+  cancels selection and returns to `Ready`.
 - `Armed`: MIDI is monitored on the selected slot's dedicated channel. The
   first positive-velocity Note On enters `Recording` and is stored at offset
   zero. SoundFont and octave controls may change the pending slot; octave
-  changes also affect live output. Pressing the loop-slot selector enters
-  `ArmedSelectingLoopSlot`.
-- `ArmedSelectingLoopSlot`: selecting the armed slot cancels its pending take,
-  adopts the current SoundFont for live playing, and returns to `Ready`.
-  Selecting a recorded peer starts or mutes it without losing recorder
-  ownership. An empty peer is rejected because only one slot may own the
-  recorder.
+  changes also affect live output. Pressing the loop-slot control cancels the
+  pending take, adopts its current SoundFont for live playing, and returns to
+  `Ready` immediately.
 - `Recording`: Note On and Note Off events are timestamped into the selected
   slot. SoundFont and octave controls are consumed without effect. Pressing the
-  loop-slot selector enters `RecordingSelectingLoopSlot`.
-- `RecordingSelectingLoopSlot`: selecting the recording slot commits its
-  duration and starts it looping. A recorded peer starts or mutes while the
-  current recording continues. An empty peer is rejected.
+  loop-slot control commits the take at that instant, starts the slot looping,
+  and returns to `Ready` immediately.
 - `Stopped`: all stimuli are inert. Only shutdown enters this state; shutdown
   sends `terminationRequested()` to every slot before silencing all channels.
 
-SoundFont and loop-slot selection are explicit one-shot interaction states.
-Both use positive-velocity Note On, raw physical keys before Zeta
-transposition, and ignore incoming MIDI channel. Selection notes are consumed
-and do not sound or begin recording. Pressing the active selector again
-cancels. Other configured actions perform their state-specific behavior.
+SoundFont selection and Ready-state loop-slot selection are explicit one-shot
+interaction states. Both use positive-velocity Note On, raw physical keys
+before Zeta transposition, and ignore incoming MIDI channel. Selection notes
+are consumed and do not sound or begin recording. Pressing the active selector
+again cancels. While Armed or Recording, the loop-slot control acts immediately
+on the current take instead of entering selection. Other configured actions
+perform their state-specific behavior.
 
 The master alone owns `Armed` and `Recording`, including the selected `SlotId`
 and recording start time. A slot owns only `Muted`, `Looping`, or `Terminated`.
