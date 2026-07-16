@@ -115,7 +115,17 @@ int parseSoundFontKey(
     const YAML::Node& node,
     const std::string& location
 ) {
-    static constexpr std::array<std::string_view, 12> note_names{
+    constexpr int semitones_per_octave = 12;
+    constexpr int configured_octave_to_midi_offset = 2;
+    constexpr int maximum_midi_key = 127;
+    constexpr std::size_t octave_digit_count = 1;
+
+    // The SE49 convention labels MIDI 60 as C3, so configured octave numbers
+    // are two lower than the zero-based octave index used by MIDI arithmetic.
+    static constexpr std::array<
+        std::string_view,
+        semitones_per_octave
+    > note_names{
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B",
     };
@@ -123,19 +133,21 @@ int parseSoundFontKey(
 
     int semitone = 0;
     for (const auto note : note_names) {
-        if (target.size() == note.size() + 1
+        if (target.size() == note.size() + octave_digit_count
             && target.find(note) == 0) {
             const char octave_digit = target[note.size()];
             if (octave_digit >= '0' && octave_digit <= '9') {
                 const int octave = octave_digit - '0';
-                const int key = (octave + 2) * 12 + semitone;
-                if (key >= 36 && key <= 84) {
+                const int key =
+                    (octave + configured_octave_to_midi_offset)
+                    * semitones_per_octave + semitone;
+                if (key <= maximum_midi_key) {
                     return key;
                 }
             } else {
                 fail(
                     location + ".key",
-                    "expected an SE49 key name from C1 through C5"
+                    "expected a controller key name from C0 through G8"
                 );
             }
         }
@@ -144,7 +156,7 @@ int parseSoundFontKey(
 
     fail(
         location + ".key",
-        "expected an SE49 key name from C1 through C5"
+        "expected a controller key name from C0 through G8"
     );
 }
 

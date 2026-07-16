@@ -30,6 +30,10 @@ decisions must preserve these constraints:
   zero. This deliberate behavior removes leading silence and must not regress.
 - SoundFonts needed on stage are selected in configuration before the
   performance. Runtime selection chooses among that bounded, preloaded list.
+- Controller-specific hardware and documentation may inspire workflows,
+  examples, and naming conventions, but must not become core restrictions
+  unless explicitly agreed. Configuration and runtime behavior must remain
+  usable with equivalent MIDI controllers.
 
 ## Architecture at a glance
 
@@ -229,12 +233,13 @@ required version is 6.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- Each `soundfonts` entry has an optional SE49 note-name `key` in its physical
-  keybed range `C1` through `C5` (MIDI 36 through 84). Keys are interpreted
-  before octave transposition and independently of MIDI channel. They must be
-  unique and must not reuse the physical key of any configured Note action.
-  At least one entry has a key exactly when `controls.soundfont_by_note` is
-  configured.
+- Each `soundfonts` entry has an optional controller note-name `key`. Names use
+  the SE49-documented octave convention, where MIDI 60 is `C3`, across the
+  one-digit MIDI domain `C0` through `G8` (MIDI 24 through 127). Keys are
+  interpreted before octave transposition and independently of MIDI channel.
+  They must be unique and must not reuse the physical key of any configured
+  Note action. At least one entry has a key exactly when
+  `controls.soundfont_by_note` is configured.
 - `midi_control_change_mappings` is optional; omission means that no Control
   Change normalization is needed. Each entry matches one exact source-port
   display name, human-facing channel, and controller number, then replaces only
@@ -288,6 +293,9 @@ required version is 6.
 - Do not introduce `std::variant` into the FSM design.
 - Follow the existing naming and formatting, compile with `-Wall -Wextra
   -Wpedantic`, and keep warnings clean.
+- Do not use unexplained numeric literals for domain limits, encodings, or
+  conversions. Introduce named constants and comments for non-obvious numeric
+  conventions so their meaning and source remain visible at the use site.
 - Preserve user changes in a dirty worktree and avoid unrelated formatting or
   cleanup.
 - Update tests and documentation in the same change as behavior or schema.

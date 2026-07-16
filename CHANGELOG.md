@@ -27,9 +27,10 @@ All notable changes to Zeta DAW are documented in this file.
 - Configuration schema 6 makes sequential Next and direct note selection
   independently optional while requiring at least one SoundFont-selection
   mechanism.
-- Direct-selection keys are now optional SE49 physical-key names on their
-  `soundfonts` entries and identify raw physical keys independently of MIDI
-  channel; the separate arbitrary channel/key mapping list was removed.
+- Direct-selection keys are now optional controller physical-key names on
+  their `soundfonts` entries, using the SE49-inspired octave convention across
+  the generic one-digit MIDI domain and independently of MIDI channel; the
+  separate arbitrary channel/key mapping list was removed.
 - SoundFont catalog navigation and bounded physical-key lookup are encapsulated
   in a dependency-free selector shared by sequential and direct selection.
 - Clarified that performer-visible interaction phases must be explicit looper

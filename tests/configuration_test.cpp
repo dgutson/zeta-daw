@@ -473,11 +473,11 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
         std::string_view{""},
         std::string_view{"60"},
         std::string_view{"Cb4"},
+        std::string_view{"G#8"},
         std::string_view{"G#9"},
-        std::string_view{"C0"},
         std::string_view{"C-1"},
         std::string_view{"C-2"},
-        std::string_view{"C#5"},
+        std::string_view{"C9"},
         std::string_view{"c4"},
     };
 
@@ -499,12 +499,12 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
     }
 }
 
-TEST(ConfigurationTest, ParsesSe49PhysicalKeybedBoundaries) {
+TEST(ConfigurationTest, ParsesControllerKeyDomainBoundaries) {
     TemporaryConfig source{R"yaml(
 schema_version: 6
 soundfonts:
-  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C1 }
-  - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: C5 }
+  - { id: lowest, file: lowest.sf2, bank: 0, preset: 0, key: C0 }
+  - { id: highest, file: highest.sf2, bank: 0, preset: 0, key: G8 }
 controls:
   recording: { type: machine_control, command: rewind }
   soundfont_by_note: { type: machine_control, command: stop }
@@ -515,9 +515,9 @@ controls:
     const auto config = zeta::loadConfiguration(source.path());
 
     ASSERT_TRUE(config.soundfonts[0].key);
-    EXPECT_EQ(config.soundfonts[0].key.value(), 36);
+    EXPECT_EQ(config.soundfonts[0].key.value(), 24);
     ASSERT_TRUE(config.soundfonts[1].key);
-    EXPECT_EQ(config.soundfonts[1].key.value(), 84);
+    EXPECT_EQ(config.soundfonts[1].key.value(), 127);
 }
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontKeys) {
