@@ -41,7 +41,6 @@ private:
     void selectNextSoundFont(MidiRoute route) override;
     void selectSoundFontByNote(
         MidiRoute route,
-        int input_channel,
         int key
     ) override;
     void octaveDown(MidiRoute route) override;

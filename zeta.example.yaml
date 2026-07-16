@@ -15,29 +15,20 @@ soundfonts:
     file: /path/to/grand-piano.sf2
     bank: 0
     preset: 0
+    # Optional physical key used after soundfont_by_note is pressed.
+    key: G3
 
   - id: bass
     file: /path/to/electric-bass.sf2
     bank: 0
     preset: 34
-
-# Press the configured soundfont_by_note control and then one of these notes to
-# select that SoundFont directly. Channels are human-facing; keys are raw MIDI
-# numbers before Zeta octave transposition.
-soundfont_note_selections:
-  - channel: 1
-    key: 60
-    soundfont: piano
-
-  - channel: 1
-    key: 62
-    soundfont: bass
+    key: A3
 
 # Put the SE49 in MMC transport mode. In that mode Transpose Down sends
 # Rewind, Transpose Up sends Stop, Octave Down sends Play, and Octave Up sends
 # Record Strobe. This example uses Transpose Up to arm direct SoundFont
 # selection. To use sequential selection instead, rename soundfont_by_note to
-# next_soundfont and omit soundfont_note_selections.
+# next_soundfont and omit the SoundFont key fields.
 controls:
   recording:
     type: machine_control

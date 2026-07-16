@@ -72,6 +72,9 @@ The main layers and ownership boundaries are:
   the FSM output alphabet, stores a take, and owns the loop worker.
 - `octave_transposer.*` owns octave bounds and arithmetic transposition for one
   MIDI route. `Application` owns independent live and loop instances.
+- `soundfont_selector.*` owns the ordered SoundFont selection, its current
+  entry, and the bounded physical-key lookup shared by sequential and direct
+  selection. It has no synthesizer or MIDI-channel responsibility.
 - `synth_engine.*` is the narrow RAII wrapper around the FluidSynth C API.
 
 Keep dependency-specific types at their adapters. libremidi types must not
@@ -149,7 +152,8 @@ The states are `Ready`, `ReadySelectingSoundFont`, `Armed`,
 `ReadySelectingSoundFont`, `ArmedSelectingSoundFont`, and
 `LoopingSelectingSoundFont` are explicit one-shot interaction states. The next
 positive-velocity Note On is consumed, selects the configured SoundFont for
-the originating state's route, and returns to that originating state. An
+the originating state's route by its raw physical key regardless of incoming
+MIDI channel, and returns to that originating state. An
 unmapped note is consumed and returns without changing the selection. Pressing
 the selector control again cancels. Other MIDI retains the originating route
 and selection state; other configured actions perform their ordinary behavior
@@ -225,11 +229,11 @@ required version is 6.
   process working directory.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
-- `soundfont_note_selections` is present and non-empty exactly when
-  `controls.soundfont_by_note` is configured. Each entry maps one exact
-  human-facing channel and raw MIDI key to an existing SoundFont ID. Duplicate
-  channel/key mappings and mappings overlapping configured note actions are
-  rejected.
+- Each `soundfonts` entry has an optional canonical note-name `key` in the MIDI
+  physical-key domain `C-1` through `G9`. Keys are interpreted before octave
+  transposition and independently of MIDI channel. They must be unique and
+  must not reuse the physical key of any configured Note action. At least one
+  entry has a key exactly when `controls.soundfont_by_note` is configured.
 - `midi_control_change_mappings` is optional; omission means that no Control
   Change normalization is needed. Each entry matches one exact source-port
   display name, human-facing channel, and controller number, then replaces only
@@ -360,6 +364,8 @@ The test suites divide responsibilities as follows:
   passthrough, value preservation, and one-pass behavior.
 - `octave_transposer_tests`: octave bounds, arithmetic key transposition, and
   non-key MIDI passthrough.
+- `soundfont_selector_tests`: sequential/direct current-selection consistency
+  and bounded physical-key lookup against the ordered catalog.
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
 - `current_behavior_tests`: application-level behavior with fake MIDI and
   FluidSynth boundaries.

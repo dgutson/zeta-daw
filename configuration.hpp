@@ -35,17 +35,11 @@ struct SoundFontDefinition {
     std::filesystem::path file;
     int bank{};
     int preset{};
-};
-
-struct SoundFontNoteSelection {
-    int channel{};
-    int key{};
-    std::size_t soundfont_index{};
+    std::optional<int> key;
 };
 
 struct ApplicationConfig {
     std::vector<SoundFontDefinition> soundfonts;
-    std::vector<SoundFontNoteSelection> soundfont_note_selections;
     std::vector<MidiControlChangeMapping> midi_control_change_mappings;
     MidiControlBinding recording_control;
     std::optional<MidiControlBinding> next_soundfont_control;

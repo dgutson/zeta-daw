@@ -7,7 +7,7 @@ be controlled entirely from a MIDI controller.
 
 The direct-selection performance workflow is:
 
-1. Press the configured SoundFont-by-note control, then a mapped piano note.
+1. Press the configured SoundFont-by-note control, then a keyed piano note.
 2. Press the configured recording control to arm the looper.
 3. Play the first recording note. Recording starts on that note, with no leading
    silence.
@@ -101,20 +101,13 @@ soundfonts:
     file: /srv/zeta-daw/soundfonts/grand-piano.sf2
     bank: 0
     preset: 0
+    key: G3
 
   - id: bass
     file: /srv/zeta-daw/soundfonts/electric-bass.sf2
     bank: 0
     preset: 34
-
-soundfont_note_selections:
-  - channel: 1
-    key: 60
-    soundfont: piano
-
-  - channel: 1
-    key: 62
-    soundfont: bass
+    key: A3
 
 controls:
   recording:
@@ -150,6 +143,8 @@ reports the invalid field.
 - `file`: an absolute path or a path relative to the YAML file
 - `bank`: the SoundFont bank, from 0 through 16383
 - `preset`: the preset, from 0 through 127
+- `key`: an optional physical keyboard note that selects this SoundFont after
+  the SoundFont-by-note control is pressed
 
 Only include the sounds needed for the performance. They are prepared during
 startup, and the first entry is selected initially. Next advances through the
@@ -163,11 +158,17 @@ as the live sound before returning to Ready.
 
 ### Direct SoundFont selection by note
 
-`soundfont_note_selections` maps an exact human-facing MIDI channel and raw key
-number to one configured SoundFont ID. Press `controls.soundfont_by_note`, then
-press a mapped positive-velocity note to select it. The mapping uses the raw
-input key before Zeta octave transposition, so the physical selection key does
-not move when the performance octave changes.
+Add an optional `key` to each directly selectable entry in `soundfonts`. Press
+`controls.soundfont_by_note`, then press that positive-velocity physical key to
+select the SoundFont. Keys use canonical note names with sharps, such as `G3`
+or `C#4`; MIDI key 60 is `C4`. The supported physical-key domain is `C-1`
+through `G9` (MIDI keys 0 through 127).
+
+Selection matches the raw physical key before Zeta octave transposition and is
+independent of the incoming MIDI channel. This keeps the key fixed when the
+performance octave or the controller's transmit channel changes. Configured
+SoundFont keys must be unique. A SoundFont key may not reuse the physical key
+of any configured Note action, regardless of that action's MIDI channel.
 
 The selector is one-shot. Pressing it again cancels. The selection note is
 consumed and does not sound; an unmapped note is also consumed, reports an
@@ -180,11 +181,12 @@ starting recording; the following positive-velocity note starts the take at
 offset zero. The selector is ignored during Recording. The recorded loop's
 SoundFont remains locked while Looping.
 
-`controls.soundfont_by_note` and `soundfont_note_selections` are optional as a
-pair. `controls.next_soundfont` is also optional, but at least one of these two
-selection controls is required. Configure both for direct and sequential
-selection, or configure either one alone. Mapped channel/key pairs must be
-unique and must not overlap a configured note action.
+`controls.soundfont_by_note` is optional, but when configured at least one
+SoundFont must have a `key`. Conversely, SoundFont keys are rejected when that
+control is absent. `controls.next_soundfont` is also optional, but at least one
+of these two selection controls is required. Configure both for direct and
+sequential selection, or configure either one alone. SoundFonts without `key`
+remain available through sequential selection.
 
 To inspect the banks and presets in a SoundFont, start FluidSynth with the
 file, then use its `fonts` and `inst` shell commands. Consult your distribution's
@@ -306,12 +308,11 @@ Configure MMC and enable transport mode:
 
 With `zeta.example.yaml`, during a performance:
 
-1. Press **Transpose Up**, then MIDI key 60 (C4) for piano or key 62 (D4) for
-   bass.
+1. Press **Transpose Up**, then **G3** for piano or **A3** for bass.
 2. Press **Transpose Down** to arm recording with the current SoundFont.
 3. Play the first note to begin recording.
 4. Press **Transpose Down** again to finish the take and start the loop.
-5. Press **Transpose Up** and a mapped note while looping to change the live
+5. Press **Transpose Up** and a keyed note while looping to change the live
    SoundFont.
 6. Press **Transpose Down** while looping to stop it and return to Ready.
 7. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
@@ -330,9 +331,9 @@ by Zeta rather than by the controller. Press **Octave Down + Transpose Down**
 together again to restore the buttons' native functions.
 
 To retain sequential selection on Transpose Up, bind its MMC Stop event to
-`controls.next_soundfont` instead and omit `controls.soundfont_by_note` and
-`soundfont_note_selections`. To configure both mechanisms, give
-`next_soundfont` a different non-overlapping controller binding.
+`controls.next_soundfont` instead, omit `controls.soundfont_by_note`, and omit
+the SoundFont `key` fields. To configure both mechanisms, give `next_soundfont`
+a different non-overlapping controller binding.
 
 The setup procedure and control assignments are documented in the
 [Nektar SE49/SE61 Owner's Manual](https://support.nektartech.com/wp-content/uploads/my-downloads/Owners_Manuals/SE49_61_printed_guide_v1_3_ENGLISH.pdf).

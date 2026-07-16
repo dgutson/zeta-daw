@@ -31,7 +31,7 @@ public:
     MOCK_METHOD(
         void,
         selectSoundFontByNote,
-        (MidiRoute, int, int),
+        (MidiRoute, int),
         (override)
     );
     MOCK_METHOD(void, octaveDown, (MidiRoute), (override));
@@ -148,7 +148,7 @@ TEST(LooperFsmTest, SoundFontByNoteUsesExplicitStateAndStateSpecificRoute) {
     );
     EXPECT_CALL(
         output,
-        selectSoundFontByNote(MidiRoute::LiveChannel, 2, 60)
+        selectSoundFontByNote(MidiRoute::LiveChannel, 60)
     );
     EXPECT_EQ(
         fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time),
@@ -163,7 +163,7 @@ TEST(LooperFsmTest, SoundFontByNoteUsesExplicitStateAndStateSpecificRoute) {
     );
     EXPECT_CALL(
         output,
-        selectSoundFontByNote(MidiRoute::LoopChannel, 2, 60)
+        selectSoundFontByNote(MidiRoute::LoopChannel, 60)
     );
     fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 1ms);
     EXPECT_EQ(fsm.stateId(), StateId::Armed);
@@ -196,7 +196,7 @@ TEST(LooperFsmTest, SoundFontByNoteUsesExplicitStateAndStateSpecificRoute) {
     );
     EXPECT_CALL(
         output,
-        selectSoundFontByNote(MidiRoute::LiveChannel, 2, 60)
+        selectSoundFontByNote(MidiRoute::LiveChannel, 60)
     );
     fsm.midiMessage(MidiMessageType::NoteOn, selection_note, start_time + 11ms);
     EXPECT_EQ(fsm.stateId(), StateId::Looping);

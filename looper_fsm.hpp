@@ -54,7 +54,6 @@ public:
     virtual void selectNextSoundFont(MidiRoute route) = 0;
     virtual void selectSoundFontByNote(
         MidiRoute route,
-        int input_channel,
         int key
     ) = 0;
     virtual void octaveDown(MidiRoute route) = 0;

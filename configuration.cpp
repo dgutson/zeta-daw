@@ -6,7 +6,6 @@
 #include <array>
 #include <initializer_list>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 
 namespace zeta {
@@ -110,6 +109,30 @@ std::string nonEmptyString(
         fail(location + "." + key, "must not be empty");
     }
     return value;
+}
+
+int parseSoundFontKey(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    static constexpr std::array<std::string_view, 12> note_names{
+        "C", "C#", "D", "D#", "E", "F",
+        "F#", "G", "G#", "A", "A#", "B",
+    };
+    const auto configured = nonEmptyString(node, "key", location);
+    for (int key = 0; key < 128; ++key) {
+        const auto note_index = static_cast<std::size_t>(key % 12);
+        const auto name = std::string{note_names[note_index]}
+            + std::to_string(key / 12 - 1);
+        if (configured == name) {
+            return key;
+        }
+    }
+
+    fail(
+        location + ".key",
+        "expected a canonical MIDI note name from C-1 through G9"
+    );
 }
 
 int parseMachineControlCommand(
@@ -343,7 +366,6 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         "schema_version",
         "midi_control_change_mappings",
         "soundfonts",
-        "soundfont_note_selections",
         "controls",
     });
 
@@ -375,15 +397,28 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         fail("soundfonts", "must contain at least one entry");
     }
 
-    std::unordered_map<std::string, std::size_t> soundfont_indices;
+    std::unordered_set<std::string> soundfont_ids;
+    std::unordered_set<int> soundfont_keys;
     for (std::size_t index = 0; index < soundfonts.size(); ++index) {
         const auto node = soundfonts[index];
         const std::string location = "soundfonts[" + std::to_string(index) + "]";
-        rejectUnknownKeys(node, location, {"id", "file", "bank", "preset"});
+        rejectUnknownKeys(
+            node,
+            location,
+            {"id", "file", "bank", "preset", "key"}
+        );
 
         auto id = nonEmptyString(node, "id", location);
-        if (!soundfont_indices.emplace(id, index).second) {
+        if (!soundfont_ids.insert(id).second) {
             fail(location + ".id", "duplicate SoundFont id '" + id + "'");
+        }
+
+        std::optional<int> key;
+        if (node["key"]) {
+            key = parseSoundFontKey(node, location);
+            if (!soundfont_keys.insert(*key).second) {
+                fail(location + ".key", "duplicate SoundFont selection key");
+            }
         }
 
         config.soundfonts.push_back({
@@ -394,6 +429,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
             ),
             .bank = boundedInt(node, "bank", location, 0, 16383),
             .preset = boundedInt(node, "preset", location, 0, 127),
+            .key = key,
         });
     }
 
@@ -424,57 +460,18 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         );
     }
 
-    const auto soundfont_note_selections = root["soundfont_note_selections"];
-    if (!config.soundfont_by_note_control) {
-        if (soundfont_note_selections) {
-            fail(
-                "soundfont_note_selections",
-                "requires controls.soundfont_by_note"
-            );
-        }
-    } else {
-        requireSequence(
-            soundfont_note_selections,
-            "soundfont_note_selections"
+    if (config.soundfont_by_note_control && soundfont_keys.empty()) {
+        fail(
+            "soundfonts",
+            "at least one entry requires key when controls.soundfont_by_note "
+            "is configured"
         );
-        if (soundfont_note_selections.size() == 0) {
-            fail(
-                "soundfont_note_selections",
-                "must contain at least one entry"
-            );
-        }
-
-        std::unordered_set<int> selection_keys;
-        for (std::size_t index = 0;
-             index < soundfont_note_selections.size();
-             ++index) {
-            const auto node = soundfont_note_selections[index];
-            const std::string location = "soundfont_note_selections["
-                + std::to_string(index) + "]";
-            rejectUnknownKeys(node, location, {"channel", "key", "soundfont"});
-
-            const int channel = boundedInt(node, "channel", location, 1, 16) - 1;
-            const int key = boundedInt(node, "key", location, 0, 127);
-            const auto soundfont = nonEmptyString(node, "soundfont", location);
-            const auto found = soundfont_indices.find(soundfont);
-            if (found == soundfont_indices.end()) {
-                fail(
-                    location + ".soundfont",
-                    "unknown SoundFont id '" + soundfont + "'"
-                );
-            }
-
-            const int selection_key = channel * 128 + key;
-            if (!selection_keys.insert(selection_key).second) {
-                fail(location, "duplicate channel and key mapping");
-            }
-
-            config.soundfont_note_selections.push_back({
-                .channel = channel,
-                .key = key,
-                .soundfont_index = found->second,
-            });
-        }
+    }
+    if (!config.soundfont_by_note_control && !soundfont_keys.empty()) {
+        fail(
+            "soundfonts",
+            "SoundFont keys require controls.soundfont_by_note"
+        );
     }
 
     struct NamedControl {
@@ -496,23 +493,18 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         });
     }
 
-    for (std::size_t index = 0;
-         index < config.soundfont_note_selections.size();
-         ++index) {
-        const auto& selection = config.soundfont_note_selections[index];
-        const MidiMessage selection_note{
-            .channel = selection.channel,
-            .key = selection.key,
-            .velocity = 1,
-        };
+    for (std::size_t index = 0; index < config.soundfonts.size(); ++index) {
+        const auto& soundfont = config.soundfonts[index];
+        if (!soundfont.key) {
+            continue;
+        }
+        const int soundfont_key = soundfont.key.value();
         for (const auto& action : actions) {
-            if (action.binding->matches(
-                    MidiMessageType::NoteOn,
-                    selection_note
-                )) {
+            if (action.binding->type == MidiControlType::Note
+                && action.binding->number == soundfont_key) {
                 fail(
-                    "soundfont_note_selections[" + std::to_string(index) + "]",
-                    "channel and key overlap controls."
+                    "soundfonts[" + std::to_string(index) + "].key",
+                    "physical key overlaps controls."
                         + std::string{action.name}
                 );
             }

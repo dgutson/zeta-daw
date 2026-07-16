@@ -105,7 +105,6 @@ public:
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
             output_.selectSoundFontByNote(
                 MidiRoute::LiveChannel,
-                message.channel,
                 message.key
             );
             return {
@@ -199,7 +198,6 @@ public:
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
             output_.selectSoundFontByNote(
                 MidiRoute::LoopChannel,
-                message.channel,
                 message.key
             );
             return {
@@ -335,7 +333,6 @@ public:
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
             output_.selectSoundFontByNote(
                 MidiRoute::LiveChannel,
-                message.channel,
                 message.key
             );
             return {

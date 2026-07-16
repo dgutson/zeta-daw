@@ -30,7 +30,6 @@ using zeta::MidiEvent;
 using zeta::MidiInput;
 using zeta::MidiMessageType;
 using zeta::SoundFontDefinition;
-using zeta::SoundFontNoteSelection;
 
 constexpr int raw(MidiMessageType type) {
     return static_cast<int>(type);
@@ -139,24 +138,14 @@ ApplicationConfig testConfig() {
                 .file = "loop.sf2",
                 .bank = 0,
                 .preset = 34,
+                .key = 71,
             },
             SoundFontDefinition{
                 .id = "live",
                 .file = "live.sf2",
                 .bank = 0,
                 .preset = 0,
-            },
-        },
-        .soundfont_note_selections = {
-            SoundFontNoteSelection{
-                .channel = 0,
-                .key = 71,
-                .soundfont_index = 0,
-            },
-            SoundFontNoteSelection{
-                .channel = 0,
                 .key = 72,
-                .soundfont_index = 1,
             },
         },
         .midi_control_change_mappings = {},
@@ -315,12 +304,14 @@ TEST_F(CurrentBehaviorTest, EagerlyLoadsEveryUniqueConfiguredSoundFont) {
         .file = "live.sf2",
         .bank = 0,
         .preset = 8,
+        .key = std::nullopt,
     });
     config.soundfonts.push_back({
         .id = "organ",
         .file = "organ.sf2",
         .bank = 0,
         .preset = 16,
+        .key = std::nullopt,
     });
 
     Application application{
@@ -778,14 +769,14 @@ TEST_F(CurrentBehaviorTest, CancelsOrReportsOneShotSoundFontSelection) {
     ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
     EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
-        .channel = 0,
+        .channel = 9,
         .key = 70,
         .velocity = 100,
     }), FLUID_OK);
     ASSERT_TRUE(session.waitForError(
-        "No SoundFont mapped for MIDI channel 1 key 70"
+        "No SoundFont mapped for MIDI key 70"
     ));
-    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 70));
+    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 9, 70));
 
     EXPECT_EQ(fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::NoteOn),
@@ -796,7 +787,7 @@ TEST_F(CurrentBehaviorTest, CancelsOrReportsOneShotSoundFontSelection) {
     EXPECT_TRUE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 70));
 }
 
-TEST_F(CurrentBehaviorTest, DirectSelectionMatchesRawChannelAndKey) {
+TEST_F(CurrentBehaviorTest, DirectSelectionUsesRawPhysicalKeyOnAnyChannel) {
     Application application{testConfig(), fake_midi_input::makeInput()};
     InteractiveSession session{application};
 
@@ -808,17 +799,6 @@ TEST_F(CurrentBehaviorTest, DirectSelectionMatchesRawChannelAndKey) {
         .key = 72,
         .velocity = 100,
     }), FLUID_OK);
-    ASSERT_TRUE(session.waitForError(
-        "No SoundFont mapped for MIDI channel 2 key 72"
-    ));
-
-    ASSERT_EQ(pressSoundFontByNoteControl(), FLUID_OK);
-    EXPECT_EQ(fake_midi_input::emitMidi({
-        .type = raw(MidiMessageType::NoteOn),
-        .channel = 0,
-        .key = 72,
-        .velocity = 100,
-    }), FLUID_OK);
     EXPECT_TRUE(std::ranges::any_of(
         fake_fluidsynth::calls(),
         [](const Call& call) {
@@ -827,7 +807,7 @@ TEST_F(CurrentBehaviorTest, DirectSelectionMatchesRawChannelAndKey) {
                 && call.soundfont_id == 2;
         }
     ));
-    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 0, 84));
+    EXPECT_FALSE(hasCall(fake_fluidsynth::calls(), CallKind::HandleMidi, 1, 84));
 }
 
 TEST_F(CurrentBehaviorTest, PreservesIndependentOctavesForTheNextTake) {

@@ -7,7 +7,7 @@ All notable changes to Zeta DAW are documented in this file.
 ### Added
 
 - Added direct SoundFont selection by pressing a configured controller action
-  and then a mapped piano note, with explicit Ready, Armed, and Looping
+  and then a keyed piano note, with explicit Ready, Armed, and Looping
   selection states for live performance.
 - Added a selective Hegel property-testing pilot and contributor guide for
   octave transposition, Control Change mapping, and MIDI control-binding
@@ -27,6 +27,11 @@ All notable changes to Zeta DAW are documented in this file.
 - Configuration schema 6 makes sequential Next and direct note selection
   independently optional while requiring at least one SoundFont-selection
   mechanism.
+- Direct-selection keys are now optional canonical note names on their
+  `soundfonts` entries and identify raw physical keys independently of MIDI
+  channel; the separate arbitrary channel/key mapping list was removed.
+- SoundFont catalog navigation and bounded physical-key lookup are encapsulated
+  in a dependency-free selector shared by sequential and direct selection.
 - Clarified that performer-visible interaction phases must be explicit looper
   states and must not be encoded as hidden modes in shared state data or other
   layers.

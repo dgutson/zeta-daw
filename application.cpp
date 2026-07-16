@@ -1,8 +1,8 @@
 #include "application.hpp"
 #include "octave_transposer.hpp"
+#include "soundfont_selector.hpp"
 #include "synth_engine.hpp"
 
-#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -23,17 +23,10 @@ namespace {
 constexpr int live_channel = 0;
 constexpr int loop_channel = 1;
 constexpr int expression_controller = 11;
-constexpr std::size_t midi_channel_count = 16;
-constexpr std::size_t midi_key_count = 128;
 constexpr std::size_t max_recorded_events = 16384;
 
 int channelFor(MidiRoute route) noexcept {
     return route == MidiRoute::LoopChannel ? loop_channel : live_channel;
-}
-
-std::size_t soundFontSelectionIndex(int channel, int key) noexcept {
-    return static_cast<std::size_t>(channel) * midi_key_count
-        + static_cast<std::size_t>(key);
 }
 
 } // namespace
@@ -53,12 +46,7 @@ struct Application::Impl {
     };
 
     SynthEngine synth_engine;
-    const ApplicationConfig& config;
-    std::size_t current_soundfont{};
-    std::array<
-        std::optional<std::size_t>,
-        midi_channel_count * midi_key_count
-    > soundfont_note_selections{};
+    SoundFontSelector soundfont_selector;
     OctaveTransposer live_transposer;
     OctaveTransposer loop_transposer;
 
@@ -76,13 +64,7 @@ struct Application::Impl {
 
     explicit Impl(const ApplicationConfig& application_config)
         : synth_engine(application_config),
-          config(application_config) {
-        for (const auto& selection : config.soundfont_note_selections) {
-            soundfont_note_selections.at(soundFontSelectionIndex(
-                selection.channel,
-                selection.key
-            )) = selection.soundfont_index;
-        }
+          soundfont_selector(application_config.soundfonts) {
         selectCurrentSoundFont(MidiRoute::LoopChannel);
         selectCurrentSoundFont(MidiRoute::LiveChannel);
         events.reserve(max_recorded_events);
@@ -90,37 +72,30 @@ struct Application::Impl {
 
     void selectCurrentSoundFont(MidiRoute route) {
         synth_engine.select(
-            config.soundfonts.at(current_soundfont),
+            soundfont_selector.current(),
             channelFor(route)
         );
     }
 
     void selectNextSoundFont(MidiRoute route) {
-        current_soundfont = (current_soundfont + 1) % config.soundfonts.size();
-        selectCurrentSoundFont(route);
+        synth_engine.select(soundfont_selector.next(), channelFor(route));
         reportCurrentSoundFont();
     }
 
-    void selectSoundFontByNote(MidiRoute route, int input_channel, int key) {
-        const auto soundfont = soundfont_note_selections.at(
-            soundFontSelectionIndex(input_channel, key)
-        );
+    void selectSoundFontByNote(MidiRoute route, int key) {
+        const auto* soundfont = soundfont_selector.selectByKey(key);
         if (!soundfont) {
-            std::cerr
-                << "No SoundFont mapped for MIDI channel "
-                << input_channel + 1
-                << " key " << key << '\n';
+            std::cerr << "No SoundFont mapped for MIDI key " << key << '\n';
             return;
         }
 
-        current_soundfont = *soundfont;
-        selectCurrentSoundFont(route);
+        synth_engine.select(*soundfont, channelFor(route));
         reportCurrentSoundFont();
     }
 
     void reportCurrentSoundFont() const {
         std::cout << "SoundFont selected: "
-                  << config.soundfonts[current_soundfont].id << '\n';
+                  << soundfont_selector.current().id << '\n';
     }
 
     OctaveTransposer& transposerFor(MidiRoute route) noexcept {
@@ -322,7 +297,7 @@ void Application::run() {
     }
     if (config_.soundfont_by_note_control) {
         std::cout
-            << "Use the configured SoundFont-by-note control, then a mapped note, "
+            << "Use the configured SoundFont-by-note control, then a keyed note, "
             << "to select a SoundFont.\n";
     }
     std::cout << "Use the configured MIDI recording control to start.\n";
@@ -454,10 +429,9 @@ void Application::selectNextSoundFont(MidiRoute route) {
 
 void Application::selectSoundFontByNote(
     MidiRoute route,
-    int input_channel,
     int key
 ) {
-    impl_->selectSoundFontByNote(route, input_channel, key);
+    impl_->selectSoundFontByNote(route, key);
 }
 
 void Application::octaveDown(MidiRoute route) {
@@ -530,7 +504,7 @@ void Application::showLooping() {
     }
     if (config_.soundfont_by_note_control) {
         std::cout
-            << "Use SoundFont-by-note followed by a mapped note to change the "
+            << "Use SoundFont-by-note followed by a keyed note to change the "
             << "live SoundFont.\n";
     }
     std::cout
