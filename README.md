@@ -5,19 +5,21 @@ MIDI input and POSIX lifecycle integration do not support macOS or Windows. It
 can run as a desktop process or start automatically as a headless service and
 be controlled entirely from a MIDI controller.
 
-The direct-selection performance workflow is:
+The loop-slot performance workflow is:
 
-1. Press the configured SoundFont-by-note control, then a keyed piano note.
-2. Press the configured recording control to arm the looper.
+1. Press the configured loop-slot control, then a configured raw physical note.
+2. If that loop slot is Muted, it is cleared and armed for a new take.
 3. Play the first recording note. Recording starts on that note, with no leading
    silence.
-4. Press the recording control again to finish the take and start looping.
-5. Keep playing live and select other SoundFonts without changing the loop.
+4. Press the loop-slot control alone to finish the take and start that slot
+   looping; the slot note is not repeated.
+5. Repeat with another loop slot while earlier slots continue, and keep playing
+   live over all of them.
 
-Pressing the recording control while looping stops playback and returns to
-Ready for a new take. Pressing it while armed, before playing a note, cancels
-the pending take and also returns to Ready. Exit is only through Ctrl-C,
-SIGTERM, or another process shutdown signal.
+From Ready, selecting a Looping slot stops only that slot. Selecting the stopped
+slot again arms a replacement rather than resuming its old take. Pressing the
+loop-slot control while Armed cancels and discards the pending take. Exit is only
+through Ctrl-C, SIGTERM, or another process shutdown signal.
 
 ## Requirements and installation
 
@@ -88,7 +90,11 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 6
+schema_version: 7
+
+loop_slots:
+  - C2
+  - D2
 
 midi_control_change_mappings:
   - source_port: "SE49 MIDI2"
@@ -110,7 +116,7 @@ soundfonts:
     key: A3
 
 controls:
-  recording:
+  loop_slot_by_note:
     type: machine_control
     command: rewind
 
@@ -132,8 +138,27 @@ controls:
     command: record_strobe
 ```
 
-Only schema version 6 is accepted. A configuration error stops startup and
+Only schema version 7 is accepted. A configuration error stops startup and
 reports the invalid field.
+
+### Loop slots
+
+`loop_slots` is an ordered, non-empty catalog of physical note names using the
+same convention described below for direct SoundFont selection. Catalog order
+defines the stable loop-slot identity; live output uses FluidSynth channel 0
+and loop slots use independent channels starting at 1.
+
+Press `controls.loop_slot_by_note`, then a slot key. Selection uses the raw key
+before Zeta octave transposition and ignores incoming MIDI channel. The note is
+consumed and never sounds or enters a take. Slot keys must be unique and cannot
+reuse a configured Note action. They may overlap SoundFont keys because the two
+selector controls disambiguate the gesture.
+
+A Muted slot has no resumable take. Selecting it clears any previous take and
+arms replacement recording. Selecting a Looping slot stops only that slot and
+discards its take. Zero or more slots can loop concurrently, including while a
+different slot is Armed or Recording; loops start when completed and remain
+free-running without synchronization or quantization.
 
 ### SoundFonts
 
@@ -150,11 +175,10 @@ Only include the sounds needed for the performance. They are prepared during
 startup, and the first entry is selected initially. Next advances through the
 list and wraps to the first entry.
 
-The SoundFont selected when recording is armed is used for the loop. Next may
-change that selection while armed but before the first note. During recording,
-Next is ignored. During loop playback, Next changes the live sound without
-changing the recorded loop. Canceling while armed adopts the pending selection
-as the live sound before returning to Ready.
+Arming a loop slot snapshots the current live SoundFont. Next may change that
+slot's pending selection before the first note. During Recording, Next is
+ignored. Completing or canceling adopts the pending selection for live output;
+already looping slots keep their independently locked SoundFonts.
 
 ### Direct SoundFont selection by note
 
@@ -179,11 +203,11 @@ consumed and does not sound; an unmapped note is also consumed, reports an
 error, changes nothing, and leaves selection mode. All notes remain ordinarily
 playable when the selector is not armed.
 
-In Ready and Looping, direct selection changes the live SoundFont. In Armed it
+In Ready, direct selection changes the live SoundFont. In Armed it
 changes the pending loop SoundFont without sounding the selection note or
 starting recording; the following positive-velocity note starts the take at
-offset zero. The selector is ignored during Recording. The recorded loop's
-SoundFont remains locked while Looping.
+offset zero. The selector is ignored during Recording. Every completed slot's
+SoundFont remains locked while that slot loops.
 
 `controls.soundfont_by_note` is optional, but when configured at least one
 SoundFont must have a `key`. Conversely, SoundFont keys are rejected when that
@@ -218,13 +242,14 @@ human-facing range 1 through 16, and controller numbers range from 0 through
 
 The example mapping turns the SE49 MIDI2 fader event on channel 16 from CC20
 into standard Channel Volume CC7 while MMC transport mode remains enabled.
-The resulting CC7 follows Zeta's existing routing: it controls the live channel
-in Ready and Looping, and the pending-loop channel in Armed and Recording.
+The resulting CC7 follows Zeta's routing: it controls the live channel in Ready
+and the selected slot's channel in Armed and Recording. Other slots continue
+on their independent channels.
 
 ### Controller bindings
 
-`controls.recording`, `controls.octave_down`, and `controls.octave_up` each
-require exactly one binding. `controls.next_soundfont` and
+`controls.loop_slot_by_note`, `controls.octave_down`, and `controls.octave_up`
+each require exactly one binding. `controls.next_soundfont` and
 `controls.soundfont_by_note` are individually optional, with at least one
 required. A matched control event is reserved for the action: it does not sound
 and is not recorded. Actions may not use overlapping bindings. Edit a binding
@@ -236,7 +261,7 @@ MIDI note:
 
 ```yaml
 controls:
-  recording:
+  loop_slot_by_note:
     type: note
     channel: 1
     key: 84
@@ -250,7 +275,7 @@ Control Change:
 
 ```yaml
 controls:
-  recording:
+  loop_slot_by_note:
     type: control_change
     channel: 1
     controller: 64
@@ -263,7 +288,7 @@ Exact Program Change:
 
 ```yaml
 controls:
-  recording:
+  loop_slot_by_note:
     type: program_change
     channel: 1
     program: 12
@@ -273,7 +298,7 @@ Any Program Change on a channel:
 
 ```yaml
 controls:
-  recording:
+  loop_slot_by_note:
     type: program_change
     channel: 1
     program: any
@@ -283,7 +308,7 @@ MIDI Machine Control (MMC):
 
 ```yaml
 controls:
-  recording:
+  loop_slot_by_note:
     type: machine_control
     command: rewind
 ```
@@ -323,22 +348,24 @@ different MIDI key.
 With `zeta.example.yaml`, during a performance:
 
 1. Press **Transpose Up**, then **G3** for piano or **A3** for bass.
-2. Press **Transpose Down** to arm recording with the current SoundFont.
+2. Press **Transpose Down**, then **C2** to arm the first loop slot with the
+   current SoundFont.
 3. Play the first note to begin recording.
-4. Press **Transpose Down** again to finish the take and start the loop.
-5. Press **Transpose Up** and a keyed note while looping to change the live
-   SoundFont.
-6. Press **Transpose Down** while looping to stop it and return to Ready.
-7. Use **Octave Down** and **Octave Up** while no notes are playing to shift by
+4. Press **Transpose Down** alone to finish the take and start that slot.
+5. Press **Transpose Down**, then **D2** to record the second slot while the
+   first continues.
+6. From Ready, press **Transpose Down**, then **C2** to stop only the first
+   slot. Repeat that gesture to arm its replacement.
+7. Use **Transpose Up** plus a SoundFont key for live selection, and use
+   **Octave Down** or **Octave Up** while no notes are playing to shift by
    twelve semitones.
 
 The octave range is three octaves down through four octaves up and does not
-wrap. Before recording, octave changes affect both live playing and the pending
-loop. Octave changes are ignored while recording. Once looping, they affect
-only live playing, so the recorded loop keeps its pitch. Notes whose shifted
-key would fall outside MIDI range 0 through 127 retain their original key.
-Returning to Ready preserves the independent live and loop octave selections;
-a later take uses the preserved loop selection.
+wrap. Arming snapshots the live octave into that loop slot; changes while Armed
+affect live playing and the pending slot. Octave changes are ignored while
+Recording. Once a slot loops, later changes affect only live playing, so every
+recorded loop keeps its pitch. Notes whose shifted key would fall outside MIDI
+range 0 through 127 retain their original key.
 
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**

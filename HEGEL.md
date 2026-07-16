@@ -40,8 +40,10 @@ Good Zeta patterns include:
 Prefer deterministic unit or integration tests when the assertion concerns an
 exact output or error string, setup dominates the property, or behavior
 depends on audio, hardware, thread scheduling, wall-clock timing, or process
-lifecycle. Keep the looper FSM in its deterministic model tests for now:
-Hegel C++ v0.7.1 has no native stateful-testing API.
+lifecycle. Keep the master looper FSM and worker scheduling in deterministic
+tests. A small dependency-free subordinate FSM may use a hand-written command
+loop when it has a genuinely independent model; Hegel C++ v0.7.1 has no native
+stateful-testing API.
 
 If no strong property is apparent after reading the implementation, existing
 tests, and usage sites, do not force PBT onto the component.
@@ -128,6 +130,8 @@ Current examples are in:
 - `tests/midi_control_change_mapping_test.cpp` for a linear-search oracle;
 - `tests/midi_event_test.cpp` for the channel-message data-byte invariant;
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
+- `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
+  sequences compared with an independent three-state model.
 
 ## Running Hegel properties
 

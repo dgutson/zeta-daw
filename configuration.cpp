@@ -11,7 +11,7 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 6;
+constexpr int required_schema_version = 7;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -111,7 +111,7 @@ std::string nonEmptyString(
     return value;
 }
 
-int parseSoundFontKey(
+int parseControllerKeyName(
     const YAML::Node& node,
     const std::string& location
 ) {
@@ -129,7 +129,19 @@ int parseSoundFontKey(
         "C", "C#", "D", "D#", "E", "F",
         "F#", "G", "G#", "A", "A#", "B",
     };
-    const auto target = nonEmptyString(node, "key", location);
+    if (!node || !node.IsScalar()) {
+        fail(location, "expected a controller key name from C0 through G8");
+    }
+
+    std::string target;
+    try {
+        target = node.as<std::string>();
+    } catch (const YAML::Exception& error) {
+        fail(location, error.what());
+    }
+    if (target.empty()) {
+        fail(location, "expected a controller key name from C0 through G8");
+    }
 
     int semitone = 0;
     for (const auto note : note_names) {
@@ -146,7 +158,7 @@ int parseSoundFontKey(
                 }
             } else {
                 fail(
-                    location + ".key",
+                    location,
                     "expected a controller key name from C0 through G8"
                 );
             }
@@ -155,9 +167,16 @@ int parseSoundFontKey(
     }
 
     fail(
-        location + ".key",
+        location,
         "expected a controller key name from C0 through G8"
     );
+}
+
+int parseControllerKey(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    return parseControllerKeyName(node["key"], location + ".key");
 }
 
 int parseMachineControlCommand(
@@ -390,6 +409,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     rejectUnknownKeys(root, "configuration", {
         "schema_version",
         "midi_control_change_mappings",
+        "loop_slots",
         "soundfonts",
         "controls",
     });
@@ -416,6 +436,23 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         );
     }
 
+    const auto loop_slots = root["loop_slots"];
+    requireSequence(loop_slots, "loop_slots");
+    if (loop_slots.size() == 0) {
+        fail("loop_slots", "must contain at least one entry");
+    }
+
+    std::unordered_set<int> loop_slot_keys;
+    for (std::size_t index = 0; index < loop_slots.size(); ++index) {
+        const std::string location =
+            "loop_slots[" + std::to_string(index) + "]";
+        const int key = parseControllerKeyName(loop_slots[index], location);
+        if (!loop_slot_keys.insert(key).second) {
+            fail(location, "duplicate loop-slot selection key");
+        }
+        config.loop_slots.push_back({.key = key});
+    }
+
     const auto soundfonts = root["soundfonts"];
     requireSequence(soundfonts, "soundfonts");
     if (soundfonts.size() == 0) {
@@ -440,7 +477,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
         std::optional<int> key;
         if (node["key"]) {
-            key = parseSoundFontKey(node, location);
+            key = parseControllerKey(node, location);
             if (!soundfont_keys.insert(*key).second) {
                 fail(location + ".key", "duplicate SoundFont selection key");
             }
@@ -460,13 +497,16 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
     const auto controls = root["controls"];
     rejectUnknownKeys(controls, "controls", {
-        "recording",
+        "loop_slot_by_note",
         "next_soundfont",
         "soundfont_by_note",
         "octave_down",
         "octave_up",
     });
-    config.recording_control = parseActionControl(controls, "recording");
+    config.loop_slot_by_note_control = parseActionControl(
+        controls,
+        "loop_slot_by_note"
+    );
     config.next_soundfont_control = parseOptionalActionControl(
         controls,
         "next_soundfont"
@@ -504,7 +544,10 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
         const MidiControlBinding* binding;
     };
     std::vector<NamedControl> actions{
-        NamedControl{"recording", &config.recording_control},
+        NamedControl{
+            "loop_slot_by_note",
+            &config.loop_slot_by_note_control,
+        },
         NamedControl{"octave_down", &config.octave_down_control},
         NamedControl{"octave_up", &config.octave_up_control},
     };
@@ -516,6 +559,20 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
             "soundfont_by_note",
             &*config.soundfont_by_note_control,
         });
+    }
+
+    for (std::size_t index = 0; index < config.loop_slots.size(); ++index) {
+        const int loop_slot_key = config.loop_slots[index].key;
+        for (const auto& action : actions) {
+            if (action.binding->type == MidiControlType::Note
+                && action.binding->number == loop_slot_key) {
+                fail(
+                    "loop_slots[" + std::to_string(index) + "]",
+                    "physical key overlaps controls."
+                        + std::string{action.name}
+                );
+            }
+        }
     }
 
     for (std::size_t index = 0; index < config.soundfonts.size(); ++index) {

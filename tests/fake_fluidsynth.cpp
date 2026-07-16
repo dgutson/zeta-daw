@@ -2,10 +2,13 @@
 
 #include <array>
 #include <condition_variable>
+#include <cstring>
 #include <mutex>
 #include <utility>
 
-struct _fluid_hashtable_t {};
+struct _fluid_hashtable_t {
+    int midi_channels{16};
+};
 
 struct _fluid_synth_t {
     struct Program {
@@ -14,7 +17,10 @@ struct _fluid_synth_t {
         int preset{-1};
     };
 
-    std::array<Program, 16> programs;
+    explicit _fluid_synth_t(int midi_channels)
+        : programs(static_cast<std::size_t>(midi_channels)) {}
+
+    std::vector<Program> programs;
 };
 
 struct _fluid_audio_driver_t {};
@@ -80,15 +86,27 @@ int fluid_settings_setstr(fluid_settings_t*, const char*, const char*) {
 }
 
 int fluid_settings_setnum(fluid_settings_t*, const char*, double) {
-    return 1;
+    return FLUID_OK;
 }
 
-int fluid_settings_setint(fluid_settings_t*, const char*, int) {
-    return 1;
+int fluid_settings_setint(
+    fluid_settings_t* settings,
+    const char* name,
+    int value
+) {
+    if (std::strcmp(name, "synth.midi-channels") == 0) {
+        settings->midi_channels = value;
+        record({
+            .kind = fake_fluidsynth::CallKind::ConfigureMidiChannels,
+            .value = value,
+            .text = name,
+        });
+    }
+    return FLUID_OK;
 }
 
-fluid_synth_t* new_fluid_synth(fluid_settings_t*) {
-    return new _fluid_synth_t;
+fluid_synth_t* new_fluid_synth(fluid_settings_t* settings) {
+    return new _fluid_synth_t{settings->midi_channels};
 }
 
 void delete_fluid_synth(fluid_synth_t* synth) {
