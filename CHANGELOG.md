@@ -13,7 +13,8 @@ All notable changes to Zeta DAW are documented in this file.
   playback-schedule arithmetic, and bounded pending-take ownership so
   cross-slot policy no longer accumulates in `Application`.
 - Added deterministic and Hegel property coverage for synchronized timing, plus
-  pending held-note, guide-first, cascade, and regular-isolation regressions.
+  pending held-note, guide-first, cascade, regular-isolation, and late-worker
+  absolute-deadline regressions.
 - Added ordered loop slots that can be recorded, stopped, replaced, and played
   concurrently from one-shot raw-note selection gestures, with one dedicated
   FluidSynth channel and eagerly created worker per configured slot.

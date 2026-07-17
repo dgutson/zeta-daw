@@ -1,6 +1,8 @@
 #include "fake_fluidsynth.hpp"
 #include "fake_midi_input.hpp"
 #include "../application.hpp"
+#include "../loop_slot_group.hpp"
+#include "../synth_engine.hpp"
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,12 +29,20 @@ using fake_fluidsynth::CallKind;
 using zeta::Application;
 using zeta::ApplicationConfig;
 using zeta::LoopSlotDefinition;
+using zeta::LoopSlotGroup;
+using zeta::LoopSlotSelectionOutcome;
+using zeta::LooperClock;
 using zeta::MidiControlBinding;
 using zeta::MidiControlType;
 using zeta::MidiEvent;
 using zeta::MidiInput;
+using zeta::MidiMessage;
 using zeta::MidiMessageType;
+using zeta::OctaveTransposer;
+using zeta::RecordedNoteKind;
 using zeta::SoundFontDefinition;
+using zeta::SynthEngine;
+using zeta::TakeTiming;
 
 constexpr int first_slot_key = 48;
 constexpr int second_slot_key = 50;
@@ -422,6 +432,57 @@ TEST_F(CurrentBehaviorTest, TwoSlotsLoopConcurrently) {
 
     ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, 3));
     ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
+}
+
+TEST_F(CurrentBehaviorTest, LateDependentDispatchKeepsNextGuideDeadline) {
+    auto config = testConfig();
+    SynthEngine synth_engine{config};
+    LoopSlotGroup slots{config.loop_slots, synth_engine};
+    OctaveTransposer transposer;
+    const auto& soundfont = config.soundfonts.front();
+    const MidiMessage note_on{
+        .raw_type = raw(MidiMessageType::NoteOn),
+        .key = 64,
+        .velocity = 100,
+    };
+    const MidiMessage note_off{
+        .raw_type = raw(MidiMessageType::NoteOff),
+        .key = 64,
+    };
+
+    constexpr auto guide_period = 2000ms;
+    constexpr auto dispatch_lateness = 1500ms;
+    static_assert(dispatch_lateness < guide_period);
+    const auto guide_first_cycle_at = LooperClock::now() - dispatch_lateness;
+
+    const auto guide = slots.requestSelection(
+        first_slot_key,
+        soundfont,
+        transposer
+    );
+    ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
+    slots.recordNote(guide.id, RecordedNoteKind::NoteOn, note_on, 0ms);
+    slots.recordNote(guide.id, RecordedNoteKind::NoteOff, note_off, 0ms);
+    slots.completeRecording(guide.id, TakeTiming{
+        .recording_started_at = guide_first_cycle_at - guide_period,
+        .completed_at = guide_first_cycle_at,
+    });
+
+    const auto dependent = slots.requestSelection(
+        second_slot_key,
+        soundfont,
+        transposer
+    );
+    ASSERT_EQ(dependent.outcome, LoopSlotSelectionOutcome::Armed);
+    slots.recordNote(dependent.id, RecordedNoteKind::NoteOn, note_on, 0ms);
+    slots.recordNote(dependent.id, RecordedNoteKind::NoteOff, note_off, 0ms);
+    slots.completeRecording(dependent.id, TakeTiming{
+        .recording_started_at = guide_first_cycle_at,
+        .completed_at = guide_first_cycle_at,
+    });
+
+    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 1));
+    EXPECT_TRUE(waitForNoteCount(second_slot_channel, 64, 2, 1200ms));
 }
 
 TEST_F(CurrentBehaviorTest, ExistingLoopContinuesWhileAnotherSlotIsArmedAndRecorded) {
