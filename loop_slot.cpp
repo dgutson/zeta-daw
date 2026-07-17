@@ -49,9 +49,36 @@ LoopSlotPlaybackState LoopSlot::playbackState() const {
     return playback_fsm_.state();
 }
 
-void LoopSlot::prepareRecording(
-    const SoundFontDefinition& soundfont,
-    const OctaveTransposer& transposer
+std::optional<LoopPlaybackSchedule> LoopSlot::activeSchedule() const {
+    if (playbackState() != LoopSlotPlaybackState::Looping) {
+        return std::nullopt;
+    }
+
+    std::lock_guard lock(playback_mutex_);
+    if (!committed_take_
+        || !isPlayablePeriod(committed_take_->schedule.period)) {
+        return std::nullopt;
+    }
+    return committed_take_->schedule;
+}
+
+LoopSlotSelectionOutcome LoopSlot::selectionRequested(
+    const LoopSlotSelectionContext& context
+) {
+    const auto state = playbackState();
+    if (state == LoopSlotPlaybackState::Terminated) {
+        return LoopSlotSelectionOutcome::Unavailable;
+    }
+    if (state == LoopSlotPlaybackState::Looping) {
+        onLoopingSelection();
+        return LoopSlotSelectionOutcome::Stopped;
+    }
+    return onMutedSelection(context);
+}
+
+LoopSlotSelectionOutcome LoopSlot::arm(
+    const LoopSlotSelectionContext& context,
+    std::optional<LoopPlaybackSchedule> guide
 ) {
     std::lock_guard command_lock(command_mutex_);
     if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
@@ -59,9 +86,47 @@ void LoopSlot::prepareRecording(
     }
 
     invalidateAndSilence();
-    soundfont_ = &soundfont;
-    transposer_ = transposer;
-    synth_engine_.select(soundfont, channel_);
+    soundfont_ = &context.soundfont;
+    transposer_ = context.transposer;
+    prepared_guide_ = guide;
+    synth_engine_.select(context.soundfont, channel_);
+    return LoopSlotSelectionOutcome::Armed;
+}
+
+void LoopSlot::cancelRecording() {
+    std::lock_guard lock(command_mutex_);
+    if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
+        throw std::logic_error("Only a muted loop slot can cancel recording");
+    }
+    prepared_guide_.reset();
+    invalidateAndSilence();
+}
+
+void LoopSlot::recordingCompleted(
+    const std::vector<RecordedLoopEvent>& events,
+    Milliseconds content_duration,
+    const TakeTiming& timing
+) {
+    std::lock_guard command_lock(command_mutex_);
+    if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
+        throw std::logic_error("Only a muted loop slot can complete recording");
+    }
+    if (!soundfont_) {
+        throw std::logic_error("Cannot complete an unconfigured loop slot");
+    }
+
+    auto take = std::make_shared<PlaybackTake>(PlaybackTake{
+        .events = events,
+        .schedule = makeSchedule(timing, content_duration, prepared_guide_),
+    });
+
+    synth_engine_.allNotesOff(channel_);
+    {
+        std::lock_guard playback_lock(playback_mutex_);
+        committed_take_ = std::move(take);
+    }
+    prepared_guide_.reset();
+    playback_fsm_.startRequested();
 }
 
 void LoopSlot::selectSoundFont(const SoundFontDefinition& soundfont) {
@@ -90,33 +155,7 @@ int LoopSlot::monitorMidi(const MidiMessage& message) {
     return synth_engine_.send(transposed, channel_);
 }
 
-void LoopSlot::commitTake(
-    const std::vector<RecordedLoopEvent>& events,
-    Milliseconds duration
-) {
-    auto take = std::make_shared<PlaybackTake>(PlaybackTake{
-        .events = events,
-        .duration = duration,
-    });
-
-    std::lock_guard lock(playback_mutex_);
-    committed_take_ = std::move(take);
-}
-
-void LoopSlot::cancelRecording() {
-    std::lock_guard lock(command_mutex_);
-    if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
-        throw std::logic_error("Only a muted loop slot can cancel recording");
-    }
-    invalidateAndSilence();
-}
-
-void LoopSlot::startRequested() {
-    std::lock_guard lock(command_mutex_);
-    playback_fsm_.startRequested();
-}
-
-void LoopSlot::muteRequested() {
+void LoopSlot::deactivate() {
     std::lock_guard lock(command_mutex_);
     playback_fsm_.muteRequested();
 }
@@ -126,8 +165,8 @@ void LoopSlot::terminationRequested() {
     playback_fsm_.terminationRequested();
 }
 
-bool LoopSlot::isPlayableDuration(Milliseconds duration) noexcept {
-    return duration > Milliseconds::zero();
+bool LoopSlot::isPlayablePeriod(Milliseconds period) noexcept {
+    return period > Milliseconds::zero();
 }
 
 void LoopSlot::activatePlayback() {
@@ -184,13 +223,13 @@ void LoopSlot::workerMain(std::stop_token stop_token) {
             active_generation = observed_generation;
         }
 
-        if (!isPlayableDuration(take->duration)) {
+        if (!isPlayablePeriod(take->schedule.period)) {
             std::osyncstream{std::cerr}
                 << "[loop slot playback error] zero-length take ignored\n";
             continue;
         }
 
-        auto loop_started_at = LooperClock::now();
+        auto loop_started_at = take->schedule.first_cycle_at;
         bool interrupted = false;
 
         while (!stop_token.stop_requested() && !interrupted) {
@@ -216,7 +255,7 @@ void LoopSlot::workerMain(std::stop_token stop_token) {
                 break;
             }
 
-            const auto loop_end = loop_started_at + take->duration;
+            const auto loop_end = loop_started_at + take->schedule.period;
             std::unique_lock lock(playback_mutex_);
             playback_changed_.wait_until(lock, loop_end, [&] {
                 return stop_token.stop_requested()
@@ -228,7 +267,7 @@ void LoopSlot::workerMain(std::stop_token stop_token) {
                 break;
             }
 
-            loop_started_at += take->duration;
+            loop_started_at += take->schedule.period;
         }
     }
 }
@@ -262,6 +301,66 @@ void LoopSlot::invalidateAndSilence() {
         synth_engine_.allNotesOff(channel_);
     }
     playback_changed_.notify_all();
+}
+
+GuideLoopSlot::GuideLoopSlot(
+    SlotId id,
+    const LoopSlotDefinition& definition,
+    SynthEngine& synth_engine,
+    LoopSlotGroupOutput& output
+) : LoopSlot(id, definition, synth_engine), output_(output) {}
+
+LoopSlotSelectionOutcome GuideLoopSlot::onMutedSelection(
+    const LoopSlotSelectionContext& context
+) {
+    return arm(context, std::nullopt);
+}
+
+void GuideLoopSlot::onLoopingSelection() {
+    output_.stopDependentSlots();
+    deactivate();
+}
+
+LoopPlaybackSchedule GuideLoopSlot::makeSchedule(
+    const TakeTiming& timing,
+    Milliseconds,
+    const std::optional<LoopPlaybackSchedule>&
+) const {
+    return LoopPlaybackSchedule::forGuide(timing);
+}
+
+RegularLoopSlot::RegularLoopSlot(
+    SlotId id,
+    const LoopSlotDefinition& definition,
+    SynthEngine& synth_engine
+) : LoopSlot(id, definition, synth_engine) {}
+
+LoopSlotSelectionOutcome RegularLoopSlot::onMutedSelection(
+    const LoopSlotSelectionContext& context
+) {
+    if (!context.guide_schedule) {
+        return LoopSlotSelectionOutcome::GuideRequired;
+    }
+    return arm(context, context.guide_schedule);
+}
+
+void RegularLoopSlot::onLoopingSelection() {
+    deactivate();
+}
+
+LoopPlaybackSchedule RegularLoopSlot::makeSchedule(
+    const TakeTiming& timing,
+    Milliseconds content_duration,
+    const std::optional<LoopPlaybackSchedule>& guide
+) const {
+    if (!guide) {
+        throw std::logic_error("Regular slot recording has no guide schedule");
+    }
+    return LoopPlaybackSchedule::forRegular(
+        timing,
+        content_duration,
+        guide.value()
+    );
 }
 
 } // namespace zeta

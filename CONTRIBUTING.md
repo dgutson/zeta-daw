@@ -52,8 +52,10 @@ LooperFsm -> current master State -> LooperOutput
                                          v
                                      Application
                                      /         \
-                            SynthEngine      LoopSlot catalog
-                            (FluidSynth)     /  /  / dedicated workers
+                            SynthEngine      LoopSlotGroup
+                            (FluidSynth)       /       \
+                                      GuideLoopSlot  RegularLoopSlot ...
+                                          dedicated worker per slot
 ```
 
 The main layers and ownership boundaries are:
@@ -73,13 +75,23 @@ The main layers and ownership boundaries are:
 - `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
   libremidi, configuration parsing, or the playback thread.
 - `application.*` composes the system, matches configured controls, implements
-  the master FSM output alphabet, owns the pending take, and indexes the
-  ordered loop-slot catalog by raw physical key.
+  the master FSM output alphabet, and owns the live MIDI route. It delegates
+  every slot command to the group and never accesses an owned slot directly.
+- `loop_slot_group.*` is the aggregate boundary. It owns the ordered slots,
+  bounded pending take, raw-key lookup, guide-first invariant, and cross-slot
+  stop behavior. It creates the first slot as the guide and later slots as
+  regular slots, then coordinates them only through the common base interface.
 - `loop_slot_fsm.*` owns the dependency-free subordinate playback state
   machine and its start, mute, and termination command semantics.
-- `loop_slot.*` encapsulates one slot's identity, key, FluidSynth channel,
-  locked SoundFont/octave state, immutable committed take, subordinate playback
-  FSM, synchronization, and eagerly created worker.
+- `loop_slot.*` defines the common slot mechanism and its final guide and
+  regular role implementations. Every slot encapsulates its identity, key,
+  FluidSynth channel, locked SoundFont/octave state, immutable committed take,
+  subordinate playback FSM, synchronization, and eagerly created worker. Role
+  commands perform their own behavior; callers do not query role predicates.
+- `loop_timing.*` constructs immutable guide and regular playback schedules as
+  pure domain arithmetic, independent of workers, MIDI, and FluidSynth.
+- `pending_take.*` owns bounded in-progress events and accepted held-note state,
+  including release synthesis and musical-content duration at completion.
 - `octave_transposer.*` owns octave bounds and arithmetic transposition for one
   MIDI route. `Application` owns the live instance and each `LoopSlot` owns its
   independent recorded route.
@@ -145,10 +157,13 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
   `ReadySelectingLoopSlot`; Next, direct SoundFont selection, and octave
   controls affect the live route.
 - `ReadySelectingLoopSlot`: the next positive-velocity Note On is matched by
-  raw key and consumed regardless of incoming channel. Selecting a Muted slot
-  clears its old take, snapshots the live SoundFont/octave into it, installs
-  its `SlotId` as the sole recording slot, and enters `Armed`. Selecting a
-  Looping slot mutes only that slot and returns to `Ready`. An unmapped note is
+  raw key and consumed regardless of incoming channel. Selecting the Muted
+  guide clears its old take, snapshots the live SoundFont/octave into it,
+  installs its `SlotId` as the sole recording slot, and enters `Armed`. A Muted
+  regular slot does the same only while the guide is Looping; otherwise the
+  selection is rejected and the master returns to `Ready`. Selecting a Looping
+  regular slot stops only itself. Selecting the Looping guide stops and
+  discards every regular slot before stopping itself. An unmapped note is
   consumed and returns to `Ready`; pressing the selector again cancels.
 - `Armed`: MIDI is monitored on the selected slot's channel. The first
   positive-velocity Note On enters `Recording` and is stored at offset zero.
@@ -156,8 +171,9 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
   control alone cancels and clears it; slot selection is unavailable.
 - `Recording`: Note On and Note Off events are timestamped into the one pending
   take. SoundFont and octave controls are inert. The loop-slot control alone
-  commits the take, requests playback for that slot, clears the master's
-  selected `SlotId`, and returns to `Ready` while peer slots continue.
+  finalizes the bounded take, tells that slot to construct and activate its
+  schedule, clears the master's selected `SlotId`, and returns to `Ready`.
+  Completing a regular take leaves the guide and its peers running.
 - `Stopped`: all performer stimuli are inert. Process shutdown terminates every
   slot worker and silences every configured channel before entering it.
 
@@ -170,15 +186,35 @@ ignores the SoundFont selector.
 
 Each `LoopSlot` owns a subordinate `Muted`, `Looping`, or `Terminated` playback
 FSM. `startRequested` activates only a Muted slot after a newly completed take;
-`muteRequested` deactivates only a Looping slot and discards its take; and
-`terminationRequested` terminates any nonterminal slot exactly once. Muted
-means only not currently playing and never means resumable.
+`muteRequested` deactivates a Looping slot and discards its take; and
+`terminationRequested` terminates any nonterminal slot exactly once. The slot
+role determines whether its selection command also requests the group-wide
+dependent stop. Muted means only not currently playing and never means
+resumable.
 
 Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1.
 Recorded notes retain velocity and store the key produced by that slot's
 transposer. Once recording starts, the slot's SoundFont and octave are locked.
 Completing or canceling adopts the current selection for live output, while
 already looping slots retain their own locked selection.
+
+The first configured slot is the guide. It must be looping before a regular
+slot can arm. Guide recording start `R` and completion `C` define period
+`T = C - R`; its first playback cycle starts at `C`. A regular recording start
+captures its phase modulo `T`, and the phrase may span any number of guide
+cycles. Its period is the smallest positive whole multiple of `T` covering its
+musical content, and its first playback cycle is the first matching captured
+phase at or after completion. Workers derive every repetition from these
+immutable absolute deadlines rather than their actual wake time, so late
+dispatch cannot accumulate drift.
+
+The final matching Note Off defines musical content end; trailing delay before
+the completion control is discarded. Any accepted note still held at
+completion receives a matching Note Off at completion, and the slot channel is
+silenced before playback. This synchronization is relative to the guide only;
+notes are not beat-quantized. Stopping a regular slot affects only itself.
+Stopping the guide stops and discards all regular takes first, and a newly
+recorded guide establishes a new timeline.
 
 Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
@@ -236,8 +272,9 @@ required version is 7.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
 - The `loop_slots` list is ordered and non-empty. Every scalar entry is one raw
-  physical controller note name; catalog order defines its stable `SlotId`.
-  Keys must be unique and must not reuse any configured Note action.
+  physical controller note name; catalog order defines its stable `SlotId`, the
+  first entry is implicitly the guide, and every later entry is regular. Keys
+  must be unique and must not reuse any configured Note action.
   They may overlap SoundFont-selection keys because the selector controls
   disambiguate those one-shot gestures.
 - Each `soundfonts` entry has an optional controller note-name `key`. Names use
@@ -271,10 +308,16 @@ required version is 7.
 - Every configured slot eagerly owns one sleeping `std::jthread`. Each worker
   uses a stop token, condition variable, `wait_until`, and generation counter
   so a take can be interrupted without polling, whole-cycle sleeps, or waiting
-  for another loop boundary.
-- The control side records into the sole pending mutable take. Completion gives
-  the selected worker one immutable snapshot; recording and playback never
-  share a mutable event vector.
+  for another loop boundary. Repetition deadlines advance from the immutable
+  absolute schedule, never from the worker's wake time.
+- `LoopSlotGroup` records into the sole `PendingTake`. Completion gives the
+  selected worker one immutable snapshot; recording and playback never share a
+  mutable event vector.
+- `PendingTake` preserves the fixed event bound while reserving one closure
+  event for every accepted held note. It performs no recording-path allocation.
+- A slot does not hold its command mutex while calling the narrow group output;
+  the guide stop command may synchronously deactivate dependent slots. The
+  group stops dependents before the guide and outlives every owned slot.
 - Slot deactivation invalidates its generation while ordering worker dispatch
   and per-channel silencing under the same mutex. When stop returns, no event
   from that take can be emitted, and immediate re-arming is safe.
@@ -393,9 +436,15 @@ The test suites divide responsibilities as follows:
 - `looper_fsm_tests`: state transitions and output-alphabet calls using mocks.
 - `loop_slot_fsm_tests`: subordinate playback-FSM transitions and its Hegel
   command-sequence model property.
-- `current_behavior_tests`: multi-slot application behavior, worker isolation,
-  replacement, raw-note consumption, and shutdown with fake MIDI and
-  FluidSynth boundaries.
+- `loop_timing_tests`: deterministic timing boundaries plus Hegel properties
+  for the smallest covering guide multiple, first matching phase, and phase
+  preservation.
+- `pending_take_tests`: bounded event/held-note accounting, synthesized release,
+  trailing-silence trimming, and reset behavior.
+- `current_behavior_tests`: guide-first gating, guide cascade, regular-slot
+  isolation and replacement, synchronized playback, raw-note consumption,
+  clean held-note completion, and shutdown with fake MIDI and FluidSynth
+  boundaries.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.
@@ -407,7 +456,11 @@ Configuration changes need rejection tests, not only a happy path. Run
 - Confirm that all playable notes and unbound expressive controls still reach
   the synthesizer.
 - Confirm that the first played note still defines recording time zero.
-- Confirm that live and every loop-slot channel remain independent.
+- Confirm that the guide must start first, regular phases remain synchronized,
+  and arbitrary-length regular phrases repeat on whole guide cycles.
+- Confirm that stopping a regular slot leaves peers running and stopping the
+  guide stops every regular slot without stuck notes.
+- Confirm that live and every loop-slot channel remain isolated.
 - Confirm octave changes preserve the recorded loop's pitch after recording
   starts.
 - Confirm clean Ctrl-C/SIGTERM shutdown and no stuck notes.

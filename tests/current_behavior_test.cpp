@@ -36,8 +36,10 @@ using zeta::SoundFontDefinition;
 
 constexpr int first_slot_key = 48;
 constexpr int second_slot_key = 50;
+constexpr int third_slot_key = 52;
 constexpr int first_slot_channel = 1;
 constexpr int second_slot_channel = 2;
+constexpr int third_slot_channel = 3;
 
 constexpr int raw(MidiMessageType type) {
     return static_cast<int>(type);
@@ -162,6 +164,12 @@ ApplicationConfig testConfig() {
     };
 }
 
+ApplicationConfig threeSlotConfig() {
+    auto config = testConfig();
+    config.loop_slots.push_back(LoopSlotDefinition{.key = third_slot_key});
+    return config;
+}
+
 int pressLoopSlotControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
@@ -283,6 +291,27 @@ bool waitForNoteCount(
     );
 }
 
+bool waitForNoteOffCount(
+    int channel,
+    int key,
+    std::size_t count,
+    std::chrono::milliseconds timeout = 1s
+) {
+    return fake_fluidsynth::waitUntil(
+        [&](const std::vector<Call>& calls) {
+            return static_cast<std::size_t>(std::ranges::count_if(
+                calls,
+                [&](const Call& call) {
+                    return call.kind == CallKind::SynthNoteOff
+                        && call.channel == channel
+                        && call.key == key;
+                }
+            )) >= count;
+        },
+        timeout
+    );
+}
+
 class CurrentBehaviorTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -374,6 +403,16 @@ TEST_F(CurrentBehaviorTest, ButtonOnlyCompletionPlaysFirstNoteAtOffsetZero) {
     selectSlot(first_slot_key);
 }
 
+TEST_F(CurrentBehaviorTest, RegularSlotCannotArmBeforeGuideIsLooping) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+
+    selectSlot(second_slot_key);
+    ASSERT_EQ(emitNoteOn(64), 0);
+
+    EXPECT_TRUE(hasCall(CallKind::SynthNoteOn, 0, 64));
+    EXPECT_FALSE(hasCall(CallKind::SynthNoteOn, second_slot_channel, 64));
+}
+
 TEST_F(CurrentBehaviorTest, TwoSlotsLoopConcurrently) {
     Application application{testConfig(), fake_midi_input::makeInput()};
 
@@ -406,30 +445,100 @@ TEST_F(CurrentBehaviorTest, ExistingLoopContinuesWhileAnotherSlotIsArmedAndRecor
     ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
 }
 
-TEST_F(CurrentBehaviorTest, StoppingOneSlotDoesNotAffectItsPeer) {
-    Application application{testConfig(), fake_midi_input::makeInput()};
+TEST_F(CurrentBehaviorTest, StoppingRegularSlotDoesNotAffectGuideOrPeer) {
+    Application application{threeSlotConfig(), fake_midi_input::makeInput()};
     completeTake(first_slot_key, 60, 10ms);
     completeTake(second_slot_key, 64, 10ms);
+    completeTake(third_slot_key, 67, 10ms);
     ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, 2));
     ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
+    ASSERT_TRUE(waitForNoteCount(third_slot_channel, 67, 2));
 
-    selectSlot(first_slot_key);
+    selectSlot(second_slot_key);
     const auto stopped_count = callCount(
-        CallKind::SynthNoteOn,
-        first_slot_channel,
-        60
+        CallKind::SynthNoteOn, second_slot_channel, 64
+    );
+    const auto guide_count = callCount(
+        CallKind::SynthNoteOn, first_slot_channel, 60
     );
     const auto peer_count = callCount(
-        CallKind::SynthNoteOn,
-        second_slot_channel,
-        64
+        CallKind::SynthNoteOn, third_slot_channel, 67
     );
 
-    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, peer_count + 2));
+    ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, guide_count + 2));
+    ASSERT_TRUE(waitForNoteCount(third_slot_channel, 67, peer_count + 2));
     EXPECT_EQ(
-        callCount(CallKind::SynthNoteOn, first_slot_channel, 60),
+        callCount(CallKind::SynthNoteOn, second_slot_channel, 64),
         stopped_count
     );
+
+    selectSlot(second_slot_key);
+    ASSERT_EQ(emitNoteOn(69), 0);
+    ASSERT_EQ(emitNoteOff(69), 0);
+    std::this_thread::sleep_for(2ms);
+    ASSERT_EQ(pressLoopSlotControl(), 0);
+
+    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 69, 2));
+    EXPECT_EQ(
+        callCount(CallKind::SynthNoteOn, second_slot_channel, 64),
+        stopped_count
+    );
+}
+
+TEST_F(CurrentBehaviorTest, StoppingGuideStopsAndDiscardsEveryRegularSlot) {
+    Application application{threeSlotConfig(), fake_midi_input::makeInput()};
+    completeTake(first_slot_key, 60, 10ms);
+    completeTake(second_slot_key, 64, 10ms);
+    completeTake(third_slot_key, 67, 10ms);
+    ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, 2));
+    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
+    ASSERT_TRUE(waitForNoteCount(third_slot_channel, 67, 2));
+
+    selectSlot(first_slot_key);
+    const auto guide_count = callCount(
+        CallKind::SynthNoteOn, first_slot_channel, 60
+    );
+    const auto second_count = callCount(
+        CallKind::SynthNoteOn, second_slot_channel, 64
+    );
+    const auto third_count = callCount(
+        CallKind::SynthNoteOn, third_slot_channel, 67
+    );
+    std::this_thread::sleep_for(40ms);
+
+    EXPECT_EQ(
+        callCount(CallKind::SynthNoteOn, first_slot_channel, 60),
+        guide_count
+    );
+    EXPECT_EQ(
+        callCount(CallKind::SynthNoteOn, second_slot_channel, 64),
+        second_count
+    );
+    EXPECT_EQ(
+        callCount(CallKind::SynthNoteOn, third_slot_channel, 67),
+        third_count
+    );
+
+    selectSlot(second_slot_key);
+    ASSERT_EQ(emitNoteOn(69), 0);
+    EXPECT_TRUE(hasCall(CallKind::SynthNoteOn, 0, 69));
+    EXPECT_FALSE(hasCall(CallKind::SynthNoteOn, second_slot_channel, 69));
+}
+
+TEST_F(CurrentBehaviorTest, DependentCompletionEndsHeldNoteAndRecordsItsRelease) {
+    Application application{testConfig(), fake_midi_input::makeInput()};
+    completeTake(first_slot_key, 60, 10ms);
+    ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, 2));
+
+    selectSlot(second_slot_key);
+    ASSERT_EQ(emitNoteOn(64), 0);
+    const auto silence_count = controlChangeCount(second_slot_channel, 123);
+    std::this_thread::sleep_for(8ms);
+    ASSERT_EQ(pressLoopSlotControl(), 0);
+
+    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
+    ASSERT_TRUE(waitForNoteOffCount(second_slot_channel, 64, 1));
+    EXPECT_GT(controlChangeCount(second_slot_channel, 123), silence_count);
 }
 
 TEST_F(CurrentBehaviorTest, ImmediateStopThenRearmAcceptsReplacement) {

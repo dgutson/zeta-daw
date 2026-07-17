@@ -6,6 +6,14 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added guide synchronization: the first configured slot establishes the
+  timeline, while every later slot preserves its recorded guide-relative phase
+  and repeats at the smallest whole guide multiple covering its phrase.
+- Added a `LoopSlotGroup` aggregate, sibling guide/regular slot roles, pure
+  playback-schedule arithmetic, and bounded pending-take ownership so
+  cross-slot policy no longer accumulates in `Application`.
+- Added deterministic and Hegel property coverage for synchronized timing, plus
+  pending held-note, guide-first, cascade, and regular-isolation regressions.
 - Added ordered loop slots that can be recorded, stopped, replaced, and played
   concurrently from one-shot raw-note selection gestures, with one dedicated
   FluidSynth channel and eagerly created worker per configured slot.
@@ -35,7 +43,13 @@ All notable changes to Zeta DAW are documented in this file.
   catalog of unique raw physical-note names.
 - The master GoF FSM now owns the sole armed/recording slot while subordinate
   slot FSMs own only playback; completing or canceling a take needs only the
-  loop-slot control, and stopping or replacing one slot leaves peers running.
+  loop-slot control. Stopping or replacing a regular slot leaves peers running;
+  stopping the guide stops and discards every regular slot first.
+- Loop-slot commands now delegate through `LoopSlotGroup` and polymorphic slot
+  behavior, leaving `Application` responsible for orchestration and its live
+  route rather than slot catalog, pending-take, or role decisions.
+- Recording completion trims silence after the last released note and emits
+  matching releases for accepted notes still held at completion.
 - The pure subordinate playback FSM and its Hegel model test now build without
   FluidSynth or worker dependencies.
 - FluidSynth's MIDI-channel count is configured before synth creation so live
@@ -86,6 +100,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Fixed
 
+- Eliminated cumulative phase drift between independently recorded slots by
+  deriving every regular playback deadline from the guide's immutable absolute
+  schedule instead of completion time or the previous worker wake-up.
 - Rejected channel voice messages containing out-of-domain MIDI data bytes at
   the raw decoder boundary, preventing malformed Control Change input from
   indexing beyond the mapping table.

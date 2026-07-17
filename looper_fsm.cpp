@@ -15,11 +15,6 @@ std::size_t stateIndex(StateId id) {
     return index;
 }
 
-Milliseconds elapsedMilliseconds(TimePoint start, TimePoint finish) {
-    const auto elapsed = std::chrono::duration_cast<Milliseconds>(finish - start);
-    return elapsed < Milliseconds::zero() ? Milliseconds::zero() : elapsed;
-}
-
 StateId shutdownApplication(LooperOutput& output) {
     output.terminateLoopSlots();
     output.silenceAllChannels();
@@ -88,26 +83,16 @@ public:
         TimePoint
     ) const override {
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
-            const auto selection = output_.loopSlotByKey(message.key);
-            if (!selection) {
+            const auto selection = output_.requestLoopSlotSelection(message.key);
+            if (selection.outcome != LoopSlotSelectionOutcome::Armed) {
                 return {
                     .next_state = StateId::Ready,
                     .native_result = midi_ok,
                 };
             }
 
-            if (selection->state == SelectableLoopSlotState::Looping) {
-                output_.muteLoopSlot(selection->id);
-                return {
-                    .next_state = StateId::Ready,
-                    .native_result = midi_ok,
-                };
-            }
-
-            output_.prepareLoopSlot(selection->id);
-            output_.resetPendingTake();
-            data_.selected_recording_slot = selection->id;
-            output_.showRecordingArmed(selection->id);
+            data_.selected_recording_slot = selection.id;
+            output_.showRecordingArmed(selection.id);
             return {
                 .next_state = StateId::Armed,
                 .native_result = midi_ok,
@@ -156,7 +141,6 @@ public:
     StateId loopSlotControlPressed(TimePoint) const override {
         const SlotId slot = selectedRecordingSlot();
         output_.cancelLoopSlotRecording(slot);
-        output_.resetPendingTake();
         output_.selectCurrentLiveSoundFont();
         output_.showNoTake(slot);
         data_.selected_recording_slot.reset();
@@ -248,12 +232,10 @@ public:
 
     StateId loopSlotControlPressed(TimePoint now) const override {
         const SlotId slot = selectedRecordingSlot();
-        const auto duration = elapsedMilliseconds(
-            data_.recording_started_at,
-            now
-        );
-        output_.commitTake(slot, duration);
-        output_.startLoopSlot(slot);
+        output_.completeLoopSlotRecording(slot, TakeTiming{
+            .recording_started_at = data_.recording_started_at,
+            .completed_at = now,
+        });
         output_.selectCurrentLiveSoundFont();
         output_.showLooping(slot);
         data_.selected_recording_slot.reset();

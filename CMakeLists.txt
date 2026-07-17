@@ -61,11 +61,14 @@ add_executable(
     configuration.cpp
     loop_slot.cpp
     loop_slot_fsm.cpp
+    loop_slot_group.cpp
+    loop_timing.cpp
     looper_fsm.cpp
     midi_control_change_mapping.cpp
     midi_event.cpp
     midi_input.cpp
     octave_transposer.cpp
+    pending_take.cpp
     soundfont_selector.cpp
     synth_engine.cpp
 )
@@ -128,11 +131,14 @@ if(BUILD_TESTING)
         configuration.cpp
         loop_slot.cpp
         loop_slot_fsm.cpp
+        loop_slot_group.cpp
+        loop_timing.cpp
         looper_fsm.cpp
         midi_control_change_mapping.cpp
         midi_event.cpp
         midi_input.cpp
         octave_transposer.cpp
+        pending_take.cpp
         soundfont_selector.cpp
         synth_engine.cpp
     )
@@ -166,6 +172,7 @@ if(BUILD_TESTING)
     add_executable(
         looper_fsm_tests
         tests/looper_fsm_test.cpp
+        loop_timing.cpp
         looper_fsm.cpp
         midi_event.cpp
     )
@@ -188,6 +195,31 @@ if(BUILD_TESTING)
             Threads::Threads
             hegel
     )
+
+    add_executable(
+        loop_timing_tests
+        tests/loop_timing_test.cpp
+        loop_timing.cpp
+    )
+    target_compile_options(
+        loop_timing_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        loop_timing_tests
+        PRIVATE GTest::gtest_main hegel
+    )
+
+    add_executable(
+        pending_take_tests
+        tests/pending_take_test.cpp
+        pending_take.cpp
+    )
+    target_compile_options(
+        pending_take_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(pending_take_tests PRIVATE GTest::gtest_main)
 
     add_executable(
         midi_control_change_mapping_tests
@@ -245,6 +277,8 @@ if(BUILD_TESTING)
     gtest_discover_tests(configuration_tests)
     gtest_discover_tests(looper_fsm_tests)
     gtest_discover_tests(loop_slot_fsm_tests)
+    gtest_discover_tests(loop_timing_tests)
+    gtest_discover_tests(pending_take_tests)
     gtest_discover_tests(midi_control_change_mapping_tests)
     gtest_discover_tests(midi_tests)
     gtest_discover_tests(soundfont_selector_tests)
