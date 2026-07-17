@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <memory>
-#include <optional>
 
 namespace zeta {
 
@@ -40,11 +39,12 @@ private:
         const MidiMessage& message
     ) override;
 
-    std::optional<LoopSlotSelection> loopSlotByKey(int key) const override;
-    void prepareLoopSlot(SlotId slot) override;
+    LoopSlotSelectionResult requestLoopSlotSelection(int key) override;
     void cancelLoopSlotRecording(SlotId slot) override;
-    void muteLoopSlot(SlotId slot) override;
-    void startLoopSlot(SlotId slot) override;
+    void completeLoopSlotRecording(
+        SlotId slot,
+        const TakeTiming& timing
+    ) override;
     void terminateLoopSlots() override;
 
     void selectCurrentLiveSoundFont() override;
@@ -58,15 +58,12 @@ private:
     void octaveDownLoopSlot(SlotId slot) override;
     void octaveUpLoopSlot(SlotId slot) override;
 
-    void resetPendingTake() override;
     void recordNote(
         SlotId slot,
         RecordedNoteKind kind,
         const MidiMessage& message,
         Milliseconds offset
     ) override;
-    void commitTake(SlotId slot, Milliseconds duration) override;
-
     void showRecordingArmed(SlotId slot) override;
     void showLooping(SlotId slot) override;
     void showNoTake(SlotId slot) override;

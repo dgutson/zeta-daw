@@ -1,69 +1,39 @@
 #include "application.hpp"
 
-#include "loop_slot.hpp"
+#include "loop_slot_group.hpp"
 #include "octave_transposer.hpp"
 #include "soundfont_selector.hpp"
 #include "synth_engine.hpp"
 
-#include <array>
 #include <condition_variable>
-#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <stdexcept>
 #include <syncstream>
 #include <utility>
-#include <vector>
 
 namespace zeta {
 namespace {
 
 constexpr int live_channel = 0;
 constexpr int expression_controller = 11;
-constexpr std::size_t max_recorded_events = 16384;
-constexpr std::size_t midi_key_count = 128;
-
 } // namespace
 
 struct Application::Impl {
     SynthEngine synth_engine;
     SoundFontSelector soundfont_selector;
     OctaveTransposer live_transposer;
-    std::vector<std::unique_ptr<LoopSlot>> loop_slots;
-    std::array<std::optional<SlotId>, midi_key_count> slots_by_key{};
-    std::vector<RecordedLoopEvent> pending_events;
+    LoopSlotGroup loop_slots;
 
     std::mutex lifecycle_mutex;
     std::condition_variable lifecycle_changed;
 
     explicit Impl(const ApplicationConfig& application_config)
         : synth_engine(application_config),
-          soundfont_selector(application_config.soundfonts) {
-        loop_slots.reserve(application_config.loop_slots.size());
-        for (SlotId id = 0; id < application_config.loop_slots.size(); ++id) {
-            const auto& definition = application_config.loop_slots[id];
-            auto slot = std::make_unique<LoopSlot>(
-                id,
-                definition,
-                synth_engine
-            );
-            slots_by_key[static_cast<std::size_t>(slot->selectionKey())] =
-                slot->id();
-            loop_slots.push_back(std::move(slot));
-        }
-
-        pending_events.reserve(max_recorded_events);
+          soundfont_selector(application_config.soundfonts),
+          loop_slots(application_config.loop_slots, synth_engine) {
         selectCurrentLiveSoundFont();
-    }
-
-    LoopSlot& slot(SlotId id) {
-        return *loop_slots.at(id);
-    }
-
-    const LoopSlot& slot(SlotId id) const {
-        return *loop_slots.at(id);
     }
 
     void selectCurrentLiveSoundFont() {
@@ -76,7 +46,7 @@ struct Application::Impl {
     }
 
     void selectNextLoopSlotSoundFont(SlotId id) {
-        slot(id).selectSoundFont(soundfont_selector.next());
+        loop_slots.selectSoundFont(id, soundfont_selector.next());
         reportCurrentSoundFont();
     }
 
@@ -84,13 +54,6 @@ struct Application::Impl {
         const auto* soundfont = selectSoundFontByNote(key);
         if (soundfont) {
             synth_engine.select(*soundfont, live_channel);
-        }
-    }
-
-    void selectLoopSlotSoundFontByNote(LoopSlot& target, int key) {
-        const auto* soundfont = selectSoundFontByNote(key);
-        if (soundfont) {
-            target.selectSoundFont(*soundfont);
         }
     }
 
@@ -243,14 +206,14 @@ int Application::monitorLoopSlotMidi(
     SlotId slot,
     const MidiMessage& message
 ) {
-    const int result = impl_->slot(slot).monitorMidi(message);
+    const int result = impl_->loop_slots.monitorMidi(slot, message);
 
     #ifdef ZETA_MIDI_TRACE
     std::osyncstream{std::cerr}
         << "[midi monitor] route=loop_slot"
         << " slot=" << slot
         << " input_channel=" << message.channel
-        << " output_channel=" << impl_->slot(slot).channel()
+        << " output_channel=" << impl_->loop_slots.channel(slot)
         << " type=0x" << std::hex << message.raw_type << std::dec
         << " result=" << result << "\n";
     #endif
@@ -258,49 +221,27 @@ int Application::monitorLoopSlotMidi(
     return result;
 }
 
-std::optional<LoopSlotSelection> Application::loopSlotByKey(int key) const {
-    const auto id = impl_->slots_by_key.at(static_cast<std::size_t>(key));
-    if (!id) {
-        std::cerr << "No loop slot mapped for MIDI key " << key << '\n';
-        return std::nullopt;
-    }
-
-    const auto state = impl_->slot(id.value()).playbackState();
-    if (state == LoopSlotPlaybackState::Terminated) {
-        return std::nullopt;
-    }
-    return LoopSlotSelection{
-        .id = id.value(),
-        .state = state == LoopSlotPlaybackState::Looping
-            ? SelectableLoopSlotState::Looping
-            : SelectableLoopSlotState::Muted,
-    };
-}
-
-void Application::prepareLoopSlot(SlotId slot) {
-    impl_->slot(slot).prepareRecording(
+LoopSlotSelectionResult Application::requestLoopSlotSelection(int key) {
+    return impl_->loop_slots.requestSelection(
+        key,
         impl_->soundfont_selector.current(),
         impl_->live_transposer
     );
 }
 
 void Application::cancelLoopSlotRecording(SlotId slot) {
-    impl_->slot(slot).cancelRecording();
+    impl_->loop_slots.cancelRecording(slot);
 }
 
-void Application::muteLoopSlot(SlotId slot) {
-    impl_->slot(slot).muteRequested();
-    std::cout << "Loop slot " << slot + 1 << " muted.\n";
-}
-
-void Application::startLoopSlot(SlotId slot) {
-    impl_->slot(slot).startRequested();
+void Application::completeLoopSlotRecording(
+    SlotId slot,
+    const TakeTiming& timing
+) {
+    impl_->loop_slots.completeRecording(slot, timing);
 }
 
 void Application::terminateLoopSlots() {
-    for (auto& slot : impl_->loop_slots) {
-        slot->terminationRequested();
-    }
+    impl_->loop_slots.terminateAll();
 }
 
 void Application::selectCurrentLiveSoundFont() {
@@ -319,8 +260,13 @@ void Application::selectLiveSoundFontByNote(int key) {
     impl_->selectLiveSoundFontByNote(key);
 }
 
+// Slot identity and raw MIDI key are distinct output-command domain values.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void Application::selectLoopSlotSoundFontByNote(SlotId slot, int key) {
-    impl_->selectLoopSlotSoundFontByNote(impl_->slot(slot), key);
+    const auto* soundfont = impl_->selectSoundFontByNote(key);
+    if (soundfont) {
+        impl_->loop_slots.selectSoundFont(slot, *soundfont);
+    }
 }
 
 void Application::octaveDownLive() {
@@ -332,15 +278,11 @@ void Application::octaveUpLive() {
 }
 
 void Application::octaveDownLoopSlot(SlotId slot) {
-    impl_->slot(slot).octaveDown();
+    impl_->loop_slots.octaveDown(slot);
 }
 
 void Application::octaveUpLoopSlot(SlotId slot) {
-    impl_->slot(slot).octaveUp();
-}
-
-void Application::resetPendingTake() {
-    impl_->pending_events.clear();
+    impl_->loop_slots.octaveUp(slot);
 }
 
 void Application::recordNote(
@@ -349,21 +291,7 @@ void Application::recordNote(
     const MidiMessage& message,
     Milliseconds offset
 ) {
-    if (impl_->pending_events.size() >= max_recorded_events) {
-        return;
-    }
-
-    const auto transposed = impl_->slot(slot).transpose(message);
-    impl_->pending_events.push_back({
-        .time_ms = static_cast<std::uint64_t>(offset.count()),
-        .key = transposed.key,
-        .velocity = transposed.velocity,
-        .kind = kind,
-    });
-}
-
-void Application::commitTake(SlotId slot, Milliseconds duration) {
-    impl_->slot(slot).commitTake(impl_->pending_events, duration);
+    impl_->loop_slots.recordNote(slot, kind, message, offset);
 }
 
 void Application::showRecordingArmed(SlotId slot) {

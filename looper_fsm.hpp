@@ -1,9 +1,9 @@
 #pragma once
 
+#include "loop_timing.hpp"
 #include "midi_event.hpp"
 
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -12,10 +12,6 @@
 namespace zeta {
 
 using SlotId = std::size_t;
-using LooperClock = std::chrono::steady_clock;
-using TimePoint = LooperClock::time_point;
-using Milliseconds = std::chrono::milliseconds;
-
 enum class RecordedNoteKind {
     NoteOn,
     NoteOff,
@@ -32,14 +28,16 @@ enum class StateId : std::size_t {
     Count,
 };
 
-enum class SelectableLoopSlotState {
-    Muted,
-    Looping,
+enum class LoopSlotSelectionOutcome {
+    Armed,
+    Stopped,
+    GuideRequired,
+    Unavailable,
 };
 
-struct LoopSlotSelection {
+struct LoopSlotSelectionResult {
     SlotId id{};
-    SelectableLoopSlotState state{SelectableLoopSlotState::Muted};
+    LoopSlotSelectionOutcome outcome{LoopSlotSelectionOutcome::Unavailable};
 };
 
 struct MidiHandlingResult {
@@ -62,13 +60,12 @@ public:
         const MidiMessage& message
     ) = 0;
 
-    virtual std::optional<LoopSlotSelection> loopSlotByKey(
-        int key
-    ) const = 0;
-    virtual void prepareLoopSlot(SlotId slot) = 0;
+    virtual LoopSlotSelectionResult requestLoopSlotSelection(int key) = 0;
     virtual void cancelLoopSlotRecording(SlotId slot) = 0;
-    virtual void muteLoopSlot(SlotId slot) = 0;
-    virtual void startLoopSlot(SlotId slot) = 0;
+    virtual void completeLoopSlotRecording(
+        SlotId slot,
+        const TakeTiming& timing
+    ) = 0;
     virtual void terminateLoopSlots() = 0;
 
     virtual void selectCurrentLiveSoundFont() = 0;
@@ -82,15 +79,12 @@ public:
     virtual void octaveDownLoopSlot(SlotId slot) = 0;
     virtual void octaveUpLoopSlot(SlotId slot) = 0;
 
-    virtual void resetPendingTake() = 0;
     virtual void recordNote(
         SlotId slot,
         RecordedNoteKind kind,
         const MidiMessage& message,
         Milliseconds offset
     ) = 0;
-    virtual void commitTake(SlotId slot, Milliseconds duration) = 0;
-
     virtual void showRecordingArmed(SlotId slot) = 0;
     virtual void showLooping(SlotId slot) = 0;
     virtual void showNoTake(SlotId slot) = 0;

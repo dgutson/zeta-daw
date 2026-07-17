@@ -13,7 +13,8 @@ using testing::_;
 using testing::InSequence;
 using testing::NiceMock;
 using testing::Return;
-using zeta::LoopSlotSelection;
+using zeta::LoopSlotSelectionOutcome;
+using zeta::LoopSlotSelectionResult;
 using zeta::LooperClock;
 using zeta::LooperFsm;
 using zeta::LooperOutput;
@@ -22,9 +23,9 @@ using zeta::MidiMessage;
 using zeta::MidiMessageType;
 using zeta::Milliseconds;
 using zeta::RecordedNoteKind;
-using zeta::SelectableLoopSlotState;
 using zeta::SlotId;
 using zeta::StateId;
+using zeta::TakeTiming;
 using zeta::TimePoint;
 
 class MockLooperOutput : public LooperOutput {
@@ -37,15 +38,18 @@ public:
         (override)
     );
     MOCK_METHOD(
-        std::optional<LoopSlotSelection>,
-        loopSlotByKey,
+        LoopSlotSelectionResult,
+        requestLoopSlotSelection,
         (int),
-        (const, override)
+        (override)
     );
-    MOCK_METHOD(void, prepareLoopSlot, (SlotId), (override));
     MOCK_METHOD(void, cancelLoopSlotRecording, (SlotId), (override));
-    MOCK_METHOD(void, muteLoopSlot, (SlotId), (override));
-    MOCK_METHOD(void, startLoopSlot, (SlotId), (override));
+    MOCK_METHOD(
+        void,
+        completeLoopSlotRecording,
+        (SlotId, const TakeTiming&),
+        (override)
+    );
     MOCK_METHOD(void, terminateLoopSlots, (), (override));
     MOCK_METHOD(void, selectCurrentLiveSoundFont, (), (override));
     MOCK_METHOD(void, selectNextLiveSoundFont, (), (override));
@@ -61,14 +65,12 @@ public:
     MOCK_METHOD(void, octaveUpLive, (), (override));
     MOCK_METHOD(void, octaveDownLoopSlot, (SlotId), (override));
     MOCK_METHOD(void, octaveUpLoopSlot, (SlotId), (override));
-    MOCK_METHOD(void, resetPendingTake, (), (override));
     MOCK_METHOD(
         void,
         recordNote,
         (SlotId, RecordedNoteKind, const MidiMessage&, Milliseconds),
         (override)
     );
-    MOCK_METHOD(void, commitTake, (SlotId, Milliseconds), (override));
     MOCK_METHOD(void, showRecordingArmed, (SlotId), (override));
     MOCK_METHOD(void, showLooping, (SlotId), (override));
     MOCK_METHOD(void, showNoTake, (SlotId), (override));
@@ -102,9 +104,10 @@ public:
     }
 
     void selectMutedSlot(SlotId slot = selected_slot) {
-        ON_CALL(output, loopSlotByKey).WillByDefault(Return(LoopSlotSelection{
+        ON_CALL(output, requestLoopSlotSelection)
+            .WillByDefault(Return(LoopSlotSelectionResult{
             .id = slot,
-            .state = SelectableLoopSlotState::Muted,
+            .outcome = LoopSlotSelectionOutcome::Armed,
         }));
         fsm.loopSlotControlPressed(start_time);
         fsm.midiMessage(MidiMessageType::NoteOn, noteOn(48), start_time);
@@ -141,19 +144,17 @@ TEST(LooperFsmTest, ReadyRoutesLiveAndEntersEachSelector) {
     );
 }
 
-TEST(LooperFsmTest, LoopSlotSelectionConsumesRawNoteAndArmsMutedSlot) {
+TEST(LooperFsmTest, LoopSlotSelectionCommandConsumesRawNoteAndArmsSlot) {
     Harness harness;
     harness.fsm.loopSlotControlPressed(start_time);
 
     InSequence sequence;
-    EXPECT_CALL(harness.output, loopSlotByKey(48)).WillOnce(Return(
-        LoopSlotSelection{
+    EXPECT_CALL(harness.output, requestLoopSlotSelection(48)).WillOnce(Return(
+        LoopSlotSelectionResult{
             .id = selected_slot,
-            .state = SelectableLoopSlotState::Muted,
+            .outcome = LoopSlotSelectionOutcome::Armed,
         }
     ));
-    EXPECT_CALL(harness.output, prepareLoopSlot(selected_slot));
-    EXPECT_CALL(harness.output, resetPendingTake());
     EXPECT_CALL(harness.output, showRecordingArmed(selected_slot));
 
     EXPECT_EQ(
@@ -167,17 +168,16 @@ TEST(LooperFsmTest, LoopSlotSelectionConsumesRawNoteAndArmsMutedSlot) {
     EXPECT_EQ(harness.fsm.stateId(), StateId::Armed);
 }
 
-TEST(LooperFsmTest, LoopSlotSelectionStopsOnlyLoopingSlot) {
+TEST(LooperFsmTest, NonArmingSelectionOutcomeReturnsToReady) {
     Harness harness;
     harness.fsm.loopSlotControlPressed(start_time);
 
-    EXPECT_CALL(harness.output, loopSlotByKey(50)).WillOnce(Return(
-        LoopSlotSelection{
+    EXPECT_CALL(harness.output, requestLoopSlotSelection(50)).WillOnce(Return(
+        LoopSlotSelectionResult{
             .id = selected_slot,
-            .state = SelectableLoopSlotState::Looping,
+            .outcome = LoopSlotSelectionOutcome::Stopped,
         }
     ));
-    EXPECT_CALL(harness.output, muteLoopSlot(selected_slot));
 
     EXPECT_EQ(
         harness.fsm.midiMessage(
@@ -202,7 +202,11 @@ TEST(LooperFsmTest, LoopSlotSelectorCancelsOrConsumesUnmappedNote) {
     );
 
     harness.fsm.loopSlotControlPressed(start_time);
-    EXPECT_CALL(harness.output, loopSlotByKey(99)).WillOnce(Return(std::nullopt));
+    EXPECT_CALL(harness.output, requestLoopSlotSelection(99)).WillOnce(Return(
+        LoopSlotSelectionResult{
+            .outcome = LoopSlotSelectionOutcome::Unavailable,
+        }
+    ));
     EXPECT_EQ(
         harness.fsm.midiMessage(
             MidiMessageType::NoteOn,
@@ -349,7 +353,6 @@ TEST(LooperFsmTest, ArmedControlCancelsPendingTakeWithoutSlotNote) {
 
         InSequence sequence;
         EXPECT_CALL(harness.output, cancelLoopSlotRecording(selected_slot));
-        EXPECT_CALL(harness.output, resetPendingTake());
         EXPECT_CALL(harness.output, selectCurrentLiveSoundFont());
         EXPECT_CALL(harness.output, showNoTake(selected_slot));
         EXPECT_EQ(
@@ -364,8 +367,16 @@ TEST(LooperFsmTest, LoopSlotControlCompletesAndStartsSelectedSlot) {
     harness.startRecording();
 
     InSequence sequence;
-    EXPECT_CALL(harness.output, commitTake(selected_slot, 37ms));
-    EXPECT_CALL(harness.output, startLoopSlot(selected_slot));
+    EXPECT_CALL(
+        harness.output,
+        completeLoopSlotRecording(
+            selected_slot,
+            testing::Truly([](const TakeTiming& timing) {
+                return timing.recording_started_at == start_time
+                    && timing.completed_at == start_time + 37ms;
+            })
+        )
+    );
     EXPECT_CALL(harness.output, selectCurrentLiveSoundFont());
     EXPECT_CALL(harness.output, showLooping(selected_slot));
 

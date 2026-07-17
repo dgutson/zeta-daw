@@ -7,19 +7,22 @@ be controlled entirely from a MIDI controller.
 
 The loop-slot performance workflow is:
 
-1. Press the configured loop-slot control, then a configured raw physical note.
-2. If that loop slot is Muted, it is cleared and armed for a new take.
-3. Play the first recording note. Recording starts on that note, with no leading
+1. Press the configured loop-slot control, then the first configured slot key to
+   arm the guide.
+2. Play the first guide note. Recording starts on that note, with no leading
    silence.
-4. Press the loop-slot control alone to finish the take and start that slot
-   looping; the slot note is not repeated.
-5. Repeat with another loop slot while earlier slots continue, and keep playing
-   live over all of them.
+3. Press the loop-slot control alone to finish the guide take and start it
+   looping; the slot key is not repeated.
+4. Arm any later slot and record at any point in the guide. Its first note fixes
+   its phase, and its arbitrary-length phrase repeats on whole guide cycles.
+5. Keep adding synchronized slots or playing live over them.
 
-From Ready, selecting a Looping slot stops only that slot. Selecting the stopped
-slot again arms a replacement rather than resuming its old take. Pressing the
-loop-slot control while Armed cancels and discards the pending take. Exit is only
-through Ctrl-C, SIGTERM, or another process shutdown signal.
+The guide must be looping before any later slot can be armed. From Ready,
+selecting a Looping regular slot stops only that slot; selecting the guide stops
+and discards every regular slot before stopping the guide. Selecting a stopped
+slot arms a replacement rather than resuming its old take. Pressing the
+loop-slot control while Armed cancels and discards the pending take. Exit is
+only through Ctrl-C, SIGTERM, or another process shutdown signal.
 
 ## Requirements and installation
 
@@ -144,7 +147,8 @@ reports the invalid field.
 ### Loop slots
 
 `loop_slots` is an ordered, non-empty catalog of physical note names using the
-same convention described below for direct SoundFont selection. Catalog order
+same convention described below for direct SoundFont selection. The first
+entry is the guide and every later entry is a regular slot. Catalog order
 defines the stable loop-slot identity; live output uses FluidSynth channel 0
 and loop slots use independent channels starting at 1.
 
@@ -155,10 +159,21 @@ reuse a configured Note action. They may overlap SoundFont keys because the two
 selector controls disambiguate the gesture.
 
 A Muted slot has no resumable take. Selecting it clears any previous take and
-arms replacement recording. Selecting a Looping slot stops only that slot and
-discards its take. Zero or more slots can loop concurrently, including while a
-different slot is Armed or Recording; loops start when completed and remain
-free-running without synchronization or quantization.
+arms replacement recording, except that a regular slot cannot arm until the
+guide is looping. The guide period runs from its first recorded note to the
+completion control. A regular slot's first note captures its phase within that
+guide period. Its phrase may span any number of guide cycles and repeats at the
+smallest whole guide multiple that contains its musical content. On completion,
+playback begins at the next occurrence of its captured phase, so completion-
+button timing does not make synchronized slots drift.
+
+Silence after the final released note and before completion is not part of a
+regular phrase. Notes still held at completion are ended cleanly at that point.
+Selecting a Looping regular slot stops and discards only that slot. Selecting
+the Looping guide stops and discards every regular slot first, then the guide;
+a replacement guide establishes a new timeline. Slots remain unquantized
+within the guide cycle: synchronization preserves the musician's recorded
+phase rather than snapping notes to a beat grid.
 
 ### SoundFonts
 
@@ -353,9 +368,11 @@ With `zeta.example.yaml`, during a performance:
 3. Play the first note to begin recording.
 4. Press **Transpose Down** alone to finish the take and start that slot.
 5. Press **Transpose Down**, then **D2** to record the second slot while the
-   first continues.
-6. From Ready, press **Transpose Down**, then **C2** to stop only the first
-   slot. Repeat that gesture to arm its replacement.
+   guide continues. Start whenever the phrase should enter; that phase is
+   preserved on every repetition.
+6. From Ready, press **Transpose Down**, then **D2** to stop only the regular
+   slot. Press **Transpose Down**, then **C2** to stop the guide and every
+   regular slot. Repeat the guide gesture to arm its replacement.
 7. Use **Transpose Up** plus a SoundFont key for live selection, and use
    **Octave Down** or **Octave Up** while no notes are playing to shift by
    twelve semitones.
