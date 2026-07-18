@@ -6,9 +6,12 @@ many inputs for one general property and shrinks a failure to a smaller
 counterexample. This complements deterministic GoogleTest examples; it does
 not replace them or make Hegel the default choice for every test.
 
-The version and archive hash in `CMakeLists.txt` are authoritative. Hegel is a
-beta test-only dependency and must not be linked to the production `zd` CMake
-target or used on a real-time path. Do not upgrade it opportunistically.
+The Hegel C++ version, matching native `libhegel` version, and archive hash in
+`CMakeLists.txt` are authoritative. The native version cache entry is forced so
+reusing a build directory after a Hegel upgrade cannot retain an
+ABI-incompatible engine. Hegel is a beta test-only dependency and must not be
+linked to the production `zd` CMake target or used on a real-time path. Do not
+upgrade it opportunistically.
 
 ## When Hegel is a good fit
 
@@ -41,9 +44,11 @@ Prefer deterministic unit or integration tests when the assertion concerns an
 exact output or error string, setup dominates the property, or behavior
 depends on audio, hardware, thread scheduling, wall-clock timing, or process
 lifecycle. Keep the master looper FSM and worker scheduling in deterministic
-tests. A small dependency-free subordinate FSM may use a hand-written command
-loop when it has a genuinely independent model; Hegel C++ v0.7.1 has no native
-stateful-testing API.
+tests. A small dependency-free subordinate FSM may use Hegel's native stateful
+API when it has a genuinely independent model. Hegel C++ v0.7.4 supplies named
+rules, invariants checked before the first rule and after each successful rule,
+sequence shrinking, and replay; this does not make wall-clock or thread
+interleavings deterministic.
 
 If no strong property is apparent after reading the implementation, existing
 tests, and usage sites, do not force PBT onto the component.
@@ -71,6 +76,44 @@ decisions.
 Retain deterministic tests that document important examples, regressions, and
 named boundaries. The property supplies breadth; the examples communicate why
 specific cases matter.
+
+## Adding a stateful Hegel test
+
+Use native stateful testing only for a deterministic component whose commands
+and independently modeled state form one cohesive contract. Derive a test-only
+machine from `hegel::stateful::StateMachine<T>`, return labeled actions from
+`rules()`, and return named predicates from `invariants()`. Run the machine
+inside a stable `HEGEL_TEST` so minimized rule sequences use the same failure
+database and reproduction workflow as other properties:
+
+```cpp
+class ComponentMachine
+    : public hegel::stateful::StateMachine<ComponentMachine> {
+public:
+    std::vector<hegel::stateful::Rule<ComponentMachine>> rules();
+    std::vector<hegel::stateful::Invariant<ComponentMachine>> invariants();
+
+private:
+    Component subject_;
+    IndependentModel model_;
+};
+
+HEGEL_TEST(component_commands_match_model)(hegel::TestCase& tc) {
+    ComponentMachine machine;
+    hegel::stateful::run(machine, tc);
+}
+```
+
+Rules may draw their own arguments from the supplied `TestCase`. Check rule
+preconditions with `tc.assume()` before mutating the machine; prefer rules that
+are valid in every model state when no precondition is required. Keep the
+subject and model in the test-only machine, and make invariants throw on a
+contract violation so Hegel can shrink and report the labeled sequence.
+
+Native statefulness changes test generation, not the production architecture.
+Do not add a controllable clock, scheduler interface, synchronization hook, or
+other production seam merely to drive a worker from Hegel without a separately
+approved design.
 
 ## Adding a Hegel test
 
@@ -131,7 +174,7 @@ Current examples are in:
 - `tests/midi_event_test.cpp` for the channel-message data-byte invariant;
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
 - `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
-  sequences compared with an independent three-state model.
+  sequences compared with an independent native stateful three-state model.
 
 ## Running Hegel properties
 

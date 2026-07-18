@@ -39,6 +39,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Upgraded the test-only Hegel pin to v0.7.4 and migrated the subordinate
+  playback lifecycle property to native named-rule stateful testing while
+  retaining deterministic worker and transition coverage.
 - Newly completed regular slots now join their current natural repetition,
   omitting only its already elapsed event prefix once while keeping every later
   repetition complete and on the original absolute timeline.

@@ -105,9 +105,17 @@ if(BUILD_TESTING)
 
     FetchContent_Declare(
         hegel
-        URL https://github.com/hegeldev/hegel-cpp/archive/refs/tags/v0.7.1.tar.gz
-        URL_HASH SHA256=d27dc8db6c1f9b9898e3d0ecd35844e4a65d059cfb093d91bbc20d4c1da2de2b
+        URL https://github.com/hegeldev/hegel-cpp/archive/refs/tags/v0.7.4.tar.gz
+        URL_HASH SHA256=690d5dfb6517245ab5f162e9f0cc59739d709848bb969a2afa725b92f50bfcd3
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    # Keep a reused build directory from retaining Hegel's ABI-incompatible
+    # native engine pin from an earlier release.
+    set(
+        HEGEL_LIBHEGEL_VERSION
+        0.29.0
+        CACHE STRING "libhegel version required by Hegel C++ v0.7.4"
+        FORCE
     )
     set(HEGEL_REFLECTION OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(hegel)
