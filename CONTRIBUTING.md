@@ -88,8 +88,9 @@ The main layers and ownership boundaries are:
   FluidSynth channel, locked SoundFont/octave state, immutable committed take,
   subordinate playback FSM, synchronization, and eagerly created worker. Role
   commands perform their own behavior; callers do not query role predicates.
-- `loop_timing.*` constructs immutable guide and regular playback schedules as
-  pure domain arithmetic, independent of workers, MIDI, and FluidSynth.
+- `loop_timing.*` constructs immutable guide and regular playback schedules,
+  including the one-time regular first-cycle join point, as pure domain
+  arithmetic independent of workers, MIDI, and FluidSynth.
 - `pending_take.*` owns bounded in-progress events and accepted held-note state,
   including release synthesis and musical-content duration at completion.
 - `octave_transposer.*` owns octave bounds and arithmetic transposition for one
@@ -203,10 +204,13 @@ slot can arm. Guide recording start `R` and completion `C` define period
 `T = C - R`; its first playback cycle starts at `C`. A regular recording start
 captures its phase modulo `T`, and the phrase may span any number of guide
 cycles. Its period is the smallest positive whole multiple of `T` covering its
-musical content, and its first playback cycle is the first matching captured
-phase at or after completion. Workers derive every repetition from these
-immutable absolute deadlines rather than their actual wake time, so late
-dispatch cannot accumulate drift.
+musical content. Complete repetitions begin at `R + P`, `R + 2P`, and so on.
+On completion, regular playback joins the most recent repetition already in
+progress, omitting only that first cycle's event deadlines strictly before
+completion; if no repetition has begun, it waits for `R + P`. Every later
+cycle is complete. Workers derive every repetition from these immutable
+absolute deadlines rather than their actual wake time, so late dispatch cannot
+accumulate drift.
 
 The final matching Note Off defines musical content end; trailing delay before
 the completion control is discarded. Any accepted note still held at

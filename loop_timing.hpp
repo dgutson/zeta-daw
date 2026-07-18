@@ -17,6 +17,8 @@ struct TakeTiming {
 
 struct LoopPlaybackSchedule {
     TimePoint first_cycle_at{};
+    // Events before this deadline are omitted from the first cycle only.
+    TimePoint first_cycle_join_at{};
     Milliseconds period{};
 
     static LoopPlaybackSchedule forGuide(const TakeTiming& timing);

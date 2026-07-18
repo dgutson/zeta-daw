@@ -57,6 +57,7 @@ GeneratedTiming generatedTiming(hegel::TestCase& tc) {
     return {
         .guide = {
             .first_cycle_at = guide_origin,
+            .first_cycle_join_at = guide_origin,
             .period = guide_period,
         },
         .take = {
@@ -95,7 +96,7 @@ HEGEL_TEST(regular_period_is_smallest_covering_guide_multiple)(
     }
 }
 
-HEGEL_TEST(regular_first_cycle_is_earliest_not_before_completion)(
+HEGEL_TEST(regular_first_cycle_joins_natural_repetition_at_completion)(
     hegel::TestCase& tc
 ) {
     const auto generated = generatedTiming(tc);
@@ -104,12 +105,38 @@ HEGEL_TEST(regular_first_cycle_is_earliest_not_before_completion)(
         generated.content_duration,
         generated.guide
     );
-    const auto previous_phase = schedule.first_cycle_at - generated.guide.period;
-
-    if (schedule.first_cycle_at < generated.take.completed_at
-        || previous_phase >= generated.take.completed_at) {
+    const auto clock_period = std::chrono::duration_cast<LooperClock::duration>(
+        schedule.period
+    );
+    const auto first_natural_cycle =
+        generated.take.recording_started_at + clock_period;
+    const auto cycle_offset =
+        schedule.first_cycle_at - generated.take.recording_started_at;
+    const bool is_natural_repetition =
+        schedule.first_cycle_at >= first_natural_cycle
+        && cycle_offset % clock_period == LooperClock::duration::zero();
+    if (!is_natural_repetition) {
         throw std::runtime_error(
-            "regular first cycle is not the earliest phase after completion"
+            "regular first cycle is not on the natural repetition timeline"
+        );
+    }
+
+    if (generated.take.completed_at < first_natural_cycle) {
+        if (schedule.first_cycle_at != first_natural_cycle
+            || schedule.first_cycle_join_at != first_natural_cycle) {
+            throw std::runtime_error(
+                "regular first cycle did not wait for its first repetition"
+            );
+        }
+        return;
+    }
+
+    const auto next_cycle_at = schedule.first_cycle_at + clock_period;
+    if (schedule.first_cycle_at > generated.take.completed_at
+        || next_cycle_at <= generated.take.completed_at
+        || schedule.first_cycle_join_at != generated.take.completed_at) {
+        throw std::runtime_error(
+            "regular first cycle did not join the repetition at completion"
         );
     }
 }
@@ -147,12 +174,14 @@ TEST(LoopTimingTest, GuideStartsAtCompletionWithRecordedDuration) {
     const auto schedule = LoopPlaybackSchedule::forGuide(timing);
 
     EXPECT_EQ(schedule.first_cycle_at, TimePoint(4100ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(4100ms));
     EXPECT_EQ(schedule.period, 4000ms);
 }
 
 TEST(LoopTimingTest, RegularStartsAtNextCapturedPhase) {
     const LoopPlaybackSchedule guide{
         .first_cycle_at = TimePoint(4000ms),
+        .first_cycle_join_at = TimePoint(4000ms),
         .period = 4000ms,
     };
     const TakeTiming timing{
@@ -167,12 +196,58 @@ TEST(LoopTimingTest, RegularStartsAtNextCapturedPhase) {
     );
 
     EXPECT_EQ(schedule.first_cycle_at, TimePoint(9000ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(9000ms));
     EXPECT_EQ(schedule.period, 4000ms);
+}
+
+TEST(LoopTimingTest, RegularJoinsNaturalRepetitionAlreadyInProgress) {
+    const LoopPlaybackSchedule guide{
+        .first_cycle_at = TimePoint(0ms),
+        .first_cycle_join_at = TimePoint(0ms),
+        .period = 100ms,
+    };
+    const TakeTiming timing{
+        .recording_started_at = TimePoint(10ms),
+        .completed_at = TimePoint(115ms),
+    };
+
+    const auto schedule = LoopPlaybackSchedule::forRegular(
+        timing,
+        85ms,
+        guide
+    );
+
+    EXPECT_EQ(schedule.first_cycle_at, TimePoint(110ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(115ms));
+    EXPECT_EQ(schedule.period, 100ms);
+}
+
+TEST(LoopTimingTest, RegularWaitsForFirstNaturalRepetition) {
+    const LoopPlaybackSchedule guide{
+        .first_cycle_at = TimePoint(0ms),
+        .first_cycle_join_at = TimePoint(0ms),
+        .period = 100ms,
+    };
+    const TakeTiming timing{
+        .recording_started_at = TimePoint(80ms),
+        .completed_at = TimePoint(115ms),
+    };
+
+    const auto schedule = LoopPlaybackSchedule::forRegular(
+        timing,
+        15ms,
+        guide
+    );
+
+    EXPECT_EQ(schedule.first_cycle_at, TimePoint(180ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(180ms));
+    EXPECT_EQ(schedule.period, 100ms);
 }
 
 TEST(LoopTimingTest, RegularUsesEnoughCompleteGuideCyclesForLongPhrase) {
     const LoopPlaybackSchedule guide{
         .first_cycle_at = TimePoint(4000ms),
+        .first_cycle_join_at = TimePoint(4000ms),
         .period = 4000ms,
     };
     const TakeTiming timing{
@@ -187,12 +262,36 @@ TEST(LoopTimingTest, RegularUsesEnoughCompleteGuideCyclesForLongPhrase) {
     );
 
     EXPECT_EQ(schedule.first_cycle_at, TimePoint(17000ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(17000ms));
     EXPECT_EQ(schedule.period, 12000ms);
+}
+
+TEST(LoopTimingTest, LongRegularJoinsOnlyAtItsWholePhrasePeriod) {
+    const LoopPlaybackSchedule guide{
+        .first_cycle_at = TimePoint(0ms),
+        .first_cycle_join_at = TimePoint(0ms),
+        .period = 100ms,
+    };
+    const TakeTiming timing{
+        .recording_started_at = TimePoint(10ms),
+        .completed_at = TimePoint(215ms),
+    };
+
+    const auto schedule = LoopPlaybackSchedule::forRegular(
+        timing,
+        185ms,
+        guide
+    );
+
+    EXPECT_EQ(schedule.first_cycle_at, TimePoint(210ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(215ms));
+    EXPECT_EQ(schedule.period, 200ms);
 }
 
 TEST(LoopTimingTest, ExactGuideBoundariesDoNotAddAnotherCycle) {
     const LoopPlaybackSchedule guide{
         .first_cycle_at = TimePoint(4000ms),
+        .first_cycle_join_at = TimePoint(4000ms),
         .period = 4000ms,
     };
     const TakeTiming timing{
@@ -207,6 +306,7 @@ TEST(LoopTimingTest, ExactGuideBoundariesDoNotAddAnotherCycle) {
     );
 
     EXPECT_EQ(schedule.first_cycle_at, TimePoint(13000ms));
+    EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(13000ms));
     EXPECT_EQ(schedule.period, 8000ms);
 }
 
@@ -214,8 +314,8 @@ TEST(LoopTimingPropertyTest, PeriodIsSmallestCoveringGuideMultiple) {
     regular_period_is_smallest_covering_guide_multiple();
 }
 
-TEST(LoopTimingPropertyTest, FirstCycleIsEarliestNotBeforeCompletion) {
-    regular_first_cycle_is_earliest_not_before_completion();
+TEST(LoopTimingPropertyTest, FirstCycleJoinsNaturalRepetitionAtCompletion) {
+    regular_first_cycle_joins_natural_repetition_at_completion();
 }
 
 TEST(LoopTimingPropertyTest, FirstCyclePreservesRecordedGuidePhase) {

@@ -24,8 +24,8 @@ LoopSlot::LoopSlot(
       channel_(first_loop_slot_channel + static_cast<int>(id)),
       synth_engine_(synth_engine),
       playback_fsm_(*this),
-      worker_([this](std::stop_token stop_token) {
-          workerMain(std::move(stop_token));
+      worker_([this](const std::stop_token& stop_token) {
+          workerMain(stop_token);
       }) {}
 
 LoopSlot::~LoopSlot() {
@@ -197,79 +197,120 @@ void LoopSlot::terminatePlayback() {
     }
 }
 
-void LoopSlot::workerMain(std::stop_token stop_token) {
+void LoopSlot::workerMain(const std::stop_token& stop_token) {
     std::uint64_t observed_generation = 0;
 
     while (!stop_token.stop_requested()) {
-        std::shared_ptr<const PlaybackTake> take;
-        std::uint64_t active_generation = 0;
-
-        {
-            std::unique_lock lock(playback_mutex_);
-            playback_changed_.wait(lock, [&] {
-                return stop_token.stop_requested()
-                    || playback_generation_ != observed_generation;
-            });
-
-            if (stop_token.stop_requested()) {
-                break;
-            }
-
-            observed_generation = playback_generation_;
-            take = committed_take_;
-            if (!take) {
-                continue;
-            }
-            active_generation = observed_generation;
-        }
-
-        if (!isPlayablePeriod(take->schedule.period)) {
-            std::osyncstream{std::cerr}
-                << "[loop slot playback error] zero-length take ignored\n";
+        ActivePlayback playback{};
+        const bool activated = waitForActivePlayback(
+            stop_token,
+            observed_generation,
+            playback
+        );
+        if (!activated) {
             continue;
         }
 
-        auto loop_started_at = take->schedule.first_cycle_at;
-        bool interrupted = false;
-
-        while (!stop_token.stop_requested() && !interrupted) {
-            for (const auto& event : take->events) {
-                const auto deadline =
-                    loop_started_at + Milliseconds(event.time_ms);
-                std::unique_lock lock(playback_mutex_);
-                playback_changed_.wait_until(lock, deadline, [&] {
-                    return stop_token.stop_requested()
-                        || playback_generation_ != active_generation;
-                });
-
-                if (stop_token.stop_requested()
-                    || playback_generation_ != active_generation) {
-                    interrupted = true;
-                    break;
-                }
-
-                playRecordedEvent(event);
-            }
-
-            if (interrupted) {
-                break;
-            }
-
-            const auto loop_end = loop_started_at + take->schedule.period;
-            std::unique_lock lock(playback_mutex_);
-            playback_changed_.wait_until(lock, loop_end, [&] {
-                return stop_token.stop_requested()
-                    || playback_generation_ != active_generation;
-            });
-
-            if (stop_token.stop_requested()
-                || playback_generation_ != active_generation) {
-                break;
-            }
-
-            loop_started_at += take->schedule.period;
-        }
+        playActiveTake(stop_token, playback);
     }
+}
+
+bool LoopSlot::waitForActivePlayback(
+    const std::stop_token& stop_token,
+    std::uint64_t& observed_generation,
+    ActivePlayback& playback
+) {
+    std::unique_lock lock(playback_mutex_);
+    playback_changed_.wait(lock, [&] {
+        return stop_token.stop_requested()
+            || playback_generation_ != observed_generation;
+    });
+
+    if (stop_token.stop_requested()) {
+        return false;
+    }
+
+    observed_generation = playback_generation_;
+    if (!committed_take_) {
+        return false;
+    }
+
+    playback = ActivePlayback{
+        .take = committed_take_,
+        .generation = observed_generation,
+    };
+    return true;
+}
+
+void LoopSlot::playActiveTake(
+    const std::stop_token& stop_token,
+    const ActivePlayback& playback
+) {
+    const auto& take = *playback.take;
+    if (!isPlayablePeriod(take.schedule.period)) {
+        std::osyncstream{std::cerr}
+            << "[loop slot playback error] zero-length take ignored\n";
+        return;
+    }
+
+    auto loop_started_at = take.schedule.first_cycle_at;
+    bool joining_first_cycle = true;
+
+    while (!stop_token.stop_requested()) {
+        const bool cycle_completed = playCycle(
+            stop_token,
+            playback,
+            loop_started_at,
+            joining_first_cycle
+        );
+        if (!cycle_completed) {
+            return;
+        }
+
+        const auto loop_end = loop_started_at + take.schedule.period;
+        std::unique_lock lock(playback_mutex_);
+        playback_changed_.wait_until(lock, loop_end, [&] {
+            return stop_token.stop_requested()
+                || playback_generation_ != playback.generation;
+        });
+
+        if (stop_token.stop_requested()
+            || playback_generation_ != playback.generation) {
+            return;
+        }
+
+        loop_started_at += take.schedule.period;
+        joining_first_cycle = false;
+    }
+}
+
+bool LoopSlot::playCycle(
+    const std::stop_token& stop_token,
+    const ActivePlayback& playback,
+    TimePoint loop_started_at,
+    bool joining_first_cycle
+) {
+    for (const auto& event : playback.take->events) {
+        const auto deadline = loop_started_at + Milliseconds(event.time_ms);
+        if (joining_first_cycle
+            && deadline < playback.take->schedule.first_cycle_join_at) {
+            continue;
+        }
+
+        std::unique_lock lock(playback_mutex_);
+        playback_changed_.wait_until(lock, deadline, [&] {
+            return stop_token.stop_requested()
+                || playback_generation_ != playback.generation;
+        });
+
+        if (stop_token.stop_requested()
+            || playback_generation_ != playback.generation) {
+            return false;
+        }
+
+        playRecordedEvent(event);
+    }
+    return true;
 }
 
 void LoopSlot::playRecordedEvent(const RecordedLoopEvent& event) {
