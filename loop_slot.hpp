@@ -92,6 +92,11 @@ private:
         LoopPlaybackSchedule schedule;
     };
 
+    struct ActivePlayback {
+        std::shared_ptr<const PlaybackTake> take;
+        std::uint64_t generation{};
+    };
+
     static bool isPlayablePeriod(Milliseconds period) noexcept;
     LoopSlotPlaybackState playbackState() const;
 
@@ -99,7 +104,22 @@ private:
     void deactivatePlayback() override;
     void terminatePlayback() override;
 
-    void workerMain(std::stop_token stop_token);
+    void workerMain(const std::stop_token& stop_token);
+    bool waitForActivePlayback(
+        const std::stop_token& stop_token,
+        std::uint64_t& observed_generation,
+        ActivePlayback& playback
+    );
+    void playActiveTake(
+        const std::stop_token& stop_token,
+        const ActivePlayback& playback
+    );
+    bool playCycle(
+        const std::stop_token& stop_token,
+        const ActivePlayback& playback,
+        TimePoint loop_started_at,
+        bool joining_first_cycle
+    );
     void playRecordedEvent(const RecordedLoopEvent& event);
     void invalidateAndSilence();
 
