@@ -163,9 +163,12 @@ arms replacement recording, except that a regular slot cannot arm until the
 guide is looping. The guide period runs from its first recorded note to the
 completion control. A regular slot's first note captures its phase within that
 guide period. Its phrase may span any number of guide cycles and repeats at the
-smallest whole guide multiple that contains its musical content. On completion,
-playback begins at the next occurrence of its captured phase, so completion-
-button timing does not make synchronized slots drift.
+smallest whole guide multiple that contains its musical content. Those natural
+repetitions begin one whole phrase period after the first recorded note. On
+completion, playback joins the current natural repetition when one is already
+in progress, omitting only its elapsed event prefix once; otherwise it waits
+for the first natural repetition. Later repetitions play the complete phrase,
+and completion-button timing does not make synchronized slots drift.
 
 Silence after the final released note and before completion is not part of a
 regular phrase. Notes still held at completion are ended cleanly at that point.

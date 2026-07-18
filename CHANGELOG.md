@@ -39,6 +39,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Newly completed regular slots now join their current natural repetition,
+  omitting only its already elapsed event prefix once while keeping every later
+  repetition complete and on the original absolute timeline.
 - Configuration schema 7 replaces `controls.recording` with
   `controls.loop_slot_by_note` and requires a non-empty ordered `loop_slots`
   catalog of unique raw physical-note names.

@@ -230,12 +230,18 @@ void LoopSlot::workerMain(std::stop_token stop_token) {
         }
 
         auto loop_started_at = take->schedule.first_cycle_at;
+        bool joining_first_cycle = true;
         bool interrupted = false;
 
         while (!stop_token.stop_requested() && !interrupted) {
             for (const auto& event : take->events) {
                 const auto deadline =
                     loop_started_at + Milliseconds(event.time_ms);
+                if (joining_first_cycle
+                    && deadline < take->schedule.first_cycle_join_at) {
+                    continue;
+                }
+
                 std::unique_lock lock(playback_mutex_);
                 playback_changed_.wait_until(lock, deadline, [&] {
                     return stop_token.stop_requested()
@@ -268,6 +274,7 @@ void LoopSlot::workerMain(std::stop_token stop_token) {
             }
 
             loop_started_at += take->schedule.period;
+            joining_first_cycle = false;
         }
     }
 }
