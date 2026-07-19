@@ -1,0 +1,358 @@
+@startuml
+title Zeta DAW runtime messages and loop-slot workers
+
+hide footbox
+autonumber
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+skinparam BoxPadding 10
+
+actor "MIDI controller" as Controller
+actor "SIGINT / SIGTERM" as Signal
+
+box "Process lifecycle" #F4F4F4
+participant "main + signal waiter" as Main
+participant Application as App
+end box
+
+box "MIDI input layer" #EEF6FF
+participant "libremidi / ALSA" as Alsa
+participant "MidiInput\n(LibremidiInput)" as MidiInput
+end box
+
+box "Project domain" #F4FFF1
+participant "LooperFsm +\ncurrent LooperState" as Fsm
+participant LoopSlotGroup as Group
+participant "LoopSlot[n] +\nplayback FSM" as Slot
+participant "worker_[n]\nworkerMain()" as Worker
+end box
+
+box "Audio output" #FFF6EA
+participant "SynthEngine\n(FluidSynth)" as Synth
+end box
+
+note over App,Worker
+  There is one master LooperFsm and one pending take.
+  Every configured LoopSlot eagerly owns a dedicated sleeping jthread;
+  [n] denotes the selected slot or all configured slots, as labeled.
+end note
+
+== Startup ==
+
+Main -> App : Application(config)
+activate App
+App -> Synth : construct; eagerly load configured SoundFonts
+App -> Group : construct ordered slots
+loop for each configured slot [n]
+  Group -> Slot : construct(id, key, channel n + 1)
+  Slot -> Worker : start jthread(workerMain(stop_token))
+  activate Worker
+  Worker -> Worker : observed_generation = 0
+  Worker -> Worker : waitForActivePlayback()
+  note right of Worker
+    Sleeps on playback_changed until stop is requested
+    or playback_generation changes.
+  end note
+  deactivate Worker
+end
+App -> Fsm : construct registry and master FSM in Ready
+App -> MidiInput : start(CC mappings, handleMidiEvent callback)
+MidiInput -> Alsa : observe ports and open hardware inputs
+App -> Synth : allNotesOff()
+App -> App : midi_ready = true
+deactivate App
+
+Main -> App : run()
+activate App
+App -> Fsm : shouldRun()
+App -> App : wait(lifecycle_changed)
+deactivate App
+
+== MIDI port connection, disconnection, and reconnection ==
+
+note over Alsa,MidiInput
+  The libremidi observer tracks hardware ports. Its initial notifications
+  and later hotplug notifications use the same connect() path.
+end note
+
+Controller -> Alsa : hardware MIDI port appears
+Alsa -> MidiInput : observer.input_added(port)
+activate MidiInput
+MidiInput -> MidiInput : connect(port); lock adapter mutex
+alt stopping or the same port is already connected
+  MidiInput --> Alsa : ignore notification
+else new hardware port
+  MidiInput -> MidiInput : build per-port CC mapper from display_name
+  MidiInput -> Alsa : create midi_in(callbacks, ALSA_SEQ)
+  MidiInput -> Alsa : open_port(port, "zeta-daw")
+  alt open succeeds
+    Alsa --> MidiInput : no error
+    MidiInput -> MidiInput : inputs.push_back({port, midi_in})
+    MidiInput --> Alsa : connected
+  else open fails
+    Alsa --> MidiInput : error
+    MidiInput -> MidiInput : report error; discard midi_in
+  end
+end
+deactivate MidiInput
+
+Controller -> Alsa : hardware MIDI port disappears
+Alsa -> MidiInput : observer.input_removed(port)
+activate MidiInput
+MidiInput -> MidiInput : disconnect(port); lock adapter mutex
+alt matching connection exists
+  MidiInput -> MidiInput : move midi_in out; erase connection
+  MidiInput -> Alsa : destroy midi_in outside adapter mutex
+  MidiInput --> Alsa : disconnected
+else port is not in the connection registry
+  MidiInput --> Alsa : ignore notification
+end
+deactivate MidiInput
+
+opt the hardware port appears again later
+  Controller -> Alsa : hardware MIDI port reappears
+  Alsa -> MidiInput : observer.input_added(port)
+  MidiInput -> MidiInput : connect(port) through the same path
+  MidiInput -> Alsa : create midi_in; open_port(...)
+  MidiInput -> MidiInput : store the new connection and mapper
+end
+
+== MIDI callback and dispatch ==
+
+Controller -> Alsa : raw MIDI bytes
+Alsa -> MidiInput : on_message(message)
+activate MidiInput
+MidiInput -> MidiInput : decodeMidiEvent(bytes)
+alt event cannot be decoded
+  MidiInput --> Alsa : ignore
+else project MidiEvent decoded
+  MidiInput -> MidiInput : per-port CC mapper.map(event)
+  MidiInput -> App : handleMidiEvent(mapped event)
+  activate App
+
+  alt startup gate closed
+    App --> MidiInput : ignore
+  else event matches a configured application control
+    App -> Fsm : matching stimulus(...)
+    activate Fsm
+    Fsm -> Fsm : lock; current LooperState handles stimulus
+    Fsm -> Fsm : validate and install returned StateId
+    Fsm --> App : current StateId
+    deactivate Fsm
+    note over App,Fsm
+      Configured controls are consumed here. Depending on the current state,
+      the state may call Application's LooperOutput methods before returning.
+    end note
+  else ordinary MIDI
+    App -> Fsm : midiMessage(type, message, now)
+    activate Fsm
+    Fsm -> Fsm : lock; current LooperState handles message
+    alt Ready: live route
+      Fsm -> App : monitorLiveMidi(message)
+      App -> App : live_transposer.transpose(message)
+      App -> Synth : send(transposed, channel 0)
+      Synth --> App : native result
+      App --> Fsm : native result
+    else Armed or Recording: selected-slot route
+      Fsm -> App : monitorLoopSlotMidi(slot, message)
+      App -> Group : monitorMidi(slot, message)
+      Group -> Slot : monitorMidi(message)
+      Slot -> Slot : transpose with slot-owned octave
+      Slot -> Synth : send(transposed, channel n + 1)
+      Synth --> Fsm : native result
+      opt Recording and message is Note On / Note Off
+        Fsm -> App : recordNote(slot, kind, message, offset)
+        App -> Group : recordNote(slot, kind, message, offset)
+        Group -> Slot : transpose(message)
+        Group -> Group : PendingTake.record(kind, transposed, offset)
+      end
+    end
+    Fsm -> Fsm : validate and install returned StateId
+    Fsm --> App : native synth result
+    deactivate Fsm
+  end
+  App --> MidiInput : callback returns
+  deactivate App
+end
+MidiInput --> Alsa : callback returns
+deactivate MidiInput
+
+== Arm, record, and commit one slot ==
+
+Controller -> Alsa : configured loop-slot control
+Alsa -> MidiInput : callback(event)
+MidiInput -> App : handleMidiEvent(event)
+App -> Fsm : loopSlotControlPressed(now)
+Fsm -> Fsm : Ready -> ReadySelectingLoopSlot
+
+Controller -> Alsa : positive Note On for a slot key
+Alsa -> MidiInput : callback(event)
+MidiInput -> App : handleMidiEvent(event)
+App -> Fsm : midiMessage(NoteOn, message, now)
+activate Fsm
+Fsm -> App : requestLoopSlotSelection(raw key)
+App -> Group : requestSelection(key, current SoundFont, live transposer)
+Group -> Slot : selectionRequested(context)
+alt slot is Muted and its role permits arming
+  Slot -> Slot : invalidate old generation; snapshot SoundFont/octave
+  Slot -> Synth : allNotesOff(channel n + 1); select SoundFont
+  Slot --> Group : Armed
+  Group -> Group : PendingTake.reset()
+  Group --> App : {slot id, Armed}
+  App --> Fsm : selection result
+  Fsm -> App : showRecordingArmed(slot)
+  Fsm -> Fsm : ReadySelectingLoopSlot -> Armed
+else regular slot requires a looping guide, or key is unavailable
+  Slot --> Group : GuideRequired / Unavailable
+  Group --> App : selection result
+  App --> Fsm : selection result
+  Fsm -> Fsm : ReadySelectingLoopSlot -> Ready
+end
+deactivate Fsm
+
+Controller -> Alsa : first positive Note On
+Alsa -> MidiInput : callback(event)
+MidiInput -> App : handleMidiEvent(event)
+App -> Fsm : midiMessage(NoteOn, message, received_at)
+activate Fsm
+Fsm -> App : monitorLoopSlotMidi(slot, message)
+App -> Group : monitorMidi(slot, message)
+Group -> Slot : monitorMidi(message)
+Slot -> Synth : send(transposed, channel n + 1)
+Fsm -> App : recordNote(slot, NoteOn, message, 0 ms)
+App -> Group : recordNote(...)
+Group -> Group : PendingTake.record(...)
+Fsm -> Fsm : Armed -> Recording
+deactivate Fsm
+
+loop subsequent Note On / Note Off messages
+  Controller -> Alsa : MIDI note
+  Alsa -> MidiInput : callback(event)
+  MidiInput -> App : handleMidiEvent(event)
+  App -> Fsm : midiMessage(type, message, received_at)
+  Fsm -> App : monitorLoopSlotMidi(slot, message)
+  App -> Group : monitorMidi(slot, message)
+  Group -> Slot : monitorMidi(message)
+  Slot -> Synth : send(transposed, channel n + 1)
+  Fsm -> App : recordNote(slot, kind, message, elapsed)
+  App -> Group : recordNote(...)
+  Group -> Group : PendingTake.record(...)
+end
+
+Controller -> Alsa : configured loop-slot control
+Alsa -> MidiInput : callback(event)
+MidiInput -> App : handleMidiEvent(event)
+App -> Fsm : loopSlotControlPressed(completed_at)
+activate Fsm
+Fsm -> App : completeLoopSlotRecording(slot, timing)
+App -> Group : completeRecording(slot, timing)
+Group -> Group : PendingTake.finish(); synthesize held-note releases
+Group -> Slot : recordingCompleted(immutable events, duration, timing)
+Slot -> Slot : makeSchedule(); commit immutable PlaybackTake
+Slot -> Synth : allNotesOff(channel n + 1)
+Slot -> Slot : playback_fsm.startRequested()
+Slot -> Slot : activatePlayback(); ++playback_generation
+Slot -> Worker : notify_all(playback_changed)
+Group -> Group : PendingTake.reset()
+Fsm -> App : selectCurrentLiveSoundFont(); showLooping(slot)
+App -> Synth : select(current SoundFont, channel 0)
+Fsm -> Fsm : Recording -> Ready
+deactivate Fsm
+
+== Dedicated LoopSlot[n] workerMain loops ==
+
+activate Worker
+loop outer: while stop is not requested
+  Worker -> Worker : waitForActivePlayback(stop, observed_generation)
+  alt new immutable take is active
+    Worker -> Worker : snapshot take + generation
+    loop playback cycles from absolute schedule deadlines
+      loop each recorded event
+        Worker -> Worker : deadline = cycle_start + event offset
+        opt first regular-slot join cycle and deadline is already past
+          Worker -> Worker : omit event from this first cycle only
+        end
+        Worker -> Worker : wait_until(deadline or generation/stop change)
+        alt still active at deadline
+          alt recorded Note On
+            Worker -> Synth : noteOn(channel n + 1, key, velocity)
+          else recorded Note Off
+            Worker -> Synth : noteOff(channel n + 1, key)
+          end
+        else generation changed or stop requested
+          Worker -> Worker : abandon current take immediately
+        end
+      end
+      Worker -> Worker : wait_until(absolute cycle end)
+      Worker -> Worker : cycle_start += immutable period
+    end
+  else stop or no committed take
+    Worker -> Worker : return to outer wait, or exit
+  end
+end
+deactivate Worker
+
+== Stop a looping slot ==
+
+note over Fsm,Slot
+  Selecting a looping regular slot deactivates only that slot.
+  Selecting the looping guide first deactivates every regular slot,
+  then deactivates the guide.
+end note
+Fsm -> App : requestLoopSlotSelection(raw key)
+App -> Group : requestSelection(...)
+alt selected slot is a regular slot
+  Group -> Slot : selectionRequested()
+else selected slot is the guide
+  Group -> Slot : selectionRequested()
+  Slot -> Group : stopDependentSlots()
+  loop each regular slot
+    Group -> Slot : deactivate()
+  end
+end
+Slot -> Slot : playback_fsm.muteRequested()
+Slot -> Slot : discard take; ++playback_generation
+Slot -> Synth : allNotesOff(channel n + 1)
+Slot -> Worker : notify_all(playback_changed)
+
+== Shutdown ==
+
+Signal -> Main : sigwait returns
+Main -> App : shutdownRequested()
+activate App
+App -> Fsm : shutdownRequested()
+activate Fsm
+Fsm -> Fsm : lock; active state handles shutdown
+Fsm -> App : terminateLoopSlots()
+App -> Group : terminateAll()
+loop regular slots first, then guide
+  Group -> Slot : terminationRequested()
+  Slot -> Slot : playback_fsm.terminationRequested()
+  Slot -> Worker : request_stop()
+  Slot -> Slot : discard take; ++playback_generation
+  Slot -> Synth : allNotesOff(channel n + 1)
+  Slot -> Worker : notify_all(playback_changed)
+  Slot -> Worker : join()
+  Worker --> Slot : workerMain returns
+end
+Fsm -> App : silenceAllChannels()
+App -> Synth : allNotesOff(all configured channels)
+Fsm -> Fsm : install Stopped
+Fsm --> App : Stopped
+deactivate Fsm
+App -> App : notify_all(lifecycle_changed)
+deactivate App
+
+App -> Fsm : shouldRun()
+Fsm --> App : false
+App --> Main : run() returns
+Main -> Main : stop and join signal waiter
+Main -> App : destroy
+activate App
+App -> App : midi_ready = false
+App -> MidiInput : stop()
+MidiInput -> Alsa : close inputs and observer
+App -> Fsm : shutdownRequested() (idempotent in Stopped)
+deactivate App
+
+@enduml

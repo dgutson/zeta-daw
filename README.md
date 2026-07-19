@@ -24,6 +24,10 @@ slot arms a replacement rather than resuming its old take. Pressing the
 loop-slot control while Armed cancels and discards the pending take. Exit is
 only through Ctrl-C, SIGTERM, or another process shutdown signal.
 
+The [runtime sequence diagram](runtime-sequence.puml) shows process startup,
+MIDI port discovery and callback routing, recording and playback-worker
+messages, and orderly shutdown as reviewable PlantUML source.
+
 ## Requirements and installation
 
 - Linux, including Raspberry Pi OS or Ubuntu; macOS and Windows are not
@@ -566,6 +570,203 @@ journalctl -u zeta-daw.service -f
 sudo systemctl restart zeta-daw.service
 sudo systemctl stop zeta-daw.service
 ```
+
+## Optimizing Raspberry Pi for headless operation
+
+Start with a desktop-capable Raspberry Pi OS image, even though the instrument
+normally runs without a desktop. Raspberry Pi OS Lite does not install a
+graphical environment, so it cannot provide the on-demand maintenance desktop
+described below. Complete the automatic service setup above before optimizing
+the operating system, and keep a screen, keyboard, and mouse available for
+local maintenance.
+
+The commands in this section target a current Raspberry Pi OS installation on
+a Raspberry Pi 5. Inspect each command's result before changing a service:
+package contents and systemd unit names can change between OS releases.
+
+### Record a baseline
+
+Measure the installed system before changing it. After Zeta has reached its
+normal ready state, save at least these results:
+
+```bash
+mkdir -p "$HOME/zeta-headless-baseline"
+systemd-analyze time \
+    | tee "$HOME/zeta-headless-baseline/boot-time.txt"
+systemd-analyze critical-chain \
+    | tee "$HOME/zeta-headless-baseline/critical-chain.txt"
+systemd-analyze blame \
+    | tee "$HOME/zeta-headless-baseline/blame.txt"
+systemctl --failed \
+    | tee "$HOME/zeta-headless-baseline/failed-units.txt"
+free -h | tee "$HOME/zeta-headless-baseline/memory.txt"
+```
+
+`systemd-analyze blame` reports how long units spent activating; it does not
+prove that a unit delayed the boot. Use `critical-chain` to identify ordering
+on the path to the target. Repeat the same measurements after the changes and
+compare like-for-like boots with the same peripherals attached.
+
+For shutdown, measure wall-clock time from `sudo systemctl poweroff` until the
+Pi indicates that shutdown is complete. After powering it on again, inspect the
+end of the previous boot for stop timeouts or failed units:
+
+```bash
+journalctl -b -1 -o short-monotonic --no-pager | tail -n 100
+```
+
+### Boot to a local console
+
+Configure a password-protected console boot. Either select **System Options >
+Boot / Auto Login > Console** in `sudo raspi-config`, or use one of these
+equivalent non-interactive methods. Raspberry Pi documents the `B1` value in
+its [non-interactive raspi-config
+reference](https://www.raspberrypi.com/documentation/configuration/computers/raspberry-pi.html):
+
+```bash
+# Raspberry Pi OS console boot, requiring local login (B1).
+sudo raspi-config nonint do_boot_behaviour B1
+
+# Or set the underlying systemd default directly.
+sudo systemctl set-default multi-user.target
+```
+
+Use one method, not both. Reboot and verify the default plus the Zeta service:
+
+```bash
+systemctl get-default
+systemctl status zeta-daw.service
+```
+
+`get-default` must report `multi-user.target`. The Pi now boots to a local
+console login without starting the display manager or a graphical session.
+Console auto-login is unnecessary: systemd starts Zeta independently as its
+dedicated service.
+
+To perform graphical maintenance, connect the screen, keyboard, and mouse, log
+in at the console, and start the graphical target for the current boot:
+
+```bash
+sudo systemctl isolate graphical.target
+```
+
+Log in through the normal graphical login screen. Confirm that Zeta stayed
+active during the transition:
+
+```bash
+systemctl status zeta-daw.service
+```
+
+From a graphical terminal, return the current boot to console-only operation:
+
+```bash
+sudo systemctl isolate multi-user.target
+```
+
+This ends the graphical session, so save maintenance work first. Target
+isolation also stops any other unit that the destination target does not need.
+Verify `zeta-daw.service` after both transitions on the actual Pi. The
+documented service is wanted by `multi-user.target`, which is also the base for
+`graphical.target`, but verification protects against local unit overrides.
+
+`systemctl isolate` changes only the current boot. `systemctl set-default`
+controls later boots, so starting the desktop this way does not make graphical
+startup permanent. To restore graphical boot permanently, run:
+
+```bash
+sudo systemctl set-default graphical.target
+```
+
+### Disable onboard Bluetooth when unused
+
+Do not follow this step if Zeta uses Bluetooth MIDI or if Bluetooth provides a
+maintenance keyboard or mouse. Disabling onboard Bluetooth does not disable a
+USB MIDI controller.
+
+First record the relevant unit state. A unit may be absent on a particular
+Raspberry Pi OS release:
+
+```bash
+systemctl list-unit-files bluetooth.service hciuart.service
+systemctl is-enabled bluetooth.service hciuart.service
+```
+
+On current Raspberry Pi OS, the active boot configuration is
+`/boot/firmware/config.txt`. Confirm that file exists, open it with
+`sudoedit`, and add the officially documented
+[`disable-bt` overlay](https://github.com/raspberrypi/firmware/blob/master/boot/overlays/README)
+once under its `[all]` section:
+
+```ini
+[all]
+dtoverlay=disable-bt
+```
+
+For each Bluetooth unit shown by `list-unit-files`, stop, disable, and mask it
+so D-Bus or another unit cannot reactivate the unused stack. Skip an absent
+unit rather than treating its name as portable across releases:
+
+```bash
+sudo systemctl disable --now bluetooth.service
+sudo systemctl mask bluetooth.service
+
+# Run these only if hciuart.service exists.
+sudo systemctl disable --now hciuart.service
+sudo systemctl mask hciuart.service
+```
+
+Reboot, then verify the hardware overlay, unit state, and current-boot logs:
+
+```bash
+grep -n '^[[:space:]]*dtoverlay=disable-bt' \
+    /boot/firmware/config.txt
+systemctl is-enabled bluetooth.service hciuart.service
+rfkill list
+bluetoothctl show
+journalctl -b -u bluetooth.service -u hciuart.service --no-pager
+```
+
+The units that exist should report `masked`; `rfkill` should not list an
+onboard Bluetooth adapter, and `bluetoothctl show` should report no default
+controller. An absent `bluetoothctl` command simply means the optional BlueZ
+client tools are not installed. Confirm that Zeta still receives USB MIDI and
+produces audio.
+
+To restore Bluetooth, remove only the `dtoverlay=disable-bt` line, unmask the
+units that exist, and restore the enabled/disabled states recorded before the
+change. A standard Raspberry Pi OS installation commonly restores them with:
+
+```bash
+sudo systemctl unmask bluetooth.service hciuart.service
+sudo systemctl enable bluetooth.service
+sudo systemctl enable hciuart.service
+sudo reboot
+```
+
+Skip an absent unit, and do not enable a unit that was disabled before this
+procedure. After reboot, repeat the verification commands and pair peripherals
+again if necessary.
+
+### Evaluate additional changes
+
+Repeat the baseline commands after console boot and Bluetooth removal. Use the
+new `critical-chain`, `blame`, failed-unit, memory, and shutdown evidence to
+identify any remaining target-specific delay. Disable another service only
+when its function is understood, unused on this instrument, and its reversal
+has been recorded. Re-test local console login, the on-demand desktop, USB
+audio and MIDI, Zeta startup, and clean shutdown after every such change.
+
+Keep the console getty, local login, system journal, Zeta logs, audio/MIDI
+dependencies, and time synchronization needed for meaningful timestamps. Do
+not treat overclocking, disabled logging, write suppression, a read-only root
+filesystem, a custom kernel, or blanket service removal as routine boot
+optimization. Those choices have reliability and maintenance tradeoffs beyond
+this operating profile. Firmware or bootloader tuning should likewise be based
+on a measured firmware/kernel delay rather than a systemd service time.
+
+See the systemd
+[`systemctl` reference](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
+for the exact `set-default` and `isolate` semantics.
 
 ## Troubleshooting
 
