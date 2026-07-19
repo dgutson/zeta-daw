@@ -458,38 +458,48 @@ With no argument, Zeta reads `/etc/zeta-daw/zeta.yaml`.
 
 ## Starting automatically on Raspberry Pi
 
-Install the executable and configuration:
+Use a dedicated, non-root service account. The examples below use
+`YOUR_USER`; replace it with that account name. Install the executable,
+configuration, and SoundFonts at paths the account can traverse and read:
 
 ```bash
 sudo install -m 0755 build/zd /usr/local/bin/zd
-sudo install -d /etc/zeta-daw
+sudo install -d -m 0755 /etc/zeta-daw
 sudo install -m 0644 zeta.yaml /etc/zeta-daw/zeta.yaml
+sudo install -d -m 0755 /usr/local/share/zeta-daw/soundfonts
+sudo install -m 0644 /path/to/piano.sf2 \
+    /usr/local/share/zeta-daw/soundfonts/piano.sf2
 ```
 
-Use absolute SoundFont paths for a service and ensure the service account can
-read them. Give that account access to ALSA devices; on Raspberry Pi OS this
-normally means membership in the `audio` group:
+Use the installed absolute SoundFont paths in `/etc/zeta-daw/zeta.yaml`. Add
+the service account to the `audio` group so it can open ALSA audio and MIDI
+devices, then verify its membership:
 
 ```bash
 sudo usermod -aG audio YOUR_USER
+id YOUR_USER
 ```
 
-For an interactive desktop launch, allow members of that group to use the
-real-time priority requested by FluidSynth and lock SoundFont sample memory.
-Create `/etc/security/limits.d/zeta-audio.conf` with:
+Group membership and readable files are required for the service. Real-time
+scheduling and locked memory are optional performance hardening: Zeta can
+produce audio without them, but FluidSynth may warn that it could not acquire
+real-time priority or lock sample memory, and a heavily loaded system may be
+more prone to audio dropouts.
+
+For an interactive desktop launch, PAM limits can grant those optional
+resources. Create `/etc/security/limits.d/zeta-audio.conf` with:
 
 ```text
 @audio - rtprio 90
 @audio - memlock unlimited
 ```
 
-The filename must end in `.conf`. Log out completely and back in (or reboot)
-after changing group membership or PAM limits. `rtprio 90` is above
-FluidSynth's default audio-thread priority of 60. Unlimited locked memory is
-appropriate for a dedicated performance account because FluidSynth locks
-sample data by default, but it also lets every process run by an `audio` group
-member lock memory; use a dedicated account when that broader allowance is not
-acceptable.
+The filename must end in `.conf`. Log out completely and back in after changing
+PAM limits. These login-session limits do not configure a system service.
+`rtprio 90` is above FluidSynth's default audio-thread priority of 60.
+Unlimited locked memory avoids a SoundFont-size-dependent limit, but it lets
+the process lock any amount of RAM; reserve it for a dedicated performance
+account.
 
 Create `/etc/systemd/system/zeta-daw.service`:
 
@@ -497,13 +507,13 @@ Create `/etc/systemd/system/zeta-daw.service`:
 [Unit]
 Description=Zeta DAW MIDI looper
 After=sound.target
+# Keep retrying if a configured USB audio device appears late during boot.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=YOUR_USER
 SupplementaryGroups=audio
-LimitRTPRIO=90
-LimitMEMLOCK=infinity
 ExecStart=/usr/local/bin/zd /etc/zeta-daw/zeta.yaml
 Restart=on-failure
 RestartSec=2
@@ -512,18 +522,46 @@ RestartSec=2
 WantedBy=multi-user.target
 ```
 
-Replace `YOUR_USER`, then enable the service:
+`User`, `SupplementaryGroups`, `ExecStart`, the restart policy, and the
+`multi-user.target` installation target provide the unattended startup
+contract. `After=sound.target` orders Zeta after system sound initialization,
+but it cannot guarantee that a particular USB device is already present;
+unlimited retries cover that early-boot race. No graphical target or
+interactive login is required.
+
+For optional real-time hardening of the system service, add these directives
+under `[Service]`:
+
+```ini
+LimitRTPRIO=90
+LimitMEMLOCK=infinity
+```
+
+Unlike PAM login limits, these directives apply directly to the service.
+`LimitRTPRIO` allows FluidSynth to request its real-time audio-thread priority.
+`LimitMEMLOCK=infinity` allows FluidSynth to keep its SoundFont samples locked
+instead of subject to paging, at the cost of removing systemd's locked-memory
+cap for this process. Apply them after basic audio startup works so permission
+or device failures remain distinct from performance tuning.
+
+Enable and start the service, then verify both enablement and the current boot:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now zeta-daw.service
+systemctl is-enabled zeta-daw.service
+systemctl status zeta-daw.service
+journalctl -u zeta-daw.service -b
 ```
 
-The MIDI controller may be connected before or after Zeta starts. Inspect and
-control the service with:
+`is-enabled` must report `enabled`, and status must report `active (running)`.
+Reboot without logging in, then repeat the three verification commands. The
+MIDI controller may be connected before or after Zeta starts; Zeta discovers
+and reconnects it automatically.
+
+To follow logs or control the service later:
 
 ```bash
-systemctl status zeta-daw.service
 journalctl -u zeta-daw.service -f
 sudo systemctl restart zeta-daw.service
 sudo systemctl stop zeta-daw.service
@@ -537,9 +575,19 @@ service user.
 
 If FluidSynth reports that the default audio device is in use, stop the
 competing application or configure `audio.driver: alsa` and an explicit
-`audio.alsa_device` from `aplay -L`. If it warns that it could not set high
-priority, verify the PAM limits for an interactive process or `LimitRTPRIO`
-for the systemd service.
+`audio.alsa_device` from `aplay -L`. During boot, a nonexistent or late USB
+audio device makes startup fail; confirm the configured device with `aplay -L`
+and inspect the current boot with `journalctl -u zeta-daw.service -b`. The
+documented restart policy keeps trying every two seconds after the device
+appears. If systemd reports `start-limit-hit`, confirm that
+`StartLimitIntervalSec=0` is present under `[Unit]`, run `sudo systemctl
+daemon-reload`, and reset the failed state with `sudo systemctl reset-failed
+zeta-daw.service`.
+
+If FluidSynth warns that it could not set high priority or lock memory, audio
+can still start. For an interactive process, inspect the PAM limits; for the
+system service, inspect `LimitRTPRIO` and `LimitMEMLOCK` in the unit. PAM login
+limits do not apply to the system service.
 
 If controller actions do not work, stop Zeta and inspect the actual events:
 
