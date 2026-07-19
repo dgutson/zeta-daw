@@ -613,10 +613,14 @@ journalctl -b -1 -o short-monotonic --no-pager | tail -n 100
 
 ### Boot to a local console
 
-Configure a password-protected console boot. Either select **System Options >
-Boot / Auto Login > Console** in `sudo raspi-config`, or use one of these
-equivalent non-interactive methods. Raspberry Pi documents the `B1` value in
-its [non-interactive raspi-config
+Configure the Pi to boot to a console without automatically logging in a user.
+This does not require a keyboard during ordinary instrument startup: systemd
+starts Zeta as a service without any interactive login. The console prompt is
+only for maintenance after connecting a screen and keyboard.
+
+Either select **System Options > Boot / Auto Login > Console** in
+`sudo raspi-config`, or use one of these equivalent non-interactive methods.
+Raspberry Pi documents the `B1` value in its [non-interactive raspi-config
 reference](https://www.raspberrypi.com/documentation/configuration/computers/raspberry-pi.html):
 
 ```bash
@@ -636,8 +640,8 @@ systemctl status zeta-daw.service
 
 `get-default` must report `multi-user.target`. The Pi now boots to a local
 console login without starting the display manager or a graphical session.
-Console auto-login is unnecessary: systemd starts Zeta independently as its
-dedicated service.
+With no maintenance peripherals attached, leave it at that prompt while Zeta
+runs independently as its dedicated service.
 
 To perform graphical maintenance, connect the screen, keyboard, and mouse, log
 in at the console, and start the graphical target for the current boot:
