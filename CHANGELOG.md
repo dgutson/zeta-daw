@@ -42,6 +42,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Clarified unattended Raspberry Pi systemd installation and reboot
+  verification, persistent recovery from late USB-audio startup, service
+  permissions, diagnostics, and the boundary between required settings and
+  optional real-time hardening.
 - Configuration schema 8 adds the optional strict `audio` mapping.
 - Upgraded the test-only Hegel pin to v0.7.4 and migrated the subordinate
   playback lifecycle property to native named-rule stateful testing while
