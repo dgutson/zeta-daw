@@ -42,7 +42,16 @@ struct LoopSlotDefinition {
     int key{};
 };
 
+struct AudioConfig {
+    static constexpr double default_gain = 0.5;
+
+    std::optional<std::string> driver;
+    std::optional<std::string> alsa_device;
+    double gain{default_gain};
+};
+
 struct ApplicationConfig {
+    AudioConfig audio;
     std::vector<LoopSlotDefinition> loop_slots;
     std::vector<SoundFontDefinition> soundfonts;
     std::vector<MidiControlChangeMapping> midi_control_change_mappings;

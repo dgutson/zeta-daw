@@ -57,7 +57,40 @@ struct SynthEngine::Impl {
         }
 
         fluid_settings_setint(settings.get(), "synth.threadsafe-api", 1);
-        fluid_settings_setnum(settings.get(), "synth.gain", 0.5);
+        const int gain_result = fluid_settings_setnum(
+            settings.get(),
+            "synth.gain",
+            config.audio.gain
+        );
+        if (gain_result != FLUID_OK) {
+            throw std::runtime_error("Could not configure FluidSynth gain");
+        }
+        if (config.audio.driver) {
+            const int driver_result = fluid_settings_setstr(
+                settings.get(),
+                "audio.driver",
+                config.audio.driver->c_str()
+            );
+            if (driver_result != FLUID_OK) {
+                throw std::runtime_error(
+                    "Could not configure FluidSynth audio driver: "
+                    + *config.audio.driver
+                );
+            }
+        }
+        if (config.audio.alsa_device) {
+            const int device_result = fluid_settings_setstr(
+                settings.get(),
+                "audio.alsa.device",
+                config.audio.alsa_device->c_str()
+            );
+            if (device_result != FLUID_OK) {
+                throw std::runtime_error(
+                    "Could not configure FluidSynth ALSA device: "
+                    + *config.audio.alsa_device
+                );
+            }
+        }
         constexpr int fluidsynth_default_midi_channels = 16;
         midi_channel_count = std::max(
             fluidsynth_default_midi_channels,

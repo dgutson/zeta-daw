@@ -93,7 +93,14 @@ cp zeta.example.yaml zeta.yaml
 A complete configuration looks like this:
 
 ```yaml
-schema_version: 7
+schema_version: 8
+
+# Omit this mapping to retain FluidSynth's default desktop audio output and
+# Zeta's existing gain of 0.5.
+audio:
+  driver: alsa
+  alsa_device: plughw:3
+  gain: 1.0
 
 loop_slots:
   - C2
@@ -141,8 +148,45 @@ controls:
     command: record_strobe
 ```
 
-Only schema version 7 is accepted. A configuration error stops startup and
+Only schema version 8 is accepted. A configuration error stops startup and
 reports the invalid field.
+
+### Audio output
+
+`audio` is optional. Omit it to preserve the existing desktop behavior:
+FluidSynth chooses its default audio driver and device, while Zeta uses gain
+`0.5`. Each field is independently optional except that `alsa_device` requires
+`driver: alsa`:
+
+- `driver`: a non-empty FluidSynth audio-driver name
+- `alsa_device`: a non-empty ALSA PCM device string
+- `gain`: FluidSynth master gain from `0.0` through `10.0`
+
+For a Raspberry Pi USB sound card, list hardware cards and PCM device names:
+
+```bash
+aplay -l
+aplay -L
+```
+
+Then configure the card, for example:
+
+```yaml
+audio:
+  driver: alsa
+  alsa_device: plughw:3
+  gain: 1.0
+```
+
+`hw:3` opens the hardware device directly and succeeds only when the requested
+sample format and rate are supported exactly. `plughw:3` adds ALSA's conversion
+layer and is generally the more compatible choice. Numeric card indexes can
+change across reboots; when `aplay -L` exposes a stable named PCM such as
+`plughw:CARD=Device`, prefer that string.
+
+Gain `1.0` is valid, but it provides substantially more level than Zeta's
+default `0.5` and can clip when several voices or loop slots sound together.
+Use only the gain needed by the output chain.
 
 ### Loop slots
 
@@ -430,6 +474,23 @@ normally means membership in the `audio` group:
 sudo usermod -aG audio YOUR_USER
 ```
 
+For an interactive desktop launch, allow members of that group to use the
+real-time priority requested by FluidSynth and lock SoundFont sample memory.
+Create `/etc/security/limits.d/zeta-audio.conf` with:
+
+```text
+@audio - rtprio 90
+@audio - memlock unlimited
+```
+
+The filename must end in `.conf`. Log out completely and back in (or reboot)
+after changing group membership or PAM limits. `rtprio 90` is above
+FluidSynth's default audio-thread priority of 60. Unlimited locked memory is
+appropriate for a dedicated performance account because FluidSynth locks
+sample data by default, but it also lets every process run by an `audio` group
+member lock memory; use a dedicated account when that broader allowance is not
+acceptable.
+
 Create `/etc/systemd/system/zeta-daw.service`:
 
 ```ini
@@ -441,6 +502,8 @@ After=sound.target
 Type=simple
 User=YOUR_USER
 SupplementaryGroups=audio
+LimitRTPRIO=90
+LimitMEMLOCK=infinity
 ExecStart=/usr/local/bin/zd /etc/zeta-daw/zeta.yaml
 Restart=on-failure
 RestartSec=2
@@ -471,6 +534,12 @@ sudo systemctl stop zeta-daw.service
 If configuration fails, follow the reported YAML location and field name. For
 a SoundFont error, verify the path and its readability by the desktop or
 service user.
+
+If FluidSynth reports that the default audio device is in use, stop the
+competing application or configure `audio.driver: alsa` and an explicit
+`audio.alsa_device` from `aplay -L`. If it warns that it could not set high
+priority, verify the PAM limits for an interactive process or `LimitRTPRIO`
+for the systemd service.
 
 If controller actions do not work, stop Zeta and inspect the actual events:
 

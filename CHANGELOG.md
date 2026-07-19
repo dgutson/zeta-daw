@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added optional FluidSynth audio driver, ALSA device, and gain configuration,
+  including Raspberry Pi USB-audio, real-time priority, locked-memory, and
+  systemd setup guidance while preserving existing desktop defaults.
 - Added guide synchronization: the first configured slot establishes the
   timeline, while every later slot preserves its recorded guide-relative phase
   and repeats at the smallest whole guide multiple covering its phrase.
@@ -39,6 +42,7 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Configuration schema 8 adds the optional strict `audio` mapping.
 - Upgraded the test-only Hegel pin to v0.7.4 and migrated the subordinate
   playback lifecycle property to native named-rule stateful testing while
   retaining deterministic worker and transition coverage.
