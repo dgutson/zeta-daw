@@ -58,6 +58,10 @@ LooperFsm -> current master State -> LooperOutput
                                           dedicated worker per slot
 ```
 
+The [runtime sequence diagram](runtime-sequence.puml) expands this overview
+with process startup, MIDI port lifecycle and callback routing, FSM output
+calls, recording, per-slot playback workers, and orderly shutdown.
+
 The main layers and ownership boundaries are:
 
 - `main.cpp` loads configuration, owns process signal handling, constructs the
@@ -366,6 +370,10 @@ required version is 8.
 - Preserve user changes in a dirty worktree and avoid unrelated formatting or
   cleanup.
 - Update tests and documentation in the same change as behavior or schema.
+- Keep documentation entry points aligned with their audience. Reference
+  user-facing installation, configuration, operation, and troubleshooting from
+  `README.md`; reference developer-only architecture, design, and implementation
+  documentation from `CONTRIBUTING.md`, not from the user guide.
 - Update `CHANGELOG.md` in every change, placing pending entries under
   `Unreleased`.
 - Push back on complexity that does not serve a demonstrated live-performance

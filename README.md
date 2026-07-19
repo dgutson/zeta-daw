@@ -24,10 +24,6 @@ slot arms a replacement rather than resuming its old take. Pressing the
 loop-slot control while Armed cancels and discards the pending take. Exit is
 only through Ctrl-C, SIGTERM, or another process shutdown signal.
 
-The [runtime sequence diagram](runtime-sequence.puml) shows process startup,
-MIDI port discovery and callback routing, recording and playback-worker
-messages, and orderly shutdown as reviewable PlantUML source.
-
 ## Requirements and installation
 
 - Linux, including Raspberry Pi OS or Ubuntu; macOS and Windows are not
