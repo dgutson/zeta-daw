@@ -132,6 +132,7 @@ private:
 
 ApplicationConfig testConfig() {
     return {
+        .audio = {},
         .loop_slots = {
             LoopSlotDefinition{.key = first_slot_key},
             LoopSlotDefinition{.key = second_slot_key},
@@ -404,8 +405,29 @@ TEST_F(CurrentBehaviorTest, ConfiguresChannelsBeforeSynthAndLoadsSoundFonts) {
         Application application{testConfig(), fake_midi_input::makeInput()};
         const auto calls = fake_fluidsynth::calls();
         ASSERT_FALSE(calls.empty());
-        EXPECT_EQ(calls.front().kind, CallKind::ConfigureMidiChannels);
-        EXPECT_EQ(calls.front().value, 16);
+        const auto channels = std::ranges::find(
+            calls,
+            CallKind::ConfigureMidiChannels,
+            &Call::kind
+        );
+        ASSERT_NE(channels, calls.end());
+        EXPECT_EQ(channels->value, 16);
+        EXPECT_EQ(
+            std::ranges::count(
+                calls,
+                CallKind::ConfigureStringSetting,
+                &Call::kind
+            ),
+            0
+        );
+        const auto gain = std::ranges::find(
+            calls,
+            CallKind::ConfigureNumberSetting,
+            &Call::kind
+        );
+        ASSERT_NE(gain, calls.end());
+        EXPECT_EQ(gain->text, "synth.gain");
+        EXPECT_DOUBLE_EQ(gain->number_value, 0.5);
         EXPECT_EQ(
             std::ranges::count(calls, CallKind::LoadSoundFont, &Call::kind),
             2
@@ -419,6 +441,43 @@ TEST_F(CurrentBehaviorTest, ConfiguresChannelsBeforeSynthAndLoadsSoundFonts) {
     const auto settings = std::ranges::find(calls, CallKind::DeleteSettings, &Call::kind);
     EXPECT_LT(audio, synth);
     EXPECT_LT(synth, settings);
+}
+
+TEST_F(CurrentBehaviorTest, ConfiguresFluidSynthAudioOverrides) {
+    auto config = testConfig();
+    config.audio = {
+        .driver = "alsa",
+        .alsa_device = "plughw:3",
+        .gain = 1.0,
+    };
+
+    SynthEngine synth_engine{config};
+    const auto calls = fake_fluidsynth::calls();
+
+    const auto driver = std::ranges::find(
+        calls,
+        std::string{"audio.driver=alsa"},
+        &Call::text
+    );
+    ASSERT_NE(driver, calls.end());
+    EXPECT_EQ(driver->kind, CallKind::ConfigureStringSetting);
+
+    const auto device = std::ranges::find(
+        calls,
+        std::string{"audio.alsa.device=plughw:3"},
+        &Call::text
+    );
+    ASSERT_NE(device, calls.end());
+    EXPECT_EQ(device->kind, CallKind::ConfigureStringSetting);
+
+    const auto gain = std::ranges::find(
+        calls,
+        CallKind::ConfigureNumberSetting,
+        &Call::kind
+    );
+    ASSERT_NE(gain, calls.end());
+    EXPECT_EQ(gain->text, "synth.gain");
+    EXPECT_DOUBLE_EQ(gain->number_value, 1.0);
 }
 
 TEST_F(CurrentBehaviorTest, ReadyRoutesLiveMidiToChannelZero) {

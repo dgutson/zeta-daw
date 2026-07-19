@@ -263,7 +263,7 @@ part of the input adapter's contract.
 ## Configuration contract
 
 The configuration schema is deliberately strict and versioned. The current
-required version is 7.
+required version is 8.
 
 - The version in the file must exactly match the compiled
   `required_schema_version` constant. There is no backward-compatibility
@@ -273,6 +273,11 @@ required version is 7.
   action bindings. Do not silently ignore a typo in stage configuration.
 - Paths relative to the YAML file are resolved relative to that file, not the
   process working directory.
+- `audio` is optional. Omission preserves FluidSynth's default audio driver and
+  device plus Zeta's existing gain of 0.5. Its optional `driver`,
+  `alsa_device`, and `gain` fields are applied before synth/audio-driver
+  creation; `alsa_device` requires `driver: alsa`, and gain is bounded by
+  FluidSynth's documented range 0.0 through 10.0.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
 - The `loop_slots` list is ordered and non-empty. Every scalar entry is one raw

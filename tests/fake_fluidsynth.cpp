@@ -81,11 +81,24 @@ void delete_fluid_settings(fluid_settings_t* settings) {
     delete settings;
 }
 
-int fluid_settings_setstr(fluid_settings_t*, const char*, const char*) {
-    return 1;
+int fluid_settings_setstr(
+    fluid_settings_t*,
+    const char* name,
+    const char* value
+) {
+    record({
+        .kind = fake_fluidsynth::CallKind::ConfigureStringSetting,
+        .text = std::string{name} + "=" + value,
+    });
+    return FLUID_OK;
 }
 
-int fluid_settings_setnum(fluid_settings_t*, const char*, double) {
+int fluid_settings_setnum(fluid_settings_t*, const char* name, double value) {
+    record({
+        .kind = fake_fluidsynth::CallKind::ConfigureNumberSetting,
+        .number_value = value,
+        .text = name,
+    });
     return FLUID_OK;
 }
 

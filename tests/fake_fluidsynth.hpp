@@ -10,6 +10,8 @@
 namespace fake_fluidsynth {
 
 enum class CallKind {
+    ConfigureStringSetting,
+    ConfigureNumberSetting,
     ConfigureMidiChannels,
     LoadSoundFont,
     SelectProgram,
@@ -33,6 +35,7 @@ struct Call {
     int soundfont_id{};
     int bank{};
     int preset{};
+    double number_value{};
     std::string text;
 };
 

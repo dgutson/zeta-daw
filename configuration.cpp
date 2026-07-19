@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <initializer_list>
 #include <string_view>
 #include <unordered_set>
@@ -11,7 +12,9 @@
 namespace zeta {
 namespace {
 
-constexpr int required_schema_version = 7;
+constexpr int required_schema_version = 8;
+constexpr double minimum_synth_gain = 0.0;
+constexpr double maximum_synth_gain = 10.0;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -279,6 +282,47 @@ std::optional<MidiControlBinding> parseOptionalActionControl(
     return parseActionControl(controls, name);
 }
 
+AudioConfig parseAudioConfig(const YAML::Node& node) {
+    constexpr std::string_view location{"audio"};
+    rejectUnknownKeys(node, std::string{location}, {
+        "driver",
+        "alsa_device",
+        "gain",
+    });
+
+    AudioConfig config;
+    if (node["driver"]) {
+        config.driver = nonEmptyString(node, "driver", std::string{location});
+    }
+    if (node["alsa_device"]) {
+        config.alsa_device = nonEmptyString(
+            node,
+            "alsa_device",
+            std::string{location}
+        );
+    }
+    if (node["gain"]) {
+        config.gain = required<double>(node, "gain", std::string{location});
+        if (!std::isfinite(config.gain)
+            || config.gain < minimum_synth_gain
+            || config.gain > maximum_synth_gain) {
+            fail(
+                "audio.gain",
+                "expected a value from 0 to 10"
+            );
+        }
+    }
+
+    if (config.alsa_device && config.driver != "alsa") {
+        fail(
+            "audio.alsa_device",
+            "requires audio.driver to be 'alsa'"
+        );
+    }
+
+    return config;
+}
+
 std::vector<MidiControlChangeMapping> parseMidiControlChangeMappings(
     const YAML::Node& mappings
 ) {
@@ -408,6 +452,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
 
     rejectUnknownKeys(root, "configuration", {
         "schema_version",
+        "audio",
         "midi_control_change_mappings",
         "loop_slots",
         "soundfonts",
@@ -428,6 +473,9 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     }
 
     ApplicationConfig config;
+    if (root["audio"]) {
+        config.audio = parseAudioConfig(root["audio"]);
+    }
     const auto midi_control_change_mappings =
         root["midi_control_change_mappings"];
     if (midi_control_change_mappings) {

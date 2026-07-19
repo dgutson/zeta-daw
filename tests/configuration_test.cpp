@@ -55,7 +55,7 @@ std::string configWithMmcCommands(
 ) {
     std::ostringstream config;
     config
-        << "schema_version: 7\n"
+        << "schema_version: 8\n"
         << "midi_control_change_mappings: []\n"
         << "loop_slots:\n"
         << "  - F8\n"
@@ -76,7 +76,7 @@ std::string configWithMmcCommands(
 std::string configWithMapping(std::string_view mapping) {
     std::ostringstream config;
     config
-        << "schema_version: 7\n"
+        << "schema_version: 8\n"
         << "midi_control_change_mappings:\n"
         << "  - { " << mapping << " }\n"
         << "loop_slots:\n"
@@ -96,7 +96,7 @@ std::string configWithAllMmcCommands(
 ) {
     std::ostringstream config;
     config
-        << "schema_version: 7\n"
+        << "schema_version: 8\n"
         << "loop_slots:\n"
         << "  - F8\n"
         << "soundfonts:\n"
@@ -240,7 +240,11 @@ TEST(MidiControlBindingPropertyTest, OverlapMatchesFiniteEventModel) {
 
 TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
+audio:
+  driver: alsa
+  alsa_device: plughw:3
+  gain: 1.0
 loop_slots:
   - F8
   - G8
@@ -274,6 +278,12 @@ controls:
 )yaml"};
 
     const auto config = zeta::loadConfiguration(source.path());
+
+    ASSERT_TRUE(config.audio.driver);
+    EXPECT_EQ(*config.audio.driver, "alsa");
+    ASSERT_TRUE(config.audio.alsa_device);
+    EXPECT_EQ(*config.audio.alsa_device, "plughw:3");
+    EXPECT_DOUBLE_EQ(config.audio.gain, 1.0);
 
     ASSERT_EQ(config.loop_slots.size(), 2U);
     EXPECT_EQ(config.loop_slots[0].key, 125);
@@ -314,6 +324,52 @@ controls:
     EXPECT_EQ(*config.soundfonts[0].key, 67);
     ASSERT_TRUE(config.soundfonts[1].key);
     EXPECT_EQ(*config.soundfonts[1].key, 73);
+}
+
+TEST(ConfigurationTest, UsesExistingAudioDefaultsWhenAudioIsOmitted) {
+    TemporaryConfig source{configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    })};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    EXPECT_FALSE(config.audio.driver);
+    EXPECT_FALSE(config.audio.alsa_device);
+    EXPECT_DOUBLE_EQ(config.audio.gain, 0.5);
+}
+
+TEST(ConfigurationTest, RejectsInvalidAudioConfiguration) {
+    constexpr std::array invalid_audio_mappings{
+        std::string_view{"audio: []\n"},
+        std::string_view{"audio: { typo: true }\n"},
+        std::string_view{"audio: { driver: '' }\n"},
+        std::string_view{"audio: { alsa_device: '' }\n"},
+        std::string_view{"audio: { alsa_device: 'plughw:3' }\n"},
+        std::string_view{
+            "audio: { driver: pulseaudio, alsa_device: 'plughw:3' }\n"
+        },
+        std::string_view{"audio: { gain: -0.1 }\n"},
+        std::string_view{"audio: { gain: 10.1 }\n"},
+        std::string_view{"audio: { gain: .nan }\n"},
+        std::string_view{"audio: { gain: loud }\n"},
+    };
+
+    for (const auto audio : invalid_audio_mappings) {
+        auto contents = configWithMmcCommands({
+            "rewind",
+            "stop",
+            "play",
+            "record_strobe",
+        });
+        const auto insertion = contents.find('\n') + 1;
+        contents.insert(insertion, audio);
+        TemporaryConfig source{std::move(contents)};
+        SCOPED_TRACE(audio);
+        EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+    }
 }
 
 TEST(ConfigurationTest, RequiresOrderedNonEmptyLoopSlots) {
@@ -374,7 +430,7 @@ TEST(ConfigurationTest, RejectsInvalidDuplicateAndNonscalarLoopSlotKeys) {
 
 TEST(ConfigurationTest, LoopSlotKeysMayOverlapSoundFontKeys) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - C4
 soundfonts:
@@ -393,7 +449,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsLoopSlotKeysOverlappingNoteActions) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - C4
 soundfonts:
@@ -588,7 +644,7 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
     for (const auto key : invalid_keys) {
         std::ostringstream contents;
         contents
-            << "schema_version: 7\n"
+            << "schema_version: 8\n"
             << "loop_slots:\n"
             << "  - F8\n"
             << "soundfonts:\n"
@@ -607,7 +663,7 @@ TEST(ConfigurationTest, RejectsInvalidSoundFontKeys) {
 
 TEST(ConfigurationTest, ParsesControllerKeyDomainBoundaries) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 soundfonts:
@@ -630,7 +686,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontKeys) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 soundfonts:
@@ -648,7 +704,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsSelectionNotesOverlappingActionBindings) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 soundfonts:
@@ -692,7 +748,7 @@ TEST(ConfigurationTest, RequiresKeysExactlyWhenDirectSelectionIsConfigured) {
 
 TEST(ConfigurationTest, RejectsUnknownFields) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
@@ -717,7 +773,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsDuplicateSoundFontIds) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
@@ -736,7 +792,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsOldSchemaAndRemovedParts) {
     TemporaryConfig old_schema{R"yaml(
-schema_version: 6
+schema_version: 7
 soundfonts:
   - { id: piano, file: piano.sf2, bank: 0, preset: 0 }
 controls:
@@ -751,13 +807,13 @@ controls:
     } catch (const ConfigurationError& error) {
         EXPECT_STREQ(
             error.what(),
-            "configuration.schema_version: unsupported schema version 6; "
-            "expected 7"
+            "configuration.schema_version: unsupported schema version 7; "
+            "expected 8"
         );
     }
 
     TemporaryConfig removed_parts{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
@@ -775,7 +831,7 @@ controls:
 
 TEST(ConfigurationTest, RejectsInvalidMidiBindings) {
     TemporaryConfig bad_channel{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
@@ -790,7 +846,7 @@ controls:
     EXPECT_THROW(zeta::loadConfiguration(bad_channel.path()), ConfigurationError);
 
     TemporaryConfig bad_mmc_command{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
@@ -847,7 +903,7 @@ TEST(ConfigurationTest, RejectsOverlappingActionBindings) {
 
 TEST(ConfigurationTest, RejectsMultipleBindingsForAnAction) {
     TemporaryConfig source{R"yaml(
-schema_version: 7
+schema_version: 8
 loop_slots:
   - F8
 midi_control_change_mappings: []
