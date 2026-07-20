@@ -6,6 +6,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the `zfont` CLI helper to list and automatically audition every preset
+  in an SF2 or SF3 file through Zeta's configured FluidSynth audio output.
 - Documented a measured, reversible Raspberry Pi headless operating profile
   with local on-demand graphical maintenance and disabled unused Bluetooth,
   and added a PlantUML diagram of the complete runtime message sequence.

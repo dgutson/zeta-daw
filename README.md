@@ -278,9 +278,17 @@ of these two selection controls is required. Configure both for direct and
 sequential selection, or configure either one alone. SoundFonts without `key`
 remain available through sequential selection.
 
-To inspect the banks and presets in a SoundFont, start FluidSynth with the
-file, then use its `fonts` and `inst` shell commands. Consult your distribution's
-FluidSynth documentation because command-line audio options differ by system.
+To inspect and audition every preset in a SoundFont, build and run `zfont`:
+
+```bash
+./build/zfont /path/to/piano.sf2 /path/to/zeta.yaml
+```
+
+The configuration path is optional and defaults to
+`/etc/zeta-daw/zeta.yaml`. `zfont` uses its FluidSynth audio settings, prints
+each preset as `bank-preset name`, plays C3 for one second, and immediately
+continues to the next preset. The inspected `.sf2` or `.sf3` file does not need
+to appear in the configuration.
 
 ### MIDI Control Change mappings
 

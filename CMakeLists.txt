@@ -98,6 +98,15 @@ if(ZETA_MIDI_TRACE)
     target_compile_definitions(zd PRIVATE ZETA_MIDI_TRACE)
 endif()
 
+add_executable(zfont zfont.cpp configuration.cpp)
+target_link_libraries(
+    zfont
+    PRIVATE
+        PkgConfig::FLUIDSYNTH
+        ${ZETA_YAML_TARGET}
+)
+target_compile_options(zfont PRIVATE -Wall -Wextra -Wpedantic)
+
 include(CTest)
 
 if(BUILD_TESTING)
