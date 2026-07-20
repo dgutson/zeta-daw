@@ -145,10 +145,9 @@ int run(const std::string& soundfont_path, const std::string& config_path) {
             "Could not start audition note"
         );
         std::this_thread::sleep_for(audition_duration);
-        requireFluidOk(
-            fluid_synth_noteoff(synth.get(), audition_channel, audition_key),
-            "Could not stop audition note"
-        );
+        // A one-shot preset may finish before this call. FluidSynth reports
+        // FLUID_FAILED when no active voice matches, which is benign here.
+        fluid_synth_noteoff(synth.get(), audition_channel, audition_key);
     }
 
     return 0;
