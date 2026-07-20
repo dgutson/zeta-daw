@@ -410,8 +410,9 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-CI also runs clang-tidy 18 over first-party production sources. To reproduce
-that check locally:
+CI also runs clang-tidy 18 over the main `zd` production sources. The small,
+script-like `zfont.cpp` helper is intentionally excluded. To reproduce that
+check locally:
 
 ```bash
 cmake -S . -B build \
@@ -421,7 +422,7 @@ cmake -S . -B build \
 run-clang-tidy-18 \
     -p build \
     -j 2 \
-    "$(pwd)/[^/]+\.cpp$"
+    "$(pwd)/(?!zfont\.cpp$)[^/]+\.cpp$"
 ```
 
 GCC's analyzer is limited to the production target so fetched dependencies are
