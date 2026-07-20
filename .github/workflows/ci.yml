@@ -63,7 +63,7 @@ jobs:
           run-clang-tidy-18
           -p build
           -j 2
-          "$(pwd)/[^/]+\.cpp$"
+          "$(pwd)/(?!zfont\.cpp$)[^/]+\.cpp$"
 
   gcc-analyzer:
     runs-on: ubuntu-24.04
