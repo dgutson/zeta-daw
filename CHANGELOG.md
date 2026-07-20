@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Documented a measured, reversible Raspberry Pi headless operating profile
+  with local on-demand graphical maintenance and disabled unused Bluetooth,
+  and added a PlantUML diagram of the complete runtime message sequence.
 - Added optional FluidSynth audio driver, ALSA device, and gain configuration,
   including Raspberry Pi USB-audio, real-time priority, locked-memory, and
   systemd setup guidance while preserving existing desktop defaults.

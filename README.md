@@ -567,6 +567,105 @@ sudo systemctl restart zeta-daw.service
 sudo systemctl stop zeta-daw.service
 ```
 
+## Optimizing Raspberry Pi for headless operation
+
+Use a desktop-capable Raspberry Pi OS image so the graphical environment is
+available for maintenance. Complete the automatic Zeta service setup above
+first. Existing user and login settings are left unchanged.
+
+### Boot without the graphical environment
+
+Make the non-graphical systemd target the default, then reboot:
+
+```bash
+sudo systemctl set-default multi-user.target
+sudo reboot
+```
+
+After reboot, confirm that the Pi remains headless and Zeta is running:
+
+```bash
+systemctl get-default
+systemctl status zeta-daw.service
+```
+
+`get-default` must report `multi-user.target`.
+
+### Start the graphical environment once
+
+Connect a screen, keyboard, and mouse. Using the existing local login, start
+the graphical environment for the current boot:
+
+```bash
+sudo systemctl isolate graphical.target
+```
+
+This does not change the default for the next boot. To stop the graphical
+environment again, save any open work and run:
+
+```bash
+sudo systemctl isolate multi-user.target
+```
+
+Confirm that Zeta remains active after either transition:
+
+```bash
+systemctl status zeta-daw.service
+```
+
+### Disable onboard Bluetooth
+
+Skip this step if Bluetooth is used for MIDI, a keyboard, or a mouse. USB MIDI
+is unaffected.
+
+Open `/boot/firmware/config.txt` with `sudoedit` and add the documented
+[`disable-bt` overlay](https://github.com/raspberrypi/firmware/blob/master/boot/overlays/README)
+under `[all]`:
+
+```ini
+[all]
+dtoverlay=disable-bt
+```
+
+Disable the Bluetooth service and reboot:
+
+```bash
+sudo systemctl disable --now bluetooth.service
+sudo reboot
+```
+
+After reboot, check that Bluetooth is absent and Zeta still works with USB
+audio and MIDI:
+
+```bash
+rfkill list
+systemctl status zeta-daw.service
+```
+
+To restore Bluetooth, remove the `dtoverlay=disable-bt` line, then run:
+
+```bash
+sudo systemctl enable bluetooth.service
+sudo reboot
+```
+
+### Check the result
+
+Run these commands before and after the changes to compare boot time, slow
+units, failures, and idle memory use:
+
+```bash
+systemd-analyze time
+systemd-analyze blame
+systemctl --failed
+free -h
+```
+
+For shutdown delays, inspect the end of the previous boot with
+`journalctl -b -1 -e`. Disable another service only after confirming that this
+instrument does not use it. Keep the Zeta, audio, MIDI, local-login, and logging
+services.
+
 ## Troubleshooting
 
 If configuration fails, follow the reported YAML location and field name. For
