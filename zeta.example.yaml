@@ -4,7 +4,7 @@ schema_version: 8
 # FluidSynth's default desktop driver/device and Zeta's gain of 0.5.
 # audio:
 #   driver: alsa
-#   alsa_device: plughw:3
+#   alsa_device: plughw:CARD=Device,DEV=0  # Use the card ID from `aplay -L`.
 #   gain: 1.0
 
 # Each entry is one independently controlled loop slot. Keys are raw physical
