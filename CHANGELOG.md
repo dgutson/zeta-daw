@@ -47,6 +47,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Documentation-only changes no longer require configuring, rebuilding, or
+  running the C++ test suite.
 - Clarified unattended Raspberry Pi systemd installation and reboot
   verification, persistent recovery from late USB-audio startup, service
   permissions, diagnostics, and the boundary between required settings and
