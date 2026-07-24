@@ -400,7 +400,16 @@ failures. Such a change is a dedicated build-architecture decision.
 
 ## Building and testing changes
 
-Configure a development build and run the complete suite:
+Do not configure or build the project and do not run the C++ test suite for a
+documentation-only change. A change is documentation-only when it is limited
+to prose, diagrams, the changelog, or non-executable example configuration and
+does not change the configuration schema or runtime behavior. Validate it with
+`git diff --check` and any repository-provided documentation formatter, link
+checker, or renderer that applies to the changed files.
+
+Changes to source code, headers, CMake, CI workflows, scripts, tests, fixtures,
+or executable configuration behavior are not documentation-only. For those
+changes, configure a development build and run the complete suite:
 
 ```bash
 cmake -S . -B build \

@@ -47,6 +47,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Documentation-only changes no longer require configuring, rebuilding, or
+  running the C++ test suite.
 - Raspberry Pi USB-audio examples now select the configured output by its
   stable ALSA card ID instead of a boot-specific numeric card index.
 - Clarified unattended Raspberry Pi systemd installation and reboot
