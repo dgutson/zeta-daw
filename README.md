@@ -99,7 +99,7 @@ schema_version: 8
 # Zeta's existing gain of 0.5.
 audio:
   driver: alsa
-  alsa_device: plughw:3
+  alsa_device: plughw:CARD=Device,DEV=0
   gain: 1.0
 
 loop_slots:
@@ -174,15 +174,16 @@ Then configure the card, for example:
 ```yaml
 audio:
   driver: alsa
-  alsa_device: plughw:3
+  alsa_device: plughw:CARD=Device,DEV=0
   gain: 1.0
 ```
 
-`hw:3` opens the hardware device directly and succeeds only when the requested
-sample format and rate are supported exactly. `plughw:3` adds ALSA's conversion
-layer and is generally the more compatible choice. Numeric card indexes can
-change across reboots; when `aplay -L` exposes a stable named PCM such as
-`plughw:CARD=Device`, prefer that string.
+`Device` is the ALSA card ID in this example; use the exact ID that `aplay -L`
+reports for the intended output. `hw:CARD=Device,DEV=0` opens the hardware
+device directly and succeeds only when the requested sample format and rate
+are supported exactly. `plughw:CARD=Device,DEV=0` adds ALSA's conversion layer
+and is generally the more compatible choice. Prefer this stable named form
+because numeric card indexes can change across reboots and USB reconnections.
 
 Gain `1.0` is valid, but it provides substantially more level than Zeta's
 default `0.5` and can clip when several voices or loop slots sound together.
