@@ -5,12 +5,14 @@
 #include "soundfont_selector.hpp"
 #include "synth_engine.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <syncstream>
+#include <thread>
 #include <utility>
 
 namespace zeta {
@@ -101,6 +103,20 @@ Application::Application(
     );
     impl_->synth_engine.allNotesOff();
     midi_ready_.store(true, std::memory_order_release);
+
+    #ifdef ZETA_MIDI_TRACE
+    const auto gate_opened_at = std::chrono::steady_clock::now();
+    const auto gate_opened_at_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            gate_opened_at.time_since_epoch()
+        ).count();
+    std::osyncstream{std::cerr}
+        << "[midi gate]"
+        << " state=open"
+        << " monotonic_ns=" << gate_opened_at_ns
+        << " callback_thread=" << std::this_thread::get_id()
+        << '\n';
+    #endif
 }
 
 Application::~Application() {
@@ -136,7 +152,27 @@ void Application::shutdownRequested() {
 }
 
 void Application::handleMidiEvent(MidiEvent event) noexcept {
-    if (!midi_ready_.load(std::memory_order_acquire)) {
+    const bool midi_ready = midi_ready_.load(std::memory_order_acquire);
+
+    #ifdef ZETA_MIDI_TRACE
+    const auto gate_checked_at = std::chrono::steady_clock::now();
+    const auto gate_checked_at_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            gate_checked_at.time_since_epoch()
+        ).count();
+    std::osyncstream{std::cerr}
+        << "[midi gate]"
+        << " state=" << (midi_ready ? "open" : "closed")
+        << " monotonic_ns=" << gate_checked_at_ns
+        << " callback_thread=" << std::this_thread::get_id()
+        << " type=0x" << std::hex << event.message.raw_type << std::dec
+        << " channel=" << event.message.channel + 1
+        << " key=" << event.message.key
+        << " velocity=" << event.message.velocity
+        << '\n';
+    #endif
+
+    if (!midi_ready) {
         return;
     }
 

@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added trace-only MIDI input lifecycle, source-port, monotonic timing, and
+  application startup-gate diagnostics for investigating connection-time
+  events.
 - Added the `zfont` CLI helper to list and automatically audition every preset
   in an SF2 or SF3 file through Zeta's configured FluidSynth audio output.
 - Documented a measured, reversible Raspberry Pi headless operating profile

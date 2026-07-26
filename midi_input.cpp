@@ -3,12 +3,14 @@
 #include <libremidi/libremidi.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
 #include <syncstream>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -35,6 +37,10 @@ public:
         std::vector<MidiControlChangeMapping> mappings,
         Handler handler
     ) override {
+        #ifdef ZETA_MIDI_TRACE
+        traceLifecycle("start");
+        #endif
+
         {
             std::lock_guard lock(mutex_);
             if (observer_) {
@@ -77,6 +83,10 @@ public:
             std::lock_guard lock(mutex_);
             observer_ = std::move(observer);
         }
+
+        #ifdef ZETA_MIDI_TRACE
+        traceLifecycle("start_complete");
+        #endif
     }
 
     void stop() noexcept override {
@@ -121,6 +131,10 @@ private:
             return;
         }
 
+        #ifdef ZETA_MIDI_TRACE
+        traceLifecycle("connect", port.display_name);
+        #endif
+
         const MidiControlChangeMapper mapper{
             port.display_name,
             mappings_,
@@ -158,6 +172,10 @@ private:
 
         std::cout << "[MIDI input] connected: " << port.display_name << '\n';
         inputs_.push_back({port, std::move(input)});
+
+        #ifdef ZETA_MIDI_TRACE
+        traceLifecycle("connected", port.display_name);
+        #endif
     }
 
     void disconnect(const libremidi::input_port& port) {
@@ -194,6 +212,10 @@ private:
             if (!event) {
                 return;
             }
+
+            #ifdef ZETA_MIDI_TRACE
+            traceEvent(display_name, message.timestamp, *event);
+            #endif
 
             const auto mapped_event = mapper.map(*event);
 
@@ -235,6 +257,49 @@ private:
     std::unique_ptr<libremidi::observer> observer_;
     std::vector<Connection> inputs_;
     bool stopping_{true};
+
+    #ifdef ZETA_MIDI_TRACE
+    static std::int64_t monotonicNanoseconds() noexcept {
+        const auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now.time_since_epoch()
+        ).count();
+    }
+
+    static void traceLifecycle(
+        std::string_view phase,
+        std::string_view display_name = {}
+    ) {
+        std::osyncstream output{std::cerr};
+        output
+            << "[midi input lifecycle]"
+            << " phase=" << phase
+            << " monotonic_ns=" << monotonicNanoseconds()
+            << " callback_thread=" << std::this_thread::get_id();
+        if (!display_name.empty()) {
+            output << " source_port=\"" << display_name << '"';
+        }
+        output << '\n';
+    }
+
+    static void traceEvent(
+        std::string_view display_name,
+        libremidi::timestamp input_timestamp,
+        const MidiEvent& event
+    ) {
+        std::osyncstream{std::cerr}
+            << "[midi input]"
+            << " source_port=\"" << display_name << '"'
+            << " input_timestamp_ns=" << input_timestamp
+            << " received_monotonic_ns=" << monotonicNanoseconds()
+            << " callback_thread=" << std::this_thread::get_id()
+            << " type=0x" << std::hex << event.message.raw_type << std::dec
+            << " channel=" << event.message.channel + 1
+            << " key=" << event.message.key
+            << " velocity=" << event.message.velocity
+            << '\n';
+    }
+    #endif
 };
 
 } // namespace
