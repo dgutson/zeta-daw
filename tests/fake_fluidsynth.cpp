@@ -69,9 +69,8 @@ bool waitUntil(
 
 extern "C" {
 
-char* fluid_version_str() {
-    static char version[] = "2.5.7-test";
-    return version;
+const char* fluid_version_str() {
+    return "2.5.7-test";
 }
 
 fluid_settings_t* new_fluid_settings() {

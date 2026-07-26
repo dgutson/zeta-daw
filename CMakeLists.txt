@@ -55,6 +55,7 @@ set(
     ZETA_FLUIDSYNTH_LIBRARY
     ${ZETA_FLUIDSYNTH_BINARY_DIR}/src/libfluidsynth.a
 )
+file(MAKE_DIRECTORY "${ZETA_FLUIDSYNTH_BINARY_DIR}/include")
 
 # FluidSynth registers its own tests unconditionally when added as a
 # subdirectory. Keep its build isolated so Zeta's test suite contains only
@@ -103,7 +104,8 @@ set_target_properties(
     zeta_fluidsynth
     PROPERTIES
         IMPORTED_LOCATION ${ZETA_FLUIDSYNTH_LIBRARY}
-        INTERFACE_INCLUDE_DIRECTORIES ${ZETA_FLUIDSYNTH_SOURCE_DIR}/include
+        INTERFACE_INCLUDE_DIRECTORIES
+            "${ZETA_FLUIDSYNTH_BINARY_DIR}/include;${ZETA_FLUIDSYNTH_SOURCE_DIR}/include"
 )
 target_link_libraries(
     zeta_fluidsynth
@@ -265,6 +267,7 @@ if(BUILD_TESTING)
         current_behavior_tests
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/tests
+            ${ZETA_FLUIDSYNTH_BINARY_DIR}/include
             ${ZETA_FLUIDSYNTH_SOURCE_DIR}/include
     )
     target_compile_options(current_behavior_tests PRIVATE -Wall -Wextra -Wpedantic)
