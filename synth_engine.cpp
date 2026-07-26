@@ -133,7 +133,9 @@ struct SynthEngine::Impl {
 };
 
 SynthEngine::SynthEngine(const ApplicationConfig& config)
-    : impl_(std::make_unique<Impl>(config)) {}
+    : impl_(std::make_unique<Impl>(config)) {
+    std::cout << "FluidSynth runtime version: " << fluid_version_str() << '\n';
+}
 
 SynthEngine::~SynthEngine() = default;
 

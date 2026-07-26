@@ -47,6 +47,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- FluidSynth 2.5.7 is now a checksum-verified, statically linked build
+  dependency for consistent desktop and Raspberry Pi rendering, replacing
+  whichever FluidSynth version the host distribution provided.
 - Documentation-only changes no longer require configuring, rebuilding, or
   running the C++ test suite.
 - Raspberry Pi USB-audio examples now select the configured output by its

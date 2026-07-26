@@ -383,7 +383,12 @@ required version is 8.
 
 The current dependency strategy is intentional:
 
-- System packages provide platform-facing ALSA and FluidSynth libraries.
+- System packages provide the platform-facing ALSA, PulseAudio, and libsndfile
+  libraries.
+- CMake downloads checksum-verified FluidSynth 2.5.7, builds its ALSA,
+  PulseAudio, SF2, and SF3 support, and links it statically into Zeta. This
+  keeps the renderer identical on the desktop and Raspberry Pi instead of
+  accepting the distro FluidSynth version.
 - CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned
   `FetchContent` fallbacks.
 - GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
@@ -391,12 +396,13 @@ The current dependency strategy is intentional:
   examples and do not treat it as a blanket testing standard. Follow
   [HEGEL.md](HEGEL.md) when selecting, writing, and running properties.
 
-Do not add Conan, vcpkg, or Nix merely for uniformity. At the current project
-size they would add another packaging layer without removing the need for
-Raspberry Pi system audio integration. Reconsider a package manager if the
-dependency graph grows materially, repeatable cross-compilation becomes a
-real requirement, or the current pinned/system split causes reproducibility
-failures. Such a change is a dedicated build-architecture decision.
+Do not replace the pinned FluidSynth build or add Conan, vcpkg, or Nix merely
+for uniformity. At the current project size they would add another packaging
+layer without removing the need for Raspberry Pi system audio integration.
+Reconsider a package manager if the dependency graph grows materially,
+repeatable cross-compilation becomes a real requirement, or the current
+pinned/system split causes reproducibility failures. Such a change is a
+dedicated build-architecture decision.
 
 ## Building and testing changes
 

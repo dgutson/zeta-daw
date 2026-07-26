@@ -31,8 +31,9 @@ only through Ctrl-C, SIGTERM, or another process shutdown signal.
 - A C++20-capable C++ compiler; GCC is the currently CI-tested toolchain
 - CMake 3.22 or newer
 - pkg-config
-- FluidSynth and ALSA development files
-- libremidi 5.4.3 and yaml-cpp, installed or fetched by CMake
+- ALSA, PulseAudio, and libsndfile development files
+- FluidSynth 2.5.7 fetched by CMake; libremidi 5.4.3 and yaml-cpp installed or
+  fetched by CMake
 - An ALSA-compatible audio output and MIDI controller
 - One or more `.sf2` or `.sf3` SoundFont files
 
@@ -45,15 +46,19 @@ sudo apt install \
     cmake \
     pkg-config \
     libasound2-dev \
-    libfluidsynth-dev \
+    libpulse-dev \
+    libsndfile1-dev \
     libyaml-cpp-dev
 ```
 
-FluidSynth and ALSA are required system dependencies. CMake first looks for
-libremidi 5.4.3 and yaml-cpp, then downloads pinned copies when they are not
-available. Test builds also fetch pinned Hegel and GoogleTest dependencies.
-The first configuration therefore requires network access when those fetched
-dependencies are not already cached.
+ALSA, PulseAudio, and libsndfile are required system dependencies. CMake
+downloads checksum-verified FluidSynth 2.5.7 and links it statically into
+`zd` and `zfont`; an installed distro FluidSynth is neither required nor used.
+The pinned build supports ALSA and PulseAudio output plus SF2 and SF3
+SoundFonts. CMake first looks for libremidi 5.4.3 and yaml-cpp, then downloads
+pinned copies when they are not available. Test builds also fetch pinned Hegel
+and GoogleTest dependencies. The first build therefore requires network access
+when those fetched dependencies are not already cached.
 
 These optional packages provide MIDI diagnostic tools and a General MIDI
 SoundFont suitable for an initial test:
@@ -70,8 +75,9 @@ Configure and build a release executable:
 ./build.sh
 ```
 
-The release executable is `build/zd`. This script explicitly disables
-MIDI tracing, even when the build directory previously cached another value.
+The script downloads the pinned dependencies on the first build and produces
+the release executable at `build/zd`. It explicitly disables MIDI tracing,
+even when the build directory previously cached another value.
 
 For a debug executable with MIDI routing traces enabled, use the separate debug
 build directory:
@@ -680,6 +686,10 @@ services.
 If configuration fails, follow the reported YAML location and field name. For
 a SoundFont error, verify the path and its readability by the desktop or
 service user.
+
+At startup, Zeta reports `FluidSynth runtime version: 2.5.7`. Because the
+renderer is linked into the executable, this reports the version actually in
+use rather than a separately installed command-line package.
 
 If FluidSynth reports that the default audio device is in use, stop the
 competing application or configure `audio.driver: alsa` and an explicit

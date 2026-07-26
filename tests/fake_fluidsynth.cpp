@@ -69,6 +69,11 @@ bool waitUntil(
 
 extern "C" {
 
+char* fluid_version_str() {
+    static char version[] = "2.5.7-test";
+    return version;
+}
+
 fluid_settings_t* new_fluid_settings() {
     return new _fluid_hashtable_t;
 }
