@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the interactive `zsoundtest` diagnostic to exercise configured
+  SoundFont presets across gain, pitch-direction, speed, separation, and
+  overlap combinations while recording the listener's observations.
 - Added the `zfont` CLI helper to list and automatically audition every preset
   in an SF2 or SF3 file through Zeta's configured FluidSynth audio output.
 - Documented a measured, reversible Raspberry Pi headless operating profile

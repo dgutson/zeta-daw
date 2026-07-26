@@ -297,6 +297,35 @@ each preset as `bank-preset name`, plays C3 for one second, and immediately
 continues to the next preset. The inspected `.sf2` or `.sf3` file does not need
 to appear in the configuration.
 
+To investigate intermittent clicks or sparks with repeatable input, run the
+interactive `zsoundtest` diagnostic:
+
+```bash
+./build/zsoundtest
+```
+
+Stop the regular Zeta process or service first so it cannot share the output or
+add live notes during the diagnostic. The tool reads
+`/etc/zeta-daw/zeta.yaml` by default, uses the configured audio output, and
+lists every configured SoundFont preset before creating the audio driver.
+Choose one preset or all presets. For each selection it tests MIDI keys 36 and
+84 in both directions, at velocity 110, using slow-separated,
+rapid-separated, rapid-immediate, and rapid-overlap transitions. It repeats
+the matrix at the configured gain and at FluidSynth's conservative gain of
+`0.2`. After each labeled case, report clean, spark, or unsure; the final
+summary identifies every reported condition and its observed peak voice count.
+Natural release tails remain audible while the result prompt waits. Replay,
+skip-preset, and quit controls are available at every result prompt.
+
+To inspect the complete matrix without opening an audio device:
+
+```bash
+./build/zsoundtest --list
+```
+
+Pass a configuration path after the executable, or after `--list`, to override
+the default.
+
 ### MIDI Control Change mappings
 
 `midi_control_change_mappings` is optional. Omit it when the controller needs

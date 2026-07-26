@@ -211,6 +211,15 @@ target_link_libraries(
 )
 target_compile_options(zfont PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(zsoundtest sound_test.cpp configuration.cpp)
+target_link_libraries(
+    zsoundtest
+    PRIVATE
+        zeta_fluidsynth
+        ${ZETA_YAML_TARGET}
+)
+target_compile_options(zsoundtest PRIVATE -Wall -Wextra -Wpedantic)
+
 include(CTest)
 
 if(BUILD_TESTING)
