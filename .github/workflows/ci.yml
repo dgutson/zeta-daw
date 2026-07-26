@@ -60,6 +60,11 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug
           -DBUILD_TESTING=OFF
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Build generated dependency headers
+        run: >-
+          cmake --build build
+          --target zeta_fluidsynth_external
+          --parallel 2
       - name: Run clang-tidy
         run: >-
           run-clang-tidy-18
