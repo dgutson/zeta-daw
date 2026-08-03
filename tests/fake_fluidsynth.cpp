@@ -118,6 +118,12 @@ int fluid_settings_setint(
             .value = value,
             .text = name,
         });
+    } else {
+        record({
+            .kind = fake_fluidsynth::CallKind::ConfigureIntegerSetting,
+            .value = value,
+            .text = name,
+        });
     }
     return FLUID_OK;
 }

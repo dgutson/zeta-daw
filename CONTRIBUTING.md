@@ -270,18 +270,25 @@ The configuration schema is deliberately strict and versioned. The current
 required version is 8.
 
 - The version in the file must exactly match the compiled
-  `required_schema_version` constant. There is no backward-compatibility
-  requirement unless explicitly agreed for a future schema.
+  `required_schema_version` constant. The version identifies an incompatible
+  configuration generation, not every additive grammar revision. Keep the
+  version unchanged when adding an optional field that preserves the validity
+  and meaning of every existing configuration. Increment it when a previously
+  valid configuration would be rejected or change meaning, or when a new
+  required field is introduced. Strict unknown-field rejection means a file
+  using a newly added optional field need not work with an older executable;
+  forward compatibility is not promised.
 - Reject missing fields, unknown fields, empty required lists, duplicate
   SoundFont IDs, invalid ranges, unsupported control commands, and overlapping
   action bindings. Do not silently ignore a typo in stage configuration.
 - Paths relative to the YAML file are resolved relative to that file, not the
   process working directory.
-- `audio` is optional. Omission preserves FluidSynth's default audio driver and
-  device plus Zeta's existing gain of 0.5. Its optional `driver`,
-  `alsa_device`, and `gain` fields are applied before synth/audio-driver
-  creation; `alsa_device` requires `driver: alsa`, and gain is bounded by
-  FluidSynth's documented range 0.0 through 10.0.
+- `audio` is optional. Omission preserves FluidSynth's default audio driver,
+  device, period size, and period count while applying Zeta's existing gain of
+  0.5. Its optional `driver`, `alsa_device`, `gain`, `period_size`, and
+  `periods` fields are applied before synth/audio-driver creation;
+  `alsa_device` requires `driver: alsa`, gain is bounded from 0.0 through 10.0,
+  period size from 64 through 8192 frames, and period count from 2 through 64.
 - The `soundfonts` list is ordered and non-empty. Files are loaded eagerly, and
   repeated references to one file reuse its loaded FluidSynth ID.
 - The `loop_slots` list is ordered and non-empty. Every scalar entry is one raw
@@ -309,8 +316,9 @@ required version is 8.
   required. Performance setup changes are made by editing bindings before
   startup. Supported binding types are Note On, exact Control Change, exact or
   any Program Change, and named MMC commands.
-- A schema shape change requires incrementing the exact version constant,
-  updating `zeta.example.yaml` and README usage, and adding positive and
+- A breaking schema change requires incrementing the exact version constant.
+  Every schema shape change, including an additive optional field, requires
+  updating `zeta.example.yaml` and README usage and adding positive and
   negative parser tests.
 
 ## Concurrency and lifecycle

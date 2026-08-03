@@ -12,6 +12,7 @@ namespace fake_fluidsynth {
 enum class CallKind {
     ConfigureStringSetting,
     ConfigureNumberSetting,
+    ConfigureIntegerSetting,
     ConfigureMidiChannels,
     LoadSoundFont,
     SelectProgram,

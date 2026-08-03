@@ -101,12 +101,15 @@ A complete configuration looks like this:
 ```yaml
 schema_version: 8
 
-# Omit this mapping to retain FluidSynth's default desktop audio output and
+# Optional reliability-first audio settings found while resolving issue 23.
+# Leave this mapping commented out to preserve FluidSynth's defaults and
 # Zeta's existing gain of 0.5.
-audio:
-  driver: alsa
-  alsa_device: plughw:CARD=Device,DEV=0
-  gain: 1.0
+# audio:
+#   driver: alsa
+#   alsa_device: plughw:CARD=Device,DEV=0
+#   gain: 1.0
+#   period_size: 256
+#   periods: 8
 
 loop_slots:
   - C2
@@ -159,14 +162,18 @@ reports the invalid field.
 
 ### Audio output
 
-`audio` is optional. Omit it to preserve the existing desktop behavior:
-FluidSynth chooses its default audio driver and device, while Zeta uses gain
-`0.5`. Each field is independently optional except that `alsa_device` requires
+`audio` and each of its fields are optional. When omitted, FluidSynth chooses
+its default driver, device, period size, and period count; Zeta retains its
+existing gain of `0.5`. With the pinned FluidSynth 2.5.7 on Linux, the current
+FluidSynth buffer defaults are 64 frames and 16 periods. Zeta deliberately
+does not duplicate those platform defaults. `alsa_device` requires
 `driver: alsa`:
 
 - `driver`: a non-empty FluidSynth audio-driver name
 - `alsa_device`: a non-empty ALSA PCM device string
 - `gain`: FluidSynth master gain from `0.0` through `10.0`
+- `period_size`: optional frames per render call from `64` through `8192`
+- `periods`: optional driver buffer count from `2` through `64`
 
 For a Raspberry Pi USB sound card, list hardware cards and PCM device names:
 
@@ -182,6 +189,8 @@ audio:
   driver: alsa
   alsa_device: plughw:CARD=Device,DEV=0
   gain: 1.0
+  period_size: 256
+  periods: 8
 ```
 
 `Device` is the ALSA card ID in this example; use the exact ID that `aplay -L`
@@ -194,6 +203,65 @@ because numeric card indexes can change across reboots and USB reconnections.
 Gain `1.0` is valid, but it provides substantially more level than Zeta's
 default `0.5` and can clip when several voices or loop slots sound together.
 Use only the gain needed by the output chain.
+
+#### Determining audio-buffer values
+
+Leave both settings unset when FluidSynth's defaults play cleanly. Override
+them only when the intended output device produces intermittent clicks or when
+its latency needs tuning. The audio driver may negotiate nearby values when a
+device cannot provide the exact request.
+
+`period_size` is the number of samples FluidSynth renders in one operation. A
+larger block gives FluidSynth more time to meet each rendering deadline and
+reduces how often it must wake up, which can prevent clicks. The performer-side
+cost is concrete: a note, pedal movement, or other newly received MIDI event
+may not affect the sound until the next block, so larger blocks can make those
+changes start later and with more timing variation.
+
+`periods` controls how many such blocks the audio driver may buffer. More
+periods let playback survive a longer temporary operating-system scheduling
+delay, but may increase the delay between performing an action and hearing its
+result. These are independent controls, so Zeta exposes both rather than a
+single low/medium/high setting.
+
+At sample rate `R`, render granularity is `1000 × period_size / R`
+milliseconds and the configured maximum buffer is
+`1000 × period_size × periods / R` milliseconds. For 256 × 8 at 44.1 kHz,
+those values are about 5.8 ms and 46.4 ms.
+
+For a Raspberry Pi 5 used for live performance, start with the explicit
+reliability-first 256 × 8 values shown above. This recommendation still needs
+acceptance testing with the intended USB sound card; it is not a universal
+hardware default.
+
+Tune one field at a time with that real output device and the largest expected
+performance load:
+
+1. Configure 256 × 8 and run the stress profile:
+
+   ```bash
+   ./build/zsoundtest --stress /path/to/zeta.yaml
+   ```
+
+2. Run `zd` for an extended session while playing live over the maximum
+   expected number of active loops. The synthetic diagnostic does not model
+   every application worker or operating-system scheduling delay.
+3. If brief clicks or frying remain, first increase `periods` from 8 to 16.
+   This adds scheduling headroom without making MIDI-event timing coarser. If
+   that is still insufficient, try `period_size: 512`.
+4. If playback is clean but the instrument responds too slowly, reduce
+   `periods` from 8 to 4, then to 2, testing after each change. Keep
+   `period_size` at 256 during this comparison. Only then try reducing it to
+   128, because smaller render calls increase deadline pressure and 128
+   produced a likely click during the issue-23 stress test.
+5. Accept the smallest clean combination only after repeated worst-case live
+   sessions. A single click rejects a candidate; also confirm that live
+   controller timing still feels natural.
+
+`zsoundtest` reports FluidSynth's effective settings when it starts, and
+FluidSynth warns if the audio driver substitutes values. Raspberry Pi
+acceptance must use the same USB sound card, ALSA device string, SoundFonts,
+loop count, and service limits intended for performance.
 
 ### Loop slots
 
@@ -314,8 +382,10 @@ rapid-separated, rapid-immediate, and rapid-overlap transitions. It repeats
 the matrix at the configured gain and at FluidSynth's conservative gain of
 `0.2`. After each labeled case, report clean, spark, or unsure; the final
 summary identifies every reported condition and its observed peak voice count.
-Natural release tails remain audible while the result prompt waits. Replay,
-skip-preset, and quit controls are available at every result prompt.
+Natural release tails remain audible while the result prompt waits and are not
+forcibly cut before the next case, so wait until the tail is silent before
+submitting the result. Replay, skip-preset, and quit controls are available at
+every result prompt.
 
 To inspect the complete matrix without opening an audio device:
 
@@ -325,6 +395,66 @@ To inspect the complete matrix without opening an audio device:
 
 Pass a configuration path after the executable, or after `--list`, to override
 the default.
+
+After a matrix result identifies a suspect preset, isolate note attacks and
+releases with:
+
+```bash
+./build/zsoundtest --single
+```
+
+Choose the suspect preset. The focused mode plays keys 84 and 36 individually
+at each test gain and records whether a click occurred at the attack or release
+of each note.
+
+To repeat the same focused test with a larger rendering period, run:
+
+```bash
+./build/zsoundtest --single-large-period
+```
+
+This diagnostic-only mode overrides the configured period size with 512
+frames. It reduces rendering wake-ups and provides more time per render call at
+the cost that newly received notes and controls may take longer to affect the
+sound. It does not change the YAML file.
+
+To deliberately increase FluidSynth rendering pressure while keeping the
+audible probe at one note, run the deterministic stress profile with the
+effective buffer settings (YAML overrides when present, otherwise FluidSynth's
+defaults):
+
+```bash
+./build/zsoundtest --stress
+```
+
+The profile holds quiet background voices across progressively more MIDI
+channels while repeatedly playing key 36 without per-note terminal output. It
+reports peak active voices and FluidSynth CPU load, then records clicks/frying
+and sustained `RRRR` separately. Compare the same profile with a 512-frame
+period size using:
+
+```bash
+./build/zsoundtest --stress-large-period
+```
+
+The override profiles retain the effective period count from the YAML or
+FluidSynth default. To compare smaller render periods, use:
+
+```bash
+./build/zsoundtest --stress-period-256
+./build/zsoundtest --stress-period-128
+```
+
+At 44.1 kHz, periods of 128, 256, and 512 frames provide about 2.9, 5.8,
+and 11.6 milliseconds per render call, respectively.
+
+To reproduce the constant-buffer 256 × 4 experiment, run:
+
+```bash
+./build/zsoundtest --stress-period-256-periods-4
+```
+
+This overrides both YAML buffer fields and contains 1,024 configured frames.
 
 ### MIDI Control Change mappings
 

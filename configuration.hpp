@@ -48,6 +48,8 @@ struct AudioConfig {
     std::optional<std::string> driver;
     std::optional<std::string> alsa_device;
     double gain{default_gain};
+    std::optional<int> period_size;
+    std::optional<int> periods;
 };
 
 struct ApplicationConfig {

@@ -28,6 +28,19 @@ constexpr int high_key = 84;
 constexpr int test_velocity = 110;
 constexpr double control_gain = 0.2;
 constexpr auto case_settle_time = 500ms;
+constexpr auto single_note_hold_time = 600ms;
+constexpr auto single_note_release_time = 1000ms;
+constexpr int single_note_attempts = 12;
+constexpr int diagnostic_audio_period_size = 512;
+constexpr int stress_probe_key = 36;
+constexpr int stress_probe_velocity = 110;
+constexpr int stress_background_velocity = 1;
+constexpr auto stress_probe_hold_time = 600ms;
+constexpr auto stress_probe_gap_time = 1000ms;
+constexpr int stress_probe_repetitions = 30;
+constexpr auto stress_release_time = 2000ms;
+constexpr int stress_load_channels[]{2, 4, 8};
+constexpr int stress_background_keys[]{36, 40, 43, 48, 52, 55, 60, 64};
 
 enum class Direction : std::uint8_t {
     LowToHigh,
@@ -37,6 +50,21 @@ enum class Direction : std::uint8_t {
 enum class Assessment : std::uint8_t {
     Clean,
     Spark,
+    Unsure,
+};
+
+enum class ClickPhase : std::uint8_t {
+    Clean,
+    Attack,
+    Release,
+    Unsure,
+};
+
+enum class StressArtifact : std::uint8_t {
+    Clean,
+    Click,
+    Sustained,
+    Both,
     Unsure,
 };
 
@@ -105,6 +133,36 @@ struct Observation {
     int peak_active_voices;
 };
 
+struct SingleNoteObservation {
+    std::string preset_id;
+    std::filesystem::path soundfont;
+    int bank;
+    int preset;
+    double gain;
+    int key;
+    int attempt;
+    ClickPhase phase;
+    int peak_active_voices;
+};
+
+struct StressObservation {
+    std::string preset_id;
+    std::filesystem::path soundfont;
+    int bank;
+    int preset;
+    int period_size;
+    int periods;
+    int load_channels;
+    StressArtifact artifact;
+    int peak_active_voices;
+    double peak_cpu_load;
+};
+
+struct StressMetrics {
+    int peak_active_voices;
+    double peak_cpu_load;
+};
+
 struct SettingsDeleter {
     void operator()(fluid_settings_t* settings) const noexcept {
         delete_fluid_settings(settings);
@@ -146,6 +204,22 @@ void configureAudio(
         fluid_settings_setnum(settings, "synth.gain", audio.gain),
         "Could not configure FluidSynth gain"
     );
+    if (audio.period_size) {
+        requireFluidOk(
+            fluid_settings_setint(
+                settings,
+                "audio.period-size",
+                *audio.period_size
+            ),
+            "Could not configure FluidSynth audio period size"
+        );
+    }
+    if (audio.periods) {
+        requireFluidOk(
+            fluid_settings_setint(settings, "audio.periods", *audio.periods),
+            "Could not configure FluidSynth audio periods"
+        );
+    }
     if (audio.driver) {
         requireFluidOk(
             fluid_settings_setstr(
@@ -180,6 +254,36 @@ const char* assessmentName(Assessment assessment) {
     case Assessment::Spark:
         return "spark";
     case Assessment::Unsure:
+        return "unsure";
+    }
+    return "unknown";
+}
+
+const char* clickPhaseName(ClickPhase phase) {
+    switch (phase) {
+    case ClickPhase::Clean:
+        return "clean";
+    case ClickPhase::Attack:
+        return "attack";
+    case ClickPhase::Release:
+        return "release";
+    case ClickPhase::Unsure:
+        return "unsure";
+    }
+    return "unknown";
+}
+
+const char* stressArtifactName(StressArtifact artifact) {
+    switch (artifact) {
+    case StressArtifact::Clean:
+        return "clean";
+    case StressArtifact::Click:
+        return "click-or-frying";
+    case StressArtifact::Sustained:
+        return "sustained-rrrr";
+    case StressArtifact::Both:
+        return "both";
+    case StressArtifact::Unsure:
         return "unsure";
     }
     return "unknown";
@@ -316,12 +420,38 @@ std::optional<std::vector<std::size_t>> choosePresets(
 
 class TestSynth {
 public:
-    explicit TestSynth(const zeta::ApplicationConfig& config) {
+    explicit TestSynth(
+        const zeta::ApplicationConfig& config,
+        std::optional<int> audio_period_size = std::nullopt,
+        std::optional<int> audio_periods = std::nullopt
+    ) {
         settings_.reset(new_fluid_settings());
         if (!settings_) {
             throw std::runtime_error("Could not create FluidSynth settings");
         }
         configureAudio(settings_.get(), config.audio);
+        if (audio_period_size) {
+            requireFluidOk(
+                fluid_settings_setint(
+                    settings_.get(),
+                    "audio.period-size",
+                    *audio_period_size
+                ),
+                "Could not configure FluidSynth audio period size"
+            );
+        }
+        if (audio_periods) {
+            requireFluidOk(
+                fluid_settings_setint(
+                    settings_.get(),
+                    "audio.periods",
+                    *audio_periods
+                ),
+                "Could not configure FluidSynth audio periods"
+            );
+        }
+
+        printAudioSettings();
 
         synth_.reset(new_fluid_synth(settings_.get()));
         if (!synth_) {
@@ -359,20 +489,7 @@ public:
         std::size_t preset_index,
         const TestCase& test
     ) {
-        std::cout << "Clearing previous voices..." << std::flush;
-        silence();
-        fluid_synth_set_gain(synth_.get(), static_cast<float>(test.gain));
-        requireFluidOk(
-            fluid_synth_program_select(
-                synth_.get(),
-                test_channel,
-                soundfont_ids_.at(preset_index),
-                preset.bank,
-                preset.preset
-            ),
-            "Could not select preset: " + preset.id
-        );
-        std::this_thread::sleep_for(case_settle_time);
+        select(preset, preset_index, test.gain);
         std::cout << " playing pattern now.\n" << std::flush;
 
         const int first =
@@ -408,32 +525,201 @@ public:
         return peak_active_voices;
     }
 
+    void select(
+        const zeta::SoundFontDefinition& preset,
+        std::size_t preset_index,
+        double gain
+    ) {
+        std::cout << "Selecting preset..." << std::flush;
+        fluid_synth_set_gain(synth_.get(), static_cast<float>(gain));
+        requireFluidOk(
+            fluid_synth_program_select(
+                synth_.get(),
+                test_channel,
+                soundfont_ids_.at(preset_index),
+                preset.bank,
+                preset.preset
+            ),
+            "Could not select preset: " + preset.id
+        );
+        std::this_thread::sleep_for(case_settle_time);
+    }
+
+    int playSingleNote(int key, int attempt) {
+        std::cout << "  attempt " << attempt << ": NOTE ON key=" << key
+                  << std::flush;
+        noteOn(key);
+        int peak_active_voices = 0;
+        updatePeak(peak_active_voices);
+        std::this_thread::sleep_for(single_note_hold_time);
+
+        std::cout << " ... NOTE OFF" << std::flush;
+        noteOff(key);
+        std::this_thread::sleep_for(single_note_release_time);
+        std::cout << '\n';
+        return peak_active_voices;
+    }
+
+    StressMetrics playStress(
+        const zeta::SoundFontDefinition& preset,
+        std::size_t preset_index,
+        double gain,
+        int load_channels
+    ) {
+        fluid_synth_set_gain(synth_.get(), static_cast<float>(gain));
+        for (int channel = 0; channel <= load_channels; ++channel) {
+            selectChannel(preset, preset_index, channel);
+        }
+        std::this_thread::sleep_for(case_settle_time);
+
+        std::cout << "Playing stress phase now; no per-note logging...\n"
+                  << std::flush;
+
+        int peak_active_voices = 0;
+        double peak_cpu_load = 0.0;
+        for (int channel = 1; channel <= load_channels; ++channel) {
+            for (const int key : stress_background_keys) {
+                noteOn(channel, key, stress_background_velocity);
+            }
+        }
+        updateMetrics(peak_active_voices, peak_cpu_load);
+
+        for (int repetition = 0;
+             repetition < stress_probe_repetitions;
+             ++repetition) {
+            noteOn(test_channel, stress_probe_key, stress_probe_velocity);
+            std::this_thread::sleep_for(stress_probe_hold_time);
+            updateMetrics(peak_active_voices, peak_cpu_load);
+
+            noteOff(test_channel, stress_probe_key);
+            std::this_thread::sleep_for(stress_probe_gap_time);
+            updateMetrics(peak_active_voices, peak_cpu_load);
+        }
+
+        for (int channel = 1; channel <= load_channels; ++channel) {
+            for (const int key : stress_background_keys) {
+                noteOff(channel, key);
+            }
+        }
+        std::this_thread::sleep_for(stress_release_time);
+        updateMetrics(peak_active_voices, peak_cpu_load);
+
+        return {
+            .peak_active_voices = peak_active_voices,
+            .peak_cpu_load = peak_cpu_load,
+        };
+    }
+
+    int audioPeriodSize() const {
+        int period_size = 0;
+        requireFluidOk(
+            fluid_settings_getint(
+                settings_.get(),
+                "audio.period-size",
+                &period_size
+            ),
+            "Could not read FluidSynth audio period size"
+        );
+        return period_size;
+    }
+
+    int audioPeriods() const {
+        int periods = 0;
+        requireFluidOk(
+            fluid_settings_getint(settings_.get(), "audio.periods", &periods),
+            "Could not read FluidSynth audio periods"
+        );
+        return periods;
+    }
+
 private:
+    void printAudioSettings() const {
+        char driver[64]{};
+        int period_size = 0;
+        int periods = 0;
+        double sample_rate = 0.0;
+        fluid_settings_copystr(
+            settings_.get(),
+            "audio.driver",
+            driver,
+            static_cast<int>(sizeof(driver))
+        );
+        fluid_settings_getint(
+            settings_.get(),
+            "audio.period-size",
+            &period_size
+        );
+        fluid_settings_getint(settings_.get(), "audio.periods", &periods);
+        fluid_settings_getnum(
+            settings_.get(),
+            "synth.sample-rate",
+            &sample_rate
+        );
+
+        std::cout << "Effective audio settings: driver="
+                  << (driver[0] == '\0' ? "unknown" : driver)
+                  << " period-size=" << period_size
+                  << " periods=" << periods
+                  << " sample-rate=" << sample_rate << '\n';
+    }
+
     void noteOn(int key) {
+        noteOn(test_channel, key, test_velocity);
+    }
+
+    void noteOn(int channel, int key, int velocity) {
         requireFluidOk(
             fluid_synth_noteon(
                 synth_.get(),
-                test_channel,
+                channel,
                 key,
-                test_velocity
+                velocity
             ),
             "Could not start test note " + std::to_string(key)
         );
     }
 
     void noteOff(int key) {
-        // One-shot samples may finish before note-off and return FLUID_FAILED.
-        fluid_synth_noteoff(synth_.get(), test_channel, key);
+        noteOff(test_channel, key);
     }
 
-    void silence() {
-        fluid_synth_all_sounds_off(synth_.get(), test_channel);
+    void noteOff(int channel, int key) {
+        // One-shot samples may finish before note-off and return FLUID_FAILED.
+        fluid_synth_noteoff(synth_.get(), channel, key);
+    }
+
+    void selectChannel(
+        const zeta::SoundFontDefinition& preset,
+        std::size_t preset_index,
+        int channel
+    ) {
+        requireFluidOk(
+            fluid_synth_program_select(
+                synth_.get(),
+                channel,
+                soundfont_ids_.at(preset_index),
+                preset.bank,
+                preset.preset
+            ),
+            "Could not select preset: " + preset.id
+        );
     }
 
     void updatePeak(int& peak_active_voices) {
         peak_active_voices = std::max(
             peak_active_voices,
             fluid_synth_get_active_voice_count(synth_.get())
+        );
+    }
+
+    void updateMetrics(
+        int& peak_active_voices,
+        double& peak_cpu_load
+    ) {
+        updatePeak(peak_active_voices);
+        peak_cpu_load = std::max(
+            peak_cpu_load,
+            fluid_synth_get_cpu_load(synth_.get())
         );
     }
 
@@ -496,6 +782,82 @@ Answer askForAssessment() {
     }
 }
 
+struct SingleNoteAnswer {
+    std::optional<ClickPhase> phase;
+    bool quit{};
+};
+
+SingleNoteAnswer askForSingleNoteAssessment() {
+    while (true) {
+        std::cout
+            << "Result: [Enter/n] clean, [a]ttack click, [r]elease click, "
+               "[u]nsure, [q]uit: "
+            << std::flush;
+        std::string answer;
+        if (!std::getline(std::cin, answer)) {
+            return {.phase = std::nullopt, .quit = true};
+        }
+        const char choice = answer.empty()
+            ? 'n'
+            : static_cast<char>(
+                std::tolower(static_cast<unsigned char>(answer.front()))
+            );
+        switch (choice) {
+        case 'n':
+            return {.phase = ClickPhase::Clean};
+        case 'a':
+            return {.phase = ClickPhase::Attack};
+        case 'r':
+            return {.phase = ClickPhase::Release};
+        case 'u':
+            return {.phase = ClickPhase::Unsure};
+        case 'q':
+            return {.phase = std::nullopt, .quit = true};
+        default:
+            std::cout << "Invalid result.\n";
+        }
+    }
+}
+
+struct StressAnswer {
+    std::optional<StressArtifact> artifact;
+    bool quit{};
+};
+
+StressAnswer askForStressAssessment() {
+    while (true) {
+        std::cout
+            << "Result: [Enter/n] clean, [c]lick/frying, "
+               "sustained [r]rrr, [b]oth, [u]nsure, [q]uit: "
+            << std::flush;
+        std::string answer;
+        if (!std::getline(std::cin, answer)) {
+            return {.artifact = std::nullopt, .quit = true};
+        }
+        const char choice = answer.empty()
+            ? 'n'
+            : static_cast<char>(
+                std::tolower(static_cast<unsigned char>(answer.front()))
+            );
+        switch (choice) {
+        case 'n':
+            return {.artifact = StressArtifact::Clean};
+        case 'c':
+            return {.artifact = StressArtifact::Click};
+        case 'r':
+            return {.artifact = StressArtifact::Sustained};
+        case 'b':
+            return {.artifact = StressArtifact::Both};
+        case 'u':
+            return {.artifact = StressArtifact::Unsure};
+        case 'q':
+            return {.artifact = std::nullopt, .quit = true};
+        default:
+            std::cout << "Invalid result.\n";
+        }
+    }
+}
+
 void printSummary(
     std::size_t completed,
     const std::vector<Observation>& observations
@@ -521,6 +883,57 @@ void printSummary(
                   << " velocity=" << test_velocity
                   << " peak-active-voices="
                   << observation.peak_active_voices << '\n';
+    }
+}
+
+void printSingleNoteSummary(
+    std::size_t completed,
+    const std::vector<SingleNoteObservation>& observations
+) {
+    std::cout << "\nSingle-note diagnostic summary\n"
+              << "  completed notes: " << completed << '\n';
+    if (observations.empty()) {
+        std::cout << "  no clicks or uncertain notes reported\n";
+        return;
+    }
+
+    for (const auto& observation : observations) {
+        std::cout << "  " << clickPhaseName(observation.phase)
+                  << ": preset=" << observation.preset_id
+                  << " file=" << observation.soundfont
+                  << " bank=" << observation.bank
+                  << " program=" << observation.preset
+                  << " gain=" << observation.gain
+                  << " key=" << observation.key
+                  << " attempt=" << observation.attempt
+                  << " velocity=" << test_velocity
+                  << " peak-active-voices="
+                  << observation.peak_active_voices << '\n';
+    }
+}
+
+void printStressSummary(
+    const std::vector<StressObservation>& observations
+) {
+    std::cout << "\nRender-pressure diagnostic summary\n";
+    if (observations.empty()) {
+        std::cout << "  no completed phases\n";
+        return;
+    }
+
+    for (const auto& observation : observations) {
+        std::cout << "  " << stressArtifactName(observation.artifact)
+                  << ": preset=" << observation.preset_id
+                  << " file=" << observation.soundfont
+                  << " bank=" << observation.bank
+                  << " program=" << observation.preset
+                  << " period-size=" << observation.period_size
+                  << " periods=" << observation.periods
+                  << " load-channels=" << observation.load_channels
+                  << " peak-active-voices="
+                  << observation.peak_active_voices
+                  << " peak-cpu-load=" << observation.peak_cpu_load
+                  << "%\n";
     }
 }
 
@@ -604,19 +1017,255 @@ int runInteractive(const zeta::ApplicationConfig& config) {
     return 0;
 }
 
+int runSingleNote(
+    const zeta::ApplicationConfig& config,
+    bool large_period
+) {
+    listConfiguredPresets(config);
+    const auto selected = choosePresets(config);
+    if (!selected) {
+        return 0;
+    }
+
+    const auto gains = testGains(config.audio.gain);
+    constexpr int keys[]{high_key, low_key};
+    const std::size_t total = selected->size() * gains.size()
+        * std::size(keys) * single_note_attempts;
+
+    std::cout
+        << "\nSingle-note onset/release diagnostic"
+        << "\nFluidSynth runtime version: " << fluid_version_str()
+        << "\nVelocity: " << test_velocity
+        << "\nHold: " << single_note_hold_time.count() << " ms"
+        << "\nRelease-listening window: "
+        << single_note_release_time.count() << " ms"
+        << "\nNotes: " << total
+        << "\nStop the regular Zeta process or service before this test."
+        << "\nPress Enter to create the audio driver and begin, "
+           "or q to quit: "
+        << std::flush;
+    std::string start;
+    if (!std::getline(std::cin, start) || start == "q" || start == "Q") {
+        return 0;
+    }
+
+    TestSynth synth{
+        config,
+        large_period
+            ? std::optional<int>{diagnostic_audio_period_size}
+            : std::nullopt,
+    };
+    std::vector<SingleNoteObservation> observations;
+    std::size_t completed = 0;
+    bool quit = false;
+
+    for (const std::size_t preset_index : *selected) {
+        const auto& preset = config.soundfonts[preset_index];
+        for (const double gain : gains) {
+            for (const int key : keys) {
+                std::cout << "\nPreset=" << preset.id
+                          << " gain=" << gain
+                          << " key=" << key << '\n';
+                synth.select(preset, preset_index, gain);
+                std::cout << " ready.\n";
+
+                for (int attempt = 1;
+                     attempt <= single_note_attempts;
+                     ++attempt) {
+                    const int peak_active_voices =
+                        synth.playSingleNote(key, attempt);
+                    const auto answer = askForSingleNoteAssessment();
+                    if (answer.quit) {
+                        quit = true;
+                        break;
+                    }
+
+                    const ClickPhase phase =
+                        answer.phase.value_or(ClickPhase::Clean);
+                    ++completed;
+                    if (phase != ClickPhase::Clean) {
+                        observations.push_back({
+                            .preset_id = preset.id,
+                            .soundfont = preset.file,
+                            .bank = preset.bank,
+                            .preset = preset.preset,
+                            .gain = gain,
+                            .key = key,
+                            .attempt = attempt,
+                            .phase = phase,
+                            .peak_active_voices = peak_active_voices,
+                        });
+                    }
+                }
+                if (quit) {
+                    break;
+                }
+            }
+            if (quit) {
+                break;
+            }
+        }
+        if (quit) {
+            break;
+        }
+    }
+
+    printSingleNoteSummary(completed, observations);
+    return 0;
+}
+
+int runStress(
+    const zeta::ApplicationConfig& config,
+    std::optional<int> audio_period_size,
+    std::optional<int> audio_periods
+) {
+    listConfiguredPresets(config);
+    const auto selected = choosePresets(config);
+    if (!selected) {
+        return 0;
+    }
+
+    const std::size_t total =
+        selected->size() * std::size(stress_load_channels);
+
+    std::cout
+        << "\nRender-pressure diagnostic"
+        << "\nFluidSynth runtime version: " << fluid_version_str()
+        << "\nConfigured gain: " << config.audio.gain
+        << "\nProbe: key=" << stress_probe_key
+        << " velocity=" << stress_probe_velocity
+        << "\nBackground notes use velocity="
+        << stress_background_velocity
+        << " to add rendering work without a loud chord."
+        << "\nEach phase lasts about "
+        << (
+               stress_probe_repetitions
+               * (stress_probe_hold_time + stress_probe_gap_time)
+               + stress_release_time
+           ).count()
+        / 1000
+        << " seconds."
+        << "\nStop the regular Zeta process or service before this test."
+        << "\nTurn the output down before starting."
+        << "\nPress Enter to create the audio driver and begin, "
+           "or q to quit: "
+        << std::flush;
+    std::string start;
+    if (!std::getline(std::cin, start) || start == "q" || start == "Q") {
+        return 0;
+    }
+
+    TestSynth synth{
+        config,
+        audio_period_size,
+        audio_periods,
+    };
+    const int period_size = synth.audioPeriodSize();
+    const int periods = synth.audioPeriods();
+    std::vector<StressObservation> observations;
+    std::size_t phase_index = 0;
+    bool quit = false;
+
+    for (const std::size_t preset_index : *selected) {
+        const auto& preset = config.soundfonts[preset_index];
+        for (const int load_channels : stress_load_channels) {
+            std::cout << "\n[" << ++phase_index << '/' << total << ']'
+                      << " preset=" << preset.id
+                      << " period-size=" << period_size
+                      << " periods=" << periods
+                      << " load-channels=" << load_channels << '\n';
+
+            const StressMetrics metrics = synth.playStress(
+                preset,
+                preset_index,
+                config.audio.gain,
+                load_channels
+            );
+            std::cout << "Peak active voices: "
+                      << metrics.peak_active_voices
+                      << "\nPeak FluidSynth CPU load: "
+                      << metrics.peak_cpu_load << "%\n";
+
+            const auto answer = askForStressAssessment();
+            if (answer.quit) {
+                quit = true;
+                break;
+            }
+            observations.push_back({
+                .preset_id = preset.id,
+                .soundfont = preset.file,
+                .bank = preset.bank,
+                .preset = preset.preset,
+                .period_size = period_size,
+                .periods = periods,
+                .load_channels = load_channels,
+                .artifact =
+                    answer.artifact.value_or(StressArtifact::Unsure),
+                .peak_active_voices = metrics.peak_active_voices,
+                .peak_cpu_load = metrics.peak_cpu_load,
+            });
+        }
+        if (quit) {
+            break;
+        }
+    }
+
+    printStressSummary(observations);
+    return 0;
+}
+
 void printUsage(const char* executable) {
     std::cerr << "Usage: " << executable
-              << " [--list] [config.yaml]\n";
+              << " [--list|--single|--single-large-period"
+                 "|--stress|--stress-period-128|--stress-period-256"
+                 "|--stress-period-256-periods-4"
+                 "|--stress-large-period] [config.yaml]\n";
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
     bool list_only = false;
+    bool single_note = false;
+    bool stress = false;
+    bool large_period = false;
+    std::optional<int> stress_period_size;
+    std::optional<int> stress_periods;
     std::string config_path = default_config_path;
 
-    if (argc >= 2 && std::string{argv[1]} == "--list") {
-        list_only = true;
+    if (argc >= 2
+        && (std::string{argv[1]} == "--list"
+            || std::string{argv[1]} == "--single"
+            || std::string{argv[1]} == "--single-large-period"
+            || std::string{argv[1]} == "--stress"
+            || std::string{argv[1]} == "--stress-period-128"
+            || std::string{argv[1]} == "--stress-period-256"
+            || std::string{argv[1]}
+                == "--stress-period-256-periods-4"
+            || std::string{argv[1]} == "--stress-large-period")) {
+        list_only = std::string{argv[1]} == "--list";
+        single_note = std::string{argv[1]} == "--single"
+            || std::string{argv[1]} == "--single-large-period";
+        stress = std::string{argv[1]} == "--stress"
+            || std::string{argv[1]} == "--stress-period-128"
+            || std::string{argv[1]} == "--stress-period-256"
+            || std::string{argv[1]}
+                == "--stress-period-256-periods-4"
+            || std::string{argv[1]} == "--stress-large-period";
+        large_period = std::string{argv[1]}
+            == "--single-large-period";
+        if (std::string{argv[1]} == "--stress-period-128") {
+            stress_period_size = 128;
+        } else if (std::string{argv[1]} == "--stress-period-256") {
+            stress_period_size = 256;
+        } else if (
+            std::string{argv[1]} == "--stress-period-256-periods-4"
+        ) {
+            stress_period_size = 256;
+            stress_periods = 4;
+        } else if (std::string{argv[1]} == "--stress-large-period") {
+            stress_period_size = diagnostic_audio_period_size;
+        }
         if (argc == 3) {
             config_path = argv[2];
         } else if (argc > 3) {
@@ -635,6 +1284,16 @@ int main(int argc, char** argv) {
         if (list_only) {
             listMatrix(config);
             return 0;
+        }
+        if (single_note) {
+            return runSingleNote(config, large_period);
+        }
+        if (stress) {
+            return runStress(
+                config,
+                stress_period_size,
+                stress_periods
+            );
         }
         return runInteractive(config);
     } catch (const std::exception& error) {

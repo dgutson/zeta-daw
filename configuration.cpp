@@ -15,6 +15,10 @@ namespace {
 constexpr int required_schema_version = 8;
 constexpr double minimum_synth_gain = 0.0;
 constexpr double maximum_synth_gain = 10.0;
+constexpr int minimum_audio_period_size = 64;
+constexpr int maximum_audio_period_size = 8192;
+constexpr int minimum_audio_periods = 2;
+constexpr int maximum_audio_periods = 64;
 
 struct NamedMachineControlCommand {
     std::string_view name;
@@ -288,6 +292,8 @@ AudioConfig parseAudioConfig(const YAML::Node& node) {
         "driver",
         "alsa_device",
         "gain",
+        "period_size",
+        "periods",
     });
 
     AudioConfig config;
@@ -311,6 +317,24 @@ AudioConfig parseAudioConfig(const YAML::Node& node) {
                 "expected a value from 0 to 10"
             );
         }
+    }
+    if (node["period_size"]) {
+        config.period_size = boundedInt(
+            node,
+            "period_size",
+            std::string{location},
+            minimum_audio_period_size,
+            maximum_audio_period_size
+        );
+    }
+    if (node["periods"]) {
+        config.periods = boundedInt(
+            node,
+            "periods",
+            std::string{location},
+            minimum_audio_periods,
+            maximum_audio_periods
+        );
     }
 
     if (config.alsa_device && config.driver != "alsa") {
