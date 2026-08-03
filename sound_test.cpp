@@ -163,6 +163,13 @@ struct StressMetrics {
     double peak_cpu_load;
 };
 
+struct StressPhase {
+    const zeta::SoundFontDefinition& preset;
+    std::size_t preset_index;
+    double gain;
+    int load_channels;
+};
+
 struct SettingsDeleter {
     void operator()(fluid_settings_t* settings) const noexcept {
         delete_fluid_settings(settings);
@@ -489,7 +496,7 @@ public:
         std::size_t preset_index,
         const TestCase& test
     ) {
-        select(preset, preset_index, test.gain);
+        select(preset_index, preset, test.gain);
         std::cout << " playing pattern now.\n" << std::flush;
 
         const int first =
@@ -526,8 +533,8 @@ public:
     }
 
     void select(
-        const zeta::SoundFontDefinition& preset,
         std::size_t preset_index,
+        const zeta::SoundFontDefinition& preset,
         double gain
     ) {
         std::cout << "Selecting preset..." << std::flush;
@@ -560,54 +567,45 @@ public:
         return peak_active_voices;
     }
 
-    StressMetrics playStress(
-        const zeta::SoundFontDefinition& preset,
-        std::size_t preset_index,
-        double gain,
-        int load_channels
-    ) {
-        fluid_synth_set_gain(synth_.get(), static_cast<float>(gain));
-        for (int channel = 0; channel <= load_channels; ++channel) {
-            selectChannel(preset, preset_index, channel);
+    StressMetrics playStress(const StressPhase& phase) {
+        fluid_synth_set_gain(synth_.get(), static_cast<float>(phase.gain));
+        for (int channel = 0; channel <= phase.load_channels; ++channel) {
+            selectChannel(phase.preset, phase.preset_index, channel);
         }
         std::this_thread::sleep_for(case_settle_time);
 
         std::cout << "Playing stress phase now; no per-note logging...\n"
                   << std::flush;
 
-        int peak_active_voices = 0;
-        double peak_cpu_load = 0.0;
-        for (int channel = 1; channel <= load_channels; ++channel) {
+        StressMetrics metrics{};
+        for (int channel = 1; channel <= phase.load_channels; ++channel) {
             for (const int key : stress_background_keys) {
                 noteOn(channel, key, stress_background_velocity);
             }
         }
-        updateMetrics(peak_active_voices, peak_cpu_load);
+        updateMetrics(metrics);
 
         for (int repetition = 0;
              repetition < stress_probe_repetitions;
              ++repetition) {
             noteOn(test_channel, stress_probe_key, stress_probe_velocity);
             std::this_thread::sleep_for(stress_probe_hold_time);
-            updateMetrics(peak_active_voices, peak_cpu_load);
+            updateMetrics(metrics);
 
             noteOff(test_channel, stress_probe_key);
             std::this_thread::sleep_for(stress_probe_gap_time);
-            updateMetrics(peak_active_voices, peak_cpu_load);
+            updateMetrics(metrics);
         }
 
-        for (int channel = 1; channel <= load_channels; ++channel) {
+        for (int channel = 1; channel <= phase.load_channels; ++channel) {
             for (const int key : stress_background_keys) {
                 noteOff(channel, key);
             }
         }
         std::this_thread::sleep_for(stress_release_time);
-        updateMetrics(peak_active_voices, peak_cpu_load);
+        updateMetrics(metrics);
 
-        return {
-            .peak_active_voices = peak_active_voices,
-            .peak_cpu_load = peak_cpu_load,
-        };
+        return metrics;
     }
 
     int audioPeriodSize() const {
@@ -712,13 +710,10 @@ private:
         );
     }
 
-    void updateMetrics(
-        int& peak_active_voices,
-        double& peak_cpu_load
-    ) {
-        updatePeak(peak_active_voices);
-        peak_cpu_load = std::max(
-            peak_cpu_load,
+    void updateMetrics(StressMetrics& metrics) {
+        updatePeak(metrics.peak_active_voices);
+        metrics.peak_cpu_load = std::max(
+            metrics.peak_cpu_load,
             fluid_synth_get_cpu_load(synth_.get())
         );
     }
@@ -1066,7 +1061,7 @@ int runSingleNote(
                 std::cout << "\nPreset=" << preset.id
                           << " gain=" << gain
                           << " key=" << key << '\n';
-                synth.select(preset, preset_index, gain);
+                synth.select(preset_index, preset, gain);
                 std::cout << " ready.\n";
 
                 for (int attempt = 1;
@@ -1175,12 +1170,12 @@ int runStress(
                       << " periods=" << periods
                       << " load-channels=" << load_channels << '\n';
 
-            const StressMetrics metrics = synth.playStress(
-                preset,
-                preset_index,
-                config.audio.gain,
-                load_channels
-            );
+            const StressMetrics metrics = synth.playStress({
+                .preset = preset,
+                .preset_index = preset_index,
+                .gain = config.audio.gain,
+                .load_channels = load_channels,
+            });
             std::cout << "Peak active voices: "
                       << metrics.peak_active_voices
                       << "\nPeak FluidSynth CPU load: "
