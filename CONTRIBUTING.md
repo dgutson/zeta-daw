@@ -403,6 +403,11 @@ The current dependency strategy is intentional:
   selective beta pilot for pure property tests; retain deterministic GoogleTest
   examples and do not treat it as a blanket testing standard. Follow
   [HEGEL.md](HEGEL.md) when selecting, writing, and running properties.
+- A single-configuration CMake build defaults to Release when no build type is
+  specified. Release builds add `-march=native` to the compiler's release
+  flags for both Zeta and the separately built FluidSynth. Deployment binaries
+  are built on the desktop or Raspberry Pi where they will run; portable or
+  cross-compiled release binaries are outside the current usage contract.
 
 Do not replace the pinned FluidSynth build or add Conan, vcpkg, or Nix merely
 for uniformity. At the current project size they would add another packaging

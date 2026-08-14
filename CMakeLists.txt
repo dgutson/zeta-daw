@@ -5,6 +5,15 @@ project(zeta_daw LANGUAGES C CXX)
 option(ZETA_MIDI_TRACE "Trace routed live MIDI and loop playback events" OFF)
 option(ZETA_GCC_ANALYZER "Enable GCC static analysis for production sources" OFF)
 
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+# Deployment builds run only on the machine that built them. Let the compiler
+# use that host's complete instruction set for both Zeta and FluidSynth.
+string(APPEND CMAKE_C_FLAGS_RELEASE " -march=native")
+string(APPEND CMAKE_CXX_FLAGS_RELEASE " -march=native")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -57,6 +66,15 @@ set(
 )
 file(MAKE_DIRECTORY "${ZETA_FLUIDSYNTH_BINARY_DIR}/include")
 
+set(ZETA_FLUIDSYNTH_RELEASE_CMAKE_ARGS)
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    list(
+        APPEND ZETA_FLUIDSYNTH_RELEASE_CMAKE_ARGS
+        "-DCMAKE_C_FLAGS_RELEASE:STRING=${CMAKE_C_FLAGS_RELEASE}"
+        "-DCMAKE_CXX_FLAGS_RELEASE:STRING=${CMAKE_CXX_FLAGS_RELEASE}"
+    )
+endif()
+
 # FluidSynth registers its own tests unconditionally when added as a
 # subdirectory. Keep its build isolated so Zeta's test suite contains only
 # Zeta tests, and link it statically to preserve the single-binary install.
@@ -68,6 +86,7 @@ ExternalProject_Add(
     CMAKE_ARGS
         -DBUILD_SHARED_LIBS=OFF
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+        ${ZETA_FLUIDSYNTH_RELEASE_CMAKE_ARGS}
         -DGCEM_INCLUDE_DIR=${zeta_gcem_source_SOURCE_DIR}/include
         -DPROJECT_WC_REVISION=v${ZETA_FLUIDSYNTH_VERSION}
         -Denable-alsa=ON

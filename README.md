@@ -77,7 +77,12 @@ Configure and build a release executable:
 
 The script downloads the pinned dependencies on the first build and produces
 the release executable at `build/zd`. It explicitly disables MIDI tracing,
-even when the build directory previously cached another value.
+even when the build directory previously cached another value. Release builds
+compile both Zeta and FluidSynth with the compiler's release optimizations and
+`-march=native`; with the supported GCC toolchain this includes `-O3`. Build
+the deployment executable on the desktop or Raspberry Pi where it will run.
+An ordinary single-configuration CMake build also defaults to Release when
+`CMAKE_BUILD_TYPE` is not specified.
 
 For a debug executable with MIDI routing traces enabled, use the separate debug
 build directory:

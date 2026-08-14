@@ -53,6 +53,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Single-configuration builds now default to Release, and Release builds
+  optimize both Zeta and the pinned FluidSynth for the build host with
+  `-march=native`.
 - FluidSynth 2.5.7 is now a checksum-verified, statically linked build
   dependency for consistent desktop and Raspberry Pi rendering, replacing
   whichever FluidSynth version the host distribution provided.
