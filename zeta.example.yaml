@@ -1,11 +1,14 @@
 schema_version: 8
 
-# Optional Raspberry Pi USB-audio override. Leave this commented out to keep
-# FluidSynth's default desktop driver/device and Zeta's gain of 0.5.
+# Optional reliability-first audio settings found while resolving issue 23.
+# Leave this commented out to preserve FluidSynth's defaults and Zeta's gain
+# of 0.5. Validate these values with the intended output device before use.
 # audio:
 #   driver: alsa
 #   alsa_device: plughw:CARD=Device,DEV=0  # Use the card ID from `aplay -L`.
 #   gain: 1.0
+#   period_size: 256
+#   periods: 8
 
 # Each entry is one independently controlled loop slot. Keys are raw physical
 # controller notes and are consumed only after loop_slot_by_note is pressed.

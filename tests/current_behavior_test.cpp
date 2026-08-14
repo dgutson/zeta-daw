@@ -428,6 +428,18 @@ TEST_F(CurrentBehaviorTest, ConfiguresChannelsBeforeSynthAndLoadsSoundFonts) {
         ASSERT_NE(gain, calls.end());
         EXPECT_EQ(gain->text, "synth.gain");
         EXPECT_DOUBLE_EQ(gain->number_value, 0.5);
+        const auto period_size = std::ranges::find(
+            calls,
+            std::string{"audio.period-size"},
+            &Call::text
+        );
+        EXPECT_EQ(period_size, calls.end());
+        const auto periods = std::ranges::find(
+            calls,
+            std::string{"audio.periods"},
+            &Call::text
+        );
+        EXPECT_EQ(periods, calls.end());
         EXPECT_EQ(
             std::ranges::count(calls, CallKind::LoadSoundFont, &Call::kind),
             2
@@ -449,6 +461,8 @@ TEST_F(CurrentBehaviorTest, ConfiguresFluidSynthAudioOverrides) {
         .driver = "alsa",
         .alsa_device = "plughw:3",
         .gain = 1.0,
+        .period_size = 512,
+        .periods = 4,
     };
 
     SynthEngine synth_engine{config};
@@ -478,6 +492,24 @@ TEST_F(CurrentBehaviorTest, ConfiguresFluidSynthAudioOverrides) {
     ASSERT_NE(gain, calls.end());
     EXPECT_EQ(gain->text, "synth.gain");
     EXPECT_DOUBLE_EQ(gain->number_value, 1.0);
+
+    const auto period_size = std::ranges::find(
+        calls,
+        std::string{"audio.period-size"},
+        &Call::text
+    );
+    ASSERT_NE(period_size, calls.end());
+    EXPECT_EQ(period_size->kind, CallKind::ConfigureIntegerSetting);
+    EXPECT_EQ(period_size->value, 512);
+
+    const auto periods = std::ranges::find(
+        calls,
+        std::string{"audio.periods"},
+        &Call::text
+    );
+    ASSERT_NE(periods, calls.end());
+    EXPECT_EQ(periods->kind, CallKind::ConfigureIntegerSetting);
+    EXPECT_EQ(periods->value, 4);
 }
 
 TEST_F(CurrentBehaviorTest, ReadyRoutesLiveMidiToChannelZero) {

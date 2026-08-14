@@ -69,6 +69,10 @@ bool waitUntil(
 
 extern "C" {
 
+const char* fluid_version_str() {
+    return "2.5.7-test";
+}
+
 fluid_settings_t* new_fluid_settings() {
     return new _fluid_hashtable_t;
 }
@@ -111,6 +115,12 @@ int fluid_settings_setint(
         settings->midi_channels = value;
         record({
             .kind = fake_fluidsynth::CallKind::ConfigureMidiChannels,
+            .value = value,
+            .text = name,
+        });
+    } else {
+        record({
+            .kind = fake_fluidsynth::CallKind::ConfigureIntegerSetting,
             .value = value,
             .text = name,
         });

@@ -57,6 +57,30 @@ struct SynthEngine::Impl {
         }
 
         fluid_settings_setint(settings.get(), "synth.threadsafe-api", 1);
+        if (config.audio.period_size) {
+            const int period_size_result = fluid_settings_setint(
+                settings.get(),
+                "audio.period-size",
+                *config.audio.period_size
+            );
+            if (period_size_result != FLUID_OK) {
+                throw std::runtime_error(
+                    "Could not configure FluidSynth audio period size"
+                );
+            }
+        }
+        if (config.audio.periods) {
+            const int periods_result = fluid_settings_setint(
+                settings.get(),
+                "audio.periods",
+                *config.audio.periods
+            );
+            if (periods_result != FLUID_OK) {
+                throw std::runtime_error(
+                    "Could not configure FluidSynth audio periods"
+                );
+            }
+        }
         const int gain_result = fluid_settings_setnum(
             settings.get(),
             "synth.gain",
@@ -133,7 +157,9 @@ struct SynthEngine::Impl {
 };
 
 SynthEngine::SynthEngine(const ApplicationConfig& config)
-    : impl_(std::make_unique<Impl>(config)) {}
+    : impl_(std::make_unique<Impl>(config)) {
+    std::cout << "FluidSynth runtime version: " << fluid_version_str() << '\n';
+}
 
 SynthEngine::~SynthEngine() = default;
 

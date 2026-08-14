@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the interactive `zsoundtest` diagnostic to exercise configured
+  SoundFont presets across gain, pitch-direction, speed, separation, and
+  overlap combinations while recording the listener's observations.
 - Added the `zfont` CLI helper to list and automatically audition every preset
   in an SF2 or SF3 file through Zeta's configured FluidSynth audio output.
 - Documented a measured, reversible Raspberry Pi headless operating profile
@@ -14,6 +17,9 @@ All notable changes to Zeta DAW are documented in this file.
 - Added optional FluidSynth audio driver, ALSA device, and gain configuration,
   including Raspberry Pi USB-audio, real-time priority, locked-memory, and
   systemd setup guidance while preserving existing desktop defaults.
+- Added optional FluidSynth period-size and period-count overrides with a
+  device-specific latency/dropout tuning procedure while preserving
+  FluidSynth's existing defaults when they are omitted.
 - Added guide synchronization: the first configured slot establishes the
   timeline, while every later slot preserves its recorded guide-relative phase
   and repeats at the smallest whole guide multiple covering its phrase.
@@ -47,6 +53,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Single-configuration builds now default to Release, and Release builds
+  optimize both Zeta and the pinned FluidSynth for the build host with
+  `-march=native`.
+- FluidSynth 2.5.7 is now a checksum-verified, statically linked build
+  dependency for consistent desktop and Raspberry Pi rendering, replacing
+  whichever FluidSynth version the host distribution provided.
 - Documentation-only changes no longer require configuring, rebuilding, or
   running the C++ test suite.
 - Raspberry Pi USB-audio examples now select the configured output by its

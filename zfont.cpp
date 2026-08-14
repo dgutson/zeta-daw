@@ -55,6 +55,22 @@ void configureAudio(
         fluid_settings_setnum(settings, "synth.gain", audio.gain),
         "Could not configure FluidSynth gain"
     );
+    if (audio.period_size) {
+        requireFluidOk(
+            fluid_settings_setint(
+                settings,
+                "audio.period-size",
+                *audio.period_size
+            ),
+            "Could not configure FluidSynth audio period size"
+        );
+    }
+    if (audio.periods) {
+        requireFluidOk(
+            fluid_settings_setint(settings, "audio.periods", *audio.periods),
+            "Could not configure FluidSynth audio periods"
+        );
+    }
     if (audio.driver) {
         requireFluidOk(
             fluid_settings_setstr(

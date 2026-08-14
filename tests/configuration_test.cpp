@@ -245,6 +245,8 @@ audio:
   driver: alsa
   alsa_device: plughw:3
   gain: 1.0
+  period_size: 512
+  periods: 4
 loop_slots:
   - F8
   - G8
@@ -284,6 +286,10 @@ controls:
     ASSERT_TRUE(config.audio.alsa_device);
     EXPECT_EQ(*config.audio.alsa_device, "plughw:3");
     EXPECT_DOUBLE_EQ(config.audio.gain, 1.0);
+    ASSERT_TRUE(config.audio.period_size);
+    EXPECT_EQ(*config.audio.period_size, 512);
+    ASSERT_TRUE(config.audio.periods);
+    EXPECT_EQ(*config.audio.periods, 4);
 
     ASSERT_EQ(config.loop_slots.size(), 2U);
     EXPECT_EQ(config.loop_slots[0].key, 125);
@@ -339,6 +345,8 @@ TEST(ConfigurationTest, UsesExistingAudioDefaultsWhenAudioIsOmitted) {
     EXPECT_FALSE(config.audio.driver);
     EXPECT_FALSE(config.audio.alsa_device);
     EXPECT_DOUBLE_EQ(config.audio.gain, 0.5);
+    EXPECT_FALSE(config.audio.period_size);
+    EXPECT_FALSE(config.audio.periods);
 }
 
 TEST(ConfigurationTest, RejectsInvalidAudioConfiguration) {
@@ -355,6 +363,12 @@ TEST(ConfigurationTest, RejectsInvalidAudioConfiguration) {
         std::string_view{"audio: { gain: 10.1 }\n"},
         std::string_view{"audio: { gain: .nan }\n"},
         std::string_view{"audio: { gain: loud }\n"},
+        std::string_view{"audio: { period_size: 63 }\n"},
+        std::string_view{"audio: { period_size: 8193 }\n"},
+        std::string_view{"audio: { period_size: small }\n"},
+        std::string_view{"audio: { periods: 1 }\n"},
+        std::string_view{"audio: { periods: 65 }\n"},
+        std::string_view{"audio: { periods: many }\n"},
     };
 
     for (const auto audio : invalid_audio_mappings) {
