@@ -53,6 +53,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Kept the pinned yaml-cpp fallback configurable without its legacy-policy
+  diagnostic on supported CMake 3.x and compatible with CMake 4.x.
 - Single-configuration builds now default to Release, and Release builds
   optimize both Zeta and the pinned FluidSynth for the build host with
   `-march=native`.
