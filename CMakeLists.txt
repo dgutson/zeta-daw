@@ -168,7 +168,8 @@ if(NOT TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
         URL https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    FetchContent_MakeAvailable(yaml-cpp)
+
+    add_subdirectory(cmake/yaml_cpp_fallback)
 endif()
 
 if(TARGET yaml-cpp::yaml-cpp)

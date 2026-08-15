@@ -57,8 +57,10 @@ downloads checksum-verified FluidSynth 2.5.7 and links it statically into
 The pinned build supports ALSA and PulseAudio output plus SF2 and SF3
 SoundFonts. CMake first looks for libremidi 5.4.3 and yaml-cpp, then downloads
 pinned copies when they are not available. Test builds also fetch pinned Hegel
-and GoogleTest dependencies. The first build therefore requires network access
-when those fetched dependencies are not already cached.
+and GoogleTest dependencies. The yaml-cpp fallback supports both the minimum
+CMake 3.22 line and CMake 4.x despite that dependency's older policy metadata.
+The first build therefore requires network access when fetched dependencies are
+not already cached.
 
 These optional packages provide MIDI diagnostic tools and a General MIDI
 SoundFont suitable for an initial test:

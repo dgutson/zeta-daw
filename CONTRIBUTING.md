@@ -398,7 +398,11 @@ The current dependency strategy is intentional:
   keeps the renderer identical on the desktop and Raspberry Pi instead of
   accepting the distro FluidSynth version.
 - CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned
-  `FetchContent` fallbacks.
+  `FetchContent` fallbacks. The yaml-cpp 0.8.0 fallback declares a CMake 3.4
+  policy version, so its population is wrapped in dependency-local
+  compatibility handling: CMake 3.x suppresses only that legacy-policy
+  diagnostic, while CMake 4.x supplies the minimum supported policy version
+  externally. Do not broaden the suppression to Zeta or other dependencies.
 - GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
   selective beta pilot for pure property tests; retain deterministic GoogleTest
   examples and do not treat it as a blanket testing standard. Follow
