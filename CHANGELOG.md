@@ -53,6 +53,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- The native Hegel engine version now comes from the pinned Hegel release
+  instead of a second pin in `CMakeLists.txt`.
 - Upgraded the test-only Hegel pin to v0.13.0 and migrated the subordinate
   playback lifecycle property to native named-rule stateful testing, whose
   failure reports print the three-state model around each step, while

@@ -6,12 +6,13 @@ many inputs for one general property and shrinks a failure to a smaller
 counterexample. This complements deterministic GoogleTest examples; it does
 not replace them or make Hegel the default choice for every test.
 
-The Hegel C++ version, matching native `libhegel` version, and archive hash in
-`CMakeLists.txt` are authoritative. The native version cache entry is forced so
-reusing a build directory after a Hegel upgrade cannot retain an
-ABI-incompatible engine. Hegel is a beta test-only dependency and must not be
-linked to the production `zd` CMake target or used on a real-time path. Do not
-upgrade it opportunistically.
+The Hegel C++ version and archive hash in `CMakeLists.txt` are authoritative,
+and that release selects its matching native `libhegel` engine. `CMakeLists.txt`
+clears the cached engine version before adding Hegel, so reusing a build
+directory after a Hegel upgrade cannot retain an ABI-incompatible engine.
+Hegel is a beta test-only dependency and must not be linked to the production
+`zd` CMake target or used on a real-time path. Do not upgrade it
+opportunistically.
 
 ## When Hegel is a good fit
 

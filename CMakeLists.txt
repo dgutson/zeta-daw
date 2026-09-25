@@ -251,14 +251,10 @@ if(BUILD_TESTING)
         URL_HASH SHA256=d778586a4d9b252ce6de4b70791a641f3da02fd74e02bce67060ff8d22441ca5
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    # Keep a reused build directory from retaining Hegel's ABI-incompatible
-    # native engine pin from an earlier release.
-    set(
-        HEGEL_LIBHEGEL_VERSION
-        0.42.4
-        CACHE STRING "libhegel version required by Hegel C++ v0.13.0"
-        FORCE
-    )
+    # The Hegel release pins its matching native engine. Clearing the cached
+    # engine version keeps a reused build directory from retaining an earlier
+    # release's ABI-incompatible engine.
+    unset(HEGEL_LIBHEGEL_VERSION CACHE)
     set(HEGEL_REFLECTION OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(hegel)
 
