@@ -114,6 +114,8 @@ cmake -S . -B build-analyzer -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF -DZETA
 cmake --build build-analyzer --parallel
 ```
 
+The ThreadSanitizer command is in `CONTRIBUTING.md`.
+
 CMake downloads and statically links a pinned FluidSynth (never the
 distribution's), uses installed libremidi and yaml-cpp or downloads pinned
 copies, and downloads GoogleTest and Hegel for test builds, so the first

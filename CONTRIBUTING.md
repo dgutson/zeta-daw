@@ -469,6 +469,25 @@ cmake -S . -B build-analyzer \
 cmake --build build-analyzer --parallel
 ```
 
+ThreadSanitizer runs `current_behavior_tests`, the only multithreaded test
+executable; any reported race fails the run:
+
+```bash
+cmake -S . -B build-tsan \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DBUILD_TESTING=ON \
+    -DCMAKE_C_FLAGS="-fsanitize=thread -g" \
+    -DCMAKE_CXX_FLAGS="-fsanitize=thread -g" \
+    -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread \
+    -DCMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE=PRE_TEST
+cmake --build build-tsan --target current_behavior_tests --parallel
+setarch "$(uname -m)" -R ./build-tsan/current_behavior_tests
+```
+
+`setarch -R` disables address randomization, without which GCC 13's
+ThreadSanitizer aborts on Ubuntu 24.04 kernels; `PRE_TEST` stops the build
+from running the executable without it.
+
 For routing diagnostics, configure a separate trace build or reconfigure the
 existing build with `-DZETA_MIDI_TRACE=ON`. Do not leave unconditional MIDI
 logging on a performance path.
