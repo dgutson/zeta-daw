@@ -1,10 +1,9 @@
 #include "../midi_control_change_mapping.hpp"
 
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <array>
-#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -32,79 +31,81 @@ MidiEvent controlChange(int channel, int controller, int value) {
     };
 }
 
-HEGEL_TEST(control_change_mapping_matches_linear_model)(
-    hegel::TestCase& tc
-) {
-    constexpr int channel_count = 16;
-    constexpr int controller_count = 128;
-    constexpr int source_count = 2;
-    constexpr int mappings_per_source = channel_count * controller_count;
-
-    const auto mapping_keys = tc.draw(gs::vectors(
-        gs::integers<int>({
-            .min_value = 0,
-            .max_value = source_count * mappings_per_source - 1,
-        }),
-        {
-            .min_size = 0,
-            .max_size = source_count * mappings_per_source,
-            .unique = true,
-        }
-    ));
-
-    std::vector<MidiControlChangeMapping> mappings;
-    mappings.reserve(mapping_keys.size());
-    for (const int key : mapping_keys) {
-        const int source = key / mappings_per_source;
-        const int source_key = key % mappings_per_source;
-        mappings.push_back({
-            .source_port = source == 0 ? "Selected Controller" : "Other Controller",
-            .channel = source_key / controller_count,
-            .controller = source_key % controller_count,
-            .target_controller = tc.draw(gs::integers<int>({
-                .min_value = 0,
-                .max_value = controller_count - 1,
-            })),
-        });
-    }
-
-    const int channel = tc.draw(gs::integers<int>({
-        .min_value = 0,
-        .max_value = channel_count - 1,
-    }));
-    const int controller = tc.draw(gs::integers<int>({
-        .min_value = 0,
-        .max_value = controller_count - 1,
-    }));
-    const int value = tc.draw(gs::integers<int>({
-        .min_value = 0,
-        .max_value = controller_count - 1,
-    }));
-
-    int expected_controller = controller;
-    for (const auto& mapping : mappings) {
-        if (mapping.source_port == "Selected Controller"
-            && mapping.channel == channel
-            && mapping.controller == controller) {
-            expected_controller = mapping.target_controller;
-            break;
-        }
-    }
-
-    const MidiControlChangeMapper mapper{"Selected Controller", mappings};
-    const auto mapped = mapper.map(controlChange(channel, controller, value));
-
-    if (mapped.type != MidiMessageType::ControlChange
-        || mapped.message.raw_type != raw(MidiMessageType::ControlChange)
-        || mapped.message.channel != channel
-        || mapped.message.control != expected_controller
-        || mapped.message.value != value) {
-        throw std::runtime_error("Control Change mapping disagrees with model");
-    }
-}
-
 TEST(MidiControlChangeMapperPropertyTest, MatchesLinearModel) {
-    control_change_mapping_matches_linear_model();
+    hegel::test([](hegel::TestCase& tc) {
+        constexpr int channel_count = 16;
+        constexpr int controller_count = 128;
+        constexpr int source_count = 2;
+        constexpr int mappings_per_source = channel_count * controller_count;
+        constexpr bool repeatable = true;
+
+        const auto mapping_keys = tc.draw("mapping_keys", gs::vectors(
+            gs::integers<int>({
+                .min_value = 0,
+                .max_value = source_count * mappings_per_source - 1,
+            }),
+            {
+                .min_size = 0,
+                .max_size = source_count * mappings_per_source,
+                .unique = true,
+            }
+        ));
+
+        std::vector<MidiControlChangeMapping> mappings;
+        mappings.reserve(mapping_keys.size());
+        for (const int key : mapping_keys) {
+            const int source = key / mappings_per_source;
+            const int source_key = key % mappings_per_source;
+            mappings.push_back({
+                .source_port = source == 0
+                    ? "Selected Controller"
+                    : "Other Controller",
+                .channel = source_key / controller_count,
+                .controller = source_key % controller_count,
+                .target_controller = tc.draw(
+                    "target_controller",
+                    gs::integers<int>({
+                        .min_value = 0,
+                        .max_value = controller_count - 1,
+                    }),
+                    repeatable
+                ),
+            });
+        }
+
+        const int channel = tc.draw("channel", gs::integers<int>({
+            .min_value = 0,
+            .max_value = channel_count - 1,
+        }));
+        const int controller = tc.draw("controller", gs::integers<int>({
+            .min_value = 0,
+            .max_value = controller_count - 1,
+        }));
+        const int value = tc.draw("value", gs::integers<int>({
+            .min_value = 0,
+            .max_value = controller_count - 1,
+        }));
+
+        int expected_controller = controller;
+        for (const auto& mapping : mappings) {
+            if (mapping.source_port == "Selected Controller"
+                && mapping.channel == channel
+                && mapping.controller == controller) {
+                expected_controller = mapping.target_controller;
+                break;
+            }
+        }
+
+        const MidiControlChangeMapper mapper{"Selected Controller", mappings};
+        const auto mapped =
+            mapper.map(controlChange(channel, controller, value));
+
+        ASSERT_EQ(mapped.type, MidiMessageType::ControlChange);
+        ASSERT_EQ(mapped.message.raw_type, raw(MidiMessageType::ControlChange));
+        ASSERT_EQ(mapped.message.channel, channel);
+        ASSERT_EQ(mapped.message.control, expected_controller);
+        ASSERT_EQ(mapped.message.value, value);
+    });
 }
 
 TEST(MidiControlChangeMapperTest, MapsExactSourceChannelAndController) {

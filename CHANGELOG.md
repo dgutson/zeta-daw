@@ -6,6 +6,14 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added `CLAUDE.md` as the only agent instruction file: the working agreement
+  formerly in `AGENTS.md`, verified build, test-selection, and static-analysis
+  commands, the MIDI event path through the code, and how tests replace MIDI
+  input and FluidSynth.
+- Added a concurrent Hegel property in which shutdown races performer MIDI
+  from several threads and playing loops, checking that notes sound only on
+  configured channels, nothing sounds after shutdown returns, and no channel
+  is left sounding.
 - Added the interactive `zsoundtest` diagnostic to exercise configured
   SoundFont presets across gain, pitch-direction, speed, separation, and
   overlap combinations while recording the listener's observations.
@@ -53,6 +61,17 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Hegel properties are GoogleTest cases that run `hegel::test` and state their
+  checks with GoogleTest assertions, so a failure report shows the compared
+  values.
+- Every Hegel draw is named after the variable it initializes, so a
+  counterexample reads as named C++ declarations.
+- The native Hegel engine version now comes from the pinned Hegel release
+  instead of a second pin in `CMakeLists.txt`.
+- Upgraded the test-only Hegel pin to v0.13.0 and migrated the subordinate
+  playback lifecycle property to native named-rule stateful testing, whose
+  failure reports print the three-state model around each step, while
+  retaining deterministic worker and transition coverage.
 - Kept the pinned yaml-cpp fallback configurable without its legacy-policy
   diagnostic on supported CMake 3.x and compatible with CMake 4.x.
 - Single-configuration builds now default to Release, and Release builds
@@ -70,9 +89,6 @@ All notable changes to Zeta DAW are documented in this file.
   permissions, diagnostics, and the boundary between required settings and
   optional real-time hardening.
 - Configuration schema 8 adds the optional strict `audio` mapping.
-- Upgraded the test-only Hegel pin to v0.7.4 and migrated the subordinate
-  playback lifecycle property to native named-rule stateful testing while
-  retaining deterministic worker and transition coverage.
 - Newly completed regular slots now join their current natural repetition,
   omitting only its already elapsed event prefix once while keeping every later
   repetition complete and on the original absolute timeline.

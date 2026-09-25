@@ -2,7 +2,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <stdexcept>
 #include <vector>
@@ -46,9 +46,14 @@ enum class PlaybackModelState {
 };
 
 class PlaybackLifecycleMachine final
-    : public hegel::stateful::StateMachine<PlaybackLifecycleMachine> {
+    : public hegel::stateful::StateMachine<
+        PlaybackLifecycleMachine,
+        PlaybackModelState
+    > {
 public:
-    PlaybackLifecycleMachine() : subject_{output_} {}
+    PlaybackLifecycleMachine()
+        : StateMachine({.initial_state = PlaybackModelState::Muted}),
+          subject_{output_} {}
 
     std::vector<hegel::stateful::Rule<PlaybackLifecycleMachine>> rules() {
         using Rule = hegel::stateful::Rule<PlaybackLifecycleMachine>;
@@ -96,7 +101,7 @@ public:
             }),
             Invariant("terminated state is absorbing", [](const auto& machine) {
                 if (machine.was_terminated_
-                    && (machine.model_state_
+                    && (machine.state
                             != PlaybackModelState::Terminated
                         || machine.subject_.state()
                             != LoopSlotPlaybackState::Terminated)) {
@@ -110,24 +115,24 @@ public:
 
 private:
     void startRequested() {
-        if (model_state_ == PlaybackModelState::Muted) {
-            model_state_ = PlaybackModelState::Looping;
+        if (state == PlaybackModelState::Muted) {
+            state = PlaybackModelState::Looping;
             ++expected_activations_;
         }
         subject_.startRequested();
     }
 
     void muteRequested() {
-        if (model_state_ == PlaybackModelState::Looping) {
-            model_state_ = PlaybackModelState::Muted;
+        if (state == PlaybackModelState::Looping) {
+            state = PlaybackModelState::Muted;
             ++expected_deactivations_;
         }
         subject_.muteRequested();
     }
 
     void terminationRequested() {
-        if (model_state_ != PlaybackModelState::Terminated) {
-            model_state_ = PlaybackModelState::Terminated;
+        if (state != PlaybackModelState::Terminated) {
+            state = PlaybackModelState::Terminated;
             ++expected_terminations_;
             was_terminated_ = true;
         }
@@ -135,7 +140,7 @@ private:
     }
 
     bool statesAgree() const {
-        switch (model_state_) {
+        switch (state) {
         case PlaybackModelState::Muted:
             return subject_.state() == LoopSlotPlaybackState::Muted;
         case PlaybackModelState::Looping:
@@ -154,19 +159,11 @@ private:
 
     CountingPlaybackOutput output_;
     LoopSlotPlaybackFsm subject_;
-    PlaybackModelState model_state_{PlaybackModelState::Muted};
     int expected_activations_{};
     int expected_deactivations_{};
     int expected_terminations_{};
     bool was_terminated_{};
 };
-
-HEGEL_TEST(loop_slot_playback_stateful_lifecycle_matches_independent_model)(
-    hegel::TestCase& tc
-) {
-    PlaybackLifecycleMachine machine;
-    hegel::stateful::run(machine, tc);
-}
 
 TEST(LoopSlotPlaybackFsmTest, StartsOnlyFromMuted) {
     MockPlaybackOutput output;
@@ -219,7 +216,10 @@ TEST(LoopSlotPlaybackFsmTest, TerminatesExactlyOnceFromEveryLiveState) {
 }
 
 TEST(LoopSlotPlaybackPropertyTest, CommandsMatchIndependentModel) {
-    loop_slot_playback_stateful_lifecycle_matches_independent_model();
+    hegel::test([](hegel::TestCase& tc) {
+        PlaybackLifecycleMachine machine;
+        hegel::stateful::run(machine, tc);
+    });
 }
 
 } // namespace

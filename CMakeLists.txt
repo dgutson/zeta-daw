@@ -247,18 +247,14 @@ if(BUILD_TESTING)
 
     FetchContent_Declare(
         hegel
-        URL https://github.com/hegeldev/hegel-cpp/archive/refs/tags/v0.7.4.tar.gz
-        URL_HASH SHA256=690d5dfb6517245ab5f162e9f0cc59739d709848bb969a2afa725b92f50bfcd3
+        URL https://github.com/hegeldev/hegel-cpp/archive/refs/tags/v0.13.0.tar.gz
+        URL_HASH SHA256=d778586a4d9b252ce6de4b70791a641f3da02fd74e02bce67060ff8d22441ca5
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
-    # Keep a reused build directory from retaining Hegel's ABI-incompatible
-    # native engine pin from an earlier release.
-    set(
-        HEGEL_LIBHEGEL_VERSION
-        0.29.0
-        CACHE STRING "libhegel version required by Hegel C++ v0.7.4"
-        FORCE
-    )
+    # The Hegel release pins its matching native engine. Clearing the cached
+    # engine version keeps a reused build directory from retaining an earlier
+    # release's ABI-incompatible engine.
+    unset(HEGEL_LIBHEGEL_VERSION CACHE)
     set(HEGEL_REFLECTION OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(hegel)
 
@@ -307,6 +303,7 @@ if(BUILD_TESTING)
             Threads::Threads
             ${ZETA_YAML_TARGET}
             libremidi::libremidi
+            hegel
     )
     add_dependencies(current_behavior_tests zeta_fluidsynth_external)
 

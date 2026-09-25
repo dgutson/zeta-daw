@@ -1,14 +1,13 @@
 #include "../configuration.hpp"
 
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -129,14 +128,34 @@ MidiControlType generatedControlType(int choice) {
 }
 
 MidiControlBinding generatedBinding(hegel::TestCase& tc) {
+    // Each property draws two bindings; numbered names keep their fields apart.
+    constexpr bool repeatable = true;
     return {
-        .type = generatedControlType(
-            tc.draw(gs::integers<int>({.min_value = 0, .max_value = 3}))
+        .type = generatedControlType(tc.draw(
+            "control_type_index",
+            gs::integers<int>({.min_value = 0, .max_value = 3}),
+            repeatable
+        )),
+        .channel = tc.draw(
+            "channel",
+            gs::integers<int>({.min_value = 0, .max_value = 15}),
+            repeatable
         ),
-        .channel = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 15})),
-        .number = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .value = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .match_any_program = tc.draw(gs::booleans()),
+        .number = tc.draw(
+            "number",
+            gs::integers<int>({.min_value = 0, .max_value = 127}),
+            repeatable
+        ),
+        .value = tc.draw(
+            "value",
+            gs::integers<int>({.min_value = 0, .max_value = 127}),
+            repeatable
+        ),
+        .match_any_program = tc.draw(
+            "match_any_program",
+            gs::booleans(),
+            repeatable
+        ),
     };
 }
 
@@ -207,35 +226,25 @@ bool haveCommonMatchingEvent(
     return false;
 }
 
-HEGEL_TEST(control_binding_overlap_is_symmetric)(hegel::TestCase& tc) {
-    const auto first = generatedBinding(tc);
-    const auto second = generatedBinding(tc);
-
-    if (first.overlaps(second) != second.overlaps(first)) {
-        throw std::runtime_error("MIDI control-binding overlap is asymmetric");
-    }
-}
-
-HEGEL_TEST(control_binding_overlap_matches_finite_event_model)(
-    hegel::TestCase& tc
-) {
-    const auto first = generatedBinding(tc);
-    const auto second = generatedBinding(tc);
-    const bool expected = haveCommonMatchingEvent(first, second);
-
-    if (first.overlaps(second) != expected) {
-        throw std::runtime_error(
-            "MIDI control-binding overlap disagrees with matching events"
-        );
-    }
-}
-
 TEST(MidiControlBindingPropertyTest, OverlapIsSymmetric) {
-    control_binding_overlap_is_symmetric();
+    hegel::test([](hegel::TestCase& tc) {
+        const auto first = generatedBinding(tc);
+        const auto second = generatedBinding(tc);
+
+        ASSERT_EQ(first.overlaps(second), second.overlaps(first))
+            << "MIDI control-binding overlap is asymmetric";
+    });
 }
 
 TEST(MidiControlBindingPropertyTest, OverlapMatchesFiniteEventModel) {
-    control_binding_overlap_matches_finite_event_model();
+    hegel::test([](hegel::TestCase& tc) {
+        const auto first = generatedBinding(tc);
+        const auto second = generatedBinding(tc);
+        const bool expected = haveCommonMatchingEvent(first, second);
+
+        ASSERT_EQ(first.overlaps(second), expected)
+            << "MIDI control-binding overlap disagrees with matching events";
+    });
 }
 
 TEST(ConfigurationTest, ParsesCatalogMappingsAndActionControls) {

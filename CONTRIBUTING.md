@@ -404,7 +404,8 @@ The current dependency strategy is intentional:
   diagnostic, while CMake 4.x supplies the minimum supported policy version
   externally. Do not broaden the suppression to Zeta or other dependencies.
 - GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
-  selective beta pilot for pure property tests; retain deterministic GoogleTest
+  selective beta pilot for pure property tests and for invariants that must
+  hold under every thread interleaving; retain deterministic GoogleTest
   examples and do not treat it as a blanket testing standard. Follow
   [HEGEL.md](HEGEL.md) when selecting, writing, and running properties.
 - A single-configuration CMake build defaults to Release when no build type is
@@ -494,7 +495,8 @@ The test suites divide responsibilities as follows:
 - `current_behavior_tests`: guide-first gating, guide cascade, regular-slot
   isolation and replacement, synchronized playback, raw-note consumption,
   clean held-note completion, and shutdown with fake MIDI and FluidSynth
-  boundaries.
+  boundaries, plus a concurrent Hegel property in which shutdown races
+  performer MIDI from several threads and loop playback.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.

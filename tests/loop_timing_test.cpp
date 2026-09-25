@@ -1,11 +1,10 @@
 #include "../loop_timing.hpp"
 
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <cstdint>
 #include <limits>
-#include <stdexcept>
 
 namespace {
 
@@ -26,31 +25,43 @@ struct GeneratedTiming {
 
 GeneratedTiming generatedTiming(hegel::TestCase& tc) {
     const auto guide_period_count = tc.draw(
+        "guide_period_count",
         gs::integers<std::uint32_t>({
             .min_value = 1,
             .max_value = std::numeric_limits<std::uint32_t>::max(),
         })
     );
     const auto guide_period = Milliseconds(guide_period_count);
-    const auto guide_origin_count = tc.draw(gs::integers<std::uint32_t>());
+    const auto guide_origin_count = tc.draw(
+        "guide_origin_count",
+        gs::integers<std::uint32_t>()
+    );
     const auto guide_origin = TimePoint(Milliseconds(guide_origin_count));
     // Keeps even the maximum generated period inside steady_clock's range.
     constexpr std::uint16_t maximum_safe_elapsed_cycles = 1024;
     const auto elapsed_guide_cycles = tc.draw(
+        "elapsed_guide_cycles",
         gs::integers<std::uint16_t>({
             .min_value = 0,
             .max_value = maximum_safe_elapsed_cycles,
         })
     );
-    const auto phase_count = tc.draw(gs::integers<std::uint32_t>({
-        .min_value = 0,
-        .max_value = guide_period_count - 1,
-    }));
+    const auto phase_count = tc.draw(
+        "phase_count",
+        gs::integers<std::uint32_t>({
+            .min_value = 0,
+            .max_value = guide_period_count - 1,
+        })
+    );
     const auto recording_started_at = guide_origin
         + guide_period * elapsed_guide_cycles
         + Milliseconds(phase_count);
-    const auto completion_delay = tc.draw(gs::integers<std::uint32_t>());
+    const auto completion_delay = tc.draw(
+        "completion_delay",
+        gs::integers<std::uint32_t>()
+    );
     const auto completion_microseconds = tc.draw(
+        "completion_microseconds",
         gs::integers<std::uint16_t>({.min_value = 0, .max_value = 999})
     );
 
@@ -67,102 +78,95 @@ GeneratedTiming generatedTiming(hegel::TestCase& tc) {
                 + std::chrono::microseconds(completion_microseconds),
         },
         .content_duration = Milliseconds(
-            tc.draw(gs::integers<std::uint32_t>())
+            tc.draw("content_duration", gs::integers<std::uint32_t>())
         ),
     };
 }
 
-HEGEL_TEST(regular_period_is_smallest_covering_guide_multiple)(
-    hegel::TestCase& tc
-) {
-    const auto generated = generatedTiming(tc);
-    const auto schedule = LoopPlaybackSchedule::forRegular(
-        generated.take,
-        generated.content_duration,
-        generated.guide
-    );
-
-    const auto previous_multiple = schedule.period - generated.guide.period;
-    const bool is_multiple =
-        schedule.period.count() % generated.guide.period.count() == 0;
-    const bool covers_content = schedule.period >= generated.content_duration;
-    const bool is_smallest = generated.content_duration == Milliseconds::zero()
-        ? schedule.period == generated.guide.period
-        : previous_multiple < generated.content_duration;
-    if (!is_multiple || !covers_content || !is_smallest) {
-        throw std::runtime_error(
-            "regular period is not the smallest covering guide multiple"
+TEST(LoopTimingPropertyTest, PeriodIsSmallestCoveringGuideMultiple) {
+    hegel::test([](hegel::TestCase& tc) {
+        const auto generated = generatedTiming(tc);
+        const auto schedule = LoopPlaybackSchedule::forRegular(
+            generated.take,
+            generated.content_duration,
+            generated.guide
         );
-    }
-}
 
-HEGEL_TEST(regular_first_cycle_joins_natural_repetition_at_completion)(
-    hegel::TestCase& tc
-) {
-    const auto generated = generatedTiming(tc);
-    const auto schedule = LoopPlaybackSchedule::forRegular(
-        generated.take,
-        generated.content_duration,
-        generated.guide
-    );
-    const auto clock_period = std::chrono::duration_cast<LooperClock::duration>(
-        schedule.period
-    );
-    const auto first_natural_cycle =
-        generated.take.recording_started_at + clock_period;
-    const auto cycle_offset =
-        schedule.first_cycle_at - generated.take.recording_started_at;
-    const bool is_natural_repetition =
-        schedule.first_cycle_at >= first_natural_cycle
-        && cycle_offset % clock_period == LooperClock::duration::zero();
-    if (!is_natural_repetition) {
-        throw std::runtime_error(
-            "regular first cycle is not on the natural repetition timeline"
-        );
-    }
-
-    if (generated.take.completed_at < first_natural_cycle) {
-        if (schedule.first_cycle_at != first_natural_cycle
-            || schedule.first_cycle_join_at != first_natural_cycle) {
-            throw std::runtime_error(
-                "regular first cycle did not wait for its first repetition"
-            );
+        ASSERT_EQ(schedule.period.count() % generated.guide.period.count(), 0)
+            << "regular period is not a whole guide multiple";
+        ASSERT_GE(schedule.period, generated.content_duration)
+            << "regular period does not cover the phrase";
+        if (generated.content_duration == Milliseconds::zero()) {
+            ASSERT_EQ(schedule.period, generated.guide.period)
+                << "an empty phrase does not repeat every guide cycle";
+        } else {
+            ASSERT_LT(
+                schedule.period - generated.guide.period,
+                generated.content_duration
+            ) << "a shorter guide multiple covers the phrase";
         }
-        return;
-    }
-
-    const auto next_cycle_at = schedule.first_cycle_at + clock_period;
-    if (schedule.first_cycle_at > generated.take.completed_at
-        || next_cycle_at <= generated.take.completed_at
-        || schedule.first_cycle_join_at != generated.take.completed_at) {
-        throw std::runtime_error(
-            "regular first cycle did not join the repetition at completion"
-        );
-    }
+    });
 }
 
-HEGEL_TEST(regular_first_cycle_preserves_recorded_guide_phase)(
-    hegel::TestCase& tc
-) {
-    const auto generated = generatedTiming(tc);
-    const auto schedule = LoopPlaybackSchedule::forRegular(
-        generated.take,
-        generated.content_duration,
-        generated.guide
-    );
-    const auto clock_period = std::chrono::duration_cast<LooperClock::duration>(
-        generated.guide.period
-    );
-    const auto recorded_phase =
-        (generated.take.recording_started_at - generated.guide.first_cycle_at)
-        % clock_period;
-    const auto playback_phase =
-        (schedule.first_cycle_at - generated.guide.first_cycle_at)
-        % clock_period;
+TEST(LoopTimingPropertyTest, FirstCycleJoinsNaturalRepetitionAtCompletion) {
+    hegel::test([](hegel::TestCase& tc) {
+        const auto generated = generatedTiming(tc);
+        const auto schedule = LoopPlaybackSchedule::forRegular(
+            generated.take,
+            generated.content_duration,
+            generated.guide
+        );
+        const auto clock_period =
+            std::chrono::duration_cast<LooperClock::duration>(schedule.period);
+        const auto first_natural_cycle =
+            generated.take.recording_started_at + clock_period;
+        const auto cycle_offset =
+            schedule.first_cycle_at - generated.take.recording_started_at;
+        ASSERT_TRUE(
+            schedule.first_cycle_at >= first_natural_cycle
+            && cycle_offset % clock_period == LooperClock::duration::zero()
+        ) << "regular first cycle is not on the natural repetition timeline";
 
-    if (recorded_phase != playback_phase) {
-        throw std::runtime_error("regular playback changed the recorded phase");
-    }
+        if (generated.take.completed_at < first_natural_cycle) {
+            ASSERT_TRUE(
+                schedule.first_cycle_at == first_natural_cycle
+                && schedule.first_cycle_join_at == first_natural_cycle
+            ) << "regular first cycle did not wait for its first repetition";
+            return;
+        }
+
+        const auto next_cycle_at = schedule.first_cycle_at + clock_period;
+        ASSERT_TRUE(
+            schedule.first_cycle_at <= generated.take.completed_at
+            && next_cycle_at > generated.take.completed_at
+            && schedule.first_cycle_join_at == generated.take.completed_at
+        ) << "regular first cycle did not join the repetition at completion";
+    });
+}
+
+TEST(LoopTimingPropertyTest, FirstCyclePreservesRecordedGuidePhase) {
+    hegel::test([](hegel::TestCase& tc) {
+        const auto generated = generatedTiming(tc);
+        const auto schedule = LoopPlaybackSchedule::forRegular(
+            generated.take,
+            generated.content_duration,
+            generated.guide
+        );
+        const auto clock_period =
+            std::chrono::duration_cast<LooperClock::duration>(
+                generated.guide.period
+            );
+        const auto recorded_phase = (
+            generated.take.recording_started_at
+            - generated.guide.first_cycle_at
+        ) % clock_period;
+        const auto playback_phase =
+            (schedule.first_cycle_at - generated.guide.first_cycle_at)
+            % clock_period;
+
+        ASSERT_EQ(playback_phase, recorded_phase)
+            << "regular playback changed the recorded phase";
+    });
 }
 
 TEST(LoopTimingTest, GuideStartsAtCompletionWithRecordedDuration) {
@@ -308,18 +312,6 @@ TEST(LoopTimingTest, ExactGuideBoundariesDoNotAddAnotherCycle) {
     EXPECT_EQ(schedule.first_cycle_at, TimePoint(13000ms));
     EXPECT_EQ(schedule.first_cycle_join_at, TimePoint(13000ms));
     EXPECT_EQ(schedule.period, 8000ms);
-}
-
-TEST(LoopTimingPropertyTest, PeriodIsSmallestCoveringGuideMultiple) {
-    regular_period_is_smallest_covering_guide_multiple();
-}
-
-TEST(LoopTimingPropertyTest, FirstCycleJoinsNaturalRepetitionAtCompletion) {
-    regular_first_cycle_joins_natural_repetition_at_completion();
-}
-
-TEST(LoopTimingPropertyTest, FirstCyclePreservesRecordedGuidePhase) {
-    regular_first_cycle_preserves_recorded_guide_phase();
 }
 
 } // namespace

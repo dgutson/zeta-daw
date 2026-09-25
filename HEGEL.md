@@ -1,17 +1,19 @@
 # Property-based testing with Hegel
 
 Zeta uses [Hegel](https://github.com/hegeldev/hegel-cpp) selectively for
-property-based testing (PBT) of pure, deterministic contracts. Hegel generates
-many inputs for one general property and shrinks a failure to a smaller
-counterexample. This complements deterministic GoogleTest examples; it does
-not replace them or make Hegel the default choice for every test.
+property-based testing (PBT) of pure, deterministic contracts, and of
+concurrency contracts that must hold under every thread interleaving. Hegel
+generates many inputs for one general property and shrinks a failure to a
+smaller counterexample. This complements deterministic GoogleTest examples; it
+does not replace them or make Hegel the default choice for every test.
 
-The Hegel C++ version, matching native `libhegel` version, and archive hash in
-`CMakeLists.txt` are authoritative. The native version cache entry is forced so
-reusing a build directory after a Hegel upgrade cannot retain an
-ABI-incompatible engine. Hegel is a beta test-only dependency and must not be
-linked to the production `zd` CMake target or used on a real-time path. Do not
-upgrade it opportunistically.
+The Hegel C++ version and archive hash in `CMakeLists.txt` are authoritative,
+and that release selects its matching native `libhegel` engine. `CMakeLists.txt`
+clears the cached engine version before adding Hegel, so reusing a build
+directory after a Hegel upgrade cannot retain an ABI-incompatible engine.
+Hegel is a beta test-only dependency and must not be linked to the production
+`zd` CMake target or used on a real-time path. Do not upgrade it
+opportunistically.
 
 ## When Hegel is a good fit
 
@@ -41,14 +43,19 @@ Good Zeta patterns include:
   explicit.
 
 Prefer deterministic unit or integration tests when the assertion concerns an
-exact output or error string, setup dominates the property, or behavior
+exact output or error string, setup dominates the property, or an exact outcome
 depends on audio, hardware, thread scheduling, wall-clock timing, or process
-lifecycle. Keep the master looper FSM and worker scheduling in deterministic
+lifecycle. Keep exact master-FSM transitions and worker timing in deterministic
 tests. A small dependency-free subordinate FSM may use Hegel's native stateful
-API when it has a genuinely independent model. Hegel C++ v0.7.4 supplies named
-rules, invariants checked before the first rule and after each successful rule,
-sequence shrinking, and replay; this does not make wall-clock or thread
+API when it has a genuinely independent model. Hegel C++ v0.13.0 supplies named
+rules; invariants checked in full before the first rule and after the last, and
+sampled between rules; sequence shrinking; printing of the model state for a
+failing sequence; and replay. This does not make wall-clock or thread
 interleavings deterministic.
+
+A concurrent stateful test fits a contract that must hold under every thread
+interleaving, such as shutdown leaving no note sounding while performer MIDI
+and loop playback race it. See "Adding a concurrent stateful Hegel test".
 
 If no strong property is apparent after reading the implementation, existing
 tests, and usage sites, do not force PBT onto the component.
@@ -81,80 +88,122 @@ specific cases matter.
 
 Use native stateful testing only for a deterministic component whose commands
 and independently modeled state form one cohesive contract. Derive a test-only
-machine from `hegel::stateful::StateMachine<T>`, return labeled actions from
-`rules()`, and return named predicates from `invariants()`. Run the machine
-inside a stable `HEGEL_TEST` so minimized rule sequences use the same failure
-database and reproduction workflow as other properties:
+machine from `hegel::stateful::StateMachine<Machine, ModelState>`, pass the
+initial model state to its constructor, return labeled actions from `rules()`,
+and return named predicates from `invariants()`. The base holds the model state
+as `state` and, for a failing sequence, prints it before the first step and
+after each completed step. Enums and standard containers print as C++
+expressions; with `HEGEL_REFLECTION` off, a struct prints only through its
+`operator<<`. Keep the subject and its test doubles as ordinary members. Run
+the machine with `hegel::test` inside a GoogleTest case, like any other
+property:
 
 ```cpp
 class ComponentMachine
-    : public hegel::stateful::StateMachine<ComponentMachine> {
+    : public hegel::stateful::StateMachine<ComponentMachine, ModelState> {
 public:
+    ComponentMachine() : StateMachine({.initial_state = ModelState{}}) {}
+
     std::vector<hegel::stateful::Rule<ComponentMachine>> rules();
     std::vector<hegel::stateful::Invariant<ComponentMachine>> invariants();
 
 private:
     Component subject_;
-    IndependentModel model_;
 };
 
-HEGEL_TEST(component_commands_match_model)(hegel::TestCase& tc) {
-    ComponentMachine machine;
-    hegel::stateful::run(machine, tc);
+TEST(ComponentPropertyTest, CommandsMatchModel) {
+    hegel::test([](hegel::TestCase& tc) {
+        ComponentMachine machine;
+        hegel::stateful::run(machine, tc);
+    });
 }
 ```
 
 Rules may draw their own arguments from the supplied `TestCase`. Check rule
 preconditions with `tc.assume()` before mutating the machine; prefer rules that
-are valid in every model state when no precondition is required. Keep the
-subject and model in the test-only machine, and make invariants throw on a
-contract violation so Hegel can shrink and report the labeled sequence.
+are valid in every model state when no precondition is required. Make
+invariants throw on a contract violation so Hegel can shrink and report the
+labeled sequence. Invariants must throw rather than use GoogleTest assertions:
+the integration reports failed assertions only when the whole case ends, so an
+assertion inside an invariant neither stops the sequence nor names the
+violated invariant and step.
 
 Native statefulness changes test generation, not the production architecture.
 Do not add a controllable clock, scheduler interface, synchronization hook, or
 other production seam merely to drive a worker from Hegel without a separately
 approved design.
 
+## Adding a concurrent stateful Hegel test
+
+Use a concurrent stateful test for a contract that must hold whatever order
+threads run in, and drive the component through its existing interface and
+test doubles. Derive a test-only machine from
+`hegel::stateful::ConcurrentStateMachine<Machine>`, return
+`hegel::stateful::ConcurrentRule`s from `rules()`, and run it with
+`hegel::stateful::run_concurrent(machine, tc, minimum_workers,
+maximum_workers)` inside `hegel::test`. A run proceeds in rounds: each round
+picks one rule group, and every worker thread runs a short sequence of that
+group's rules at the same time as the other workers. Put actions that happen
+concurrently in production in one group so they race each other.
+
+The scheduler, not Hegel, decides how the threads interleave. A failing run
+prints the concurrency level and each worker's rules and draws with
+timestamps, but it is not shrunk and cannot be replayed. A `Flaky test
+detected` report still means an invariant failed under some interleaving.
+Therefore:
+
+- assert only invariants that hold under every interleaving, never a
+  particular order or timing;
+- make rules and invariants throw on a violation: rules run on Hegel's worker
+  threads, where the GoogleTest integration does not intercept assertions;
+- keep machine state that rules share thread-safe, since a round's rules run
+  at once;
+- keep rules short and cap the rounds with `Settings::stateful_step_count`, so
+  the property stays fast enough for the normal suite.
+
+Invariants see only effects the test can observe. A data race that breaks no
+invariant needs ThreadSanitizer to detect.
+
 ## Adding a Hegel test
 
 Add the property to the existing test file for the owning component. Do not
-create a separate Hegel-only test file or directory. Include Hegel and give its
-generators a short namespace alias:
+create a separate Hegel-only test file or directory. Include Hegel's GoogleTest
+integration and give its generators a short namespace alias:
 
 ```cpp
-#include <hegel/hegel.h>
-
-#include <stdexcept>
+#include <hegel/gtest.h>
 
 namespace gs = hegel::generators;
 ```
 
-Define the property with `HEGEL_TEST`, then invoke that generated function from
-a GoogleTest case whose suite name ends in `PropertyTest`:
+Write the property as a GoogleTest case whose suite name ends in
+`PropertyTest`, and run its body with `hegel::test`:
 
 ```cpp
-HEGEL_TEST(component_matches_reference_model)(hegel::TestCase& tc) {
-    const int input = tc.draw(gs::integers<int>());
-
-    const auto expected = referenceModel(input);
-    const auto actual = componentUnderTest(input);
-    if (actual != expected) {
-        throw std::runtime_error("component disagrees with reference model");
-    }
-}
-
 TEST(ComponentPropertyTest, MatchesReferenceModel) {
-    component_matches_reference_model();
+    hegel::test([](hegel::TestCase& tc) {
+        const int input = tc.draw("input", gs::integers<int>());
+
+        ASSERT_EQ(componentUnderTest(input), referenceModel(input));
+    });
 }
 ```
 
-The `HEGEL_TEST` name gives Hegel a stable failure-database key. The GoogleTest
-wrapper makes the property discoverable by the existing CTest integration and
-by the `PropertyTest` selection convention.
+The GoogleTest name heads the failure report and keys the property's entries in
+the failure database, and the `PropertyTest` suffix selects properties when
+running tests.
 
-Signal property failure by throwing an exception from the Hegel body, as the
-existing properties do. Hegel must observe the failure so it can shrink the
-generated inputs before the exception reaches GoogleTest. Use `tc.note()` for
+Name each draw after the variable it initializes, so a counterexample prints as
+`auto input = 3;` rather than `auto draw_1 = 3;`. A draw that runs more than
+once per case, inside a loop or a helper called twice, passes
+`repeatable = true` so its values print as `input_1`, `input_2`, and so on.
+
+State the property with GoogleTest assertions. The integration collects the
+assertions one case fails and raises them as a single `hegel::GTestFailure`, so
+Hegel shrinks the inputs and the final report shows the compared values. Prefer
+`ASSERT_*`, which ends the case at its first failure. Where the compared values
+cannot be printed, such as steady-clock time points, assert the condition with
+`ASSERT_TRUE` and a message that names the violated rule. Use `tc.note()` for
 diagnostic context that should appear with the final counterexample.
 
 If the owning test executable does not already use Hegel, link `hegel` only to
@@ -175,6 +224,8 @@ Current examples are in:
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
 - `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
   sequences compared with an independent native stateful three-state model.
+- `tests/current_behavior_test.cpp` for shutdown racing performer MIDI and loop
+  playback in a concurrent stateful machine.
 
 ## Running Hegel properties
 
@@ -218,10 +269,16 @@ ctest --test-dir build \
     --output-on-failure
 ```
 
-Hegel stores local counterexamples under `.hegel/`, which is ignored by Git.
-Properties defined with `HEGEL_TEST` replay stored failures before generating
-new examples. CI automatically disables the local database and uses
-deterministic generation. Never commit `.hegel/` contents.
+Hegel stores local counterexamples under `.hegel/` in the directory a test runs
+from, which under CTest is the build directory that Git ignores. Each property
+replays its stored failures, keyed by its GoogleTest name, before generating
+new examples. CI automatically disables the database and uses deterministic
+generation. Never commit `.hegel/` contents.
+
+A failure report ends with a `rerun with:` line that holds a blob. To replay
+exactly that case while investigating, pass the blob as the third argument,
+`hegel::test(body, {}, {"<blob>"})`, and remove it once the defect is
+understood.
 
 When a property fails, first decide whether the counterexample exposes a real
 contract violation, an unsound property, or an input outside the agreed
