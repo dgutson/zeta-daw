@@ -53,6 +53,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Hegel properties are GoogleTest cases that run `hegel::test` and state their
+  checks with GoogleTest assertions, so a failure report shows the compared
+  values.
 - Every Hegel draw is named after the variable it initializes, so a
   counterexample reads as named C++ declarations.
 - The native Hegel engine version now comes from the pinned Hegel release

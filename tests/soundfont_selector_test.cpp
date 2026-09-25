@@ -1,9 +1,8 @@
 #include "../soundfont_selector.hpp"
 
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,32 +27,28 @@ std::vector<SoundFontDefinition> definitionsFor(const std::vector<int>& keys) {
     return definitions;
 }
 
-HEGEL_TEST(key_selection_matches_catalog_order)(hegel::TestCase& tc) {
-    const auto keys = tc.draw("keys", gs::vectors(
-        gs::integers<int>({.min_value = 0, .max_value = 127}),
-        {.min_size = 1, .max_size = 16, .unique = true}
-    ));
-    const auto selected_index = tc.draw(
-        "selected_index",
-        gs::integers<SoundFontIndex>({
-            .min_value = 0,
-            .max_value = keys.size() - 1,
-        })
-    );
-    const auto definitions = definitionsFor(keys);
-    SoundFontSelector selector{definitions};
-
-    const auto* selected = selector.selectByKey(keys[selected_index]);
-    if (selected != &definitions[selected_index]
-        || &selector.current() != &definitions[selected_index]) {
-        throw std::runtime_error(
-            "physical-key selection disagrees with catalog order"
-        );
-    }
-}
-
 TEST(SoundFontSelectorPropertyTest, KeySelectionMatchesCatalogOrder) {
-    key_selection_matches_catalog_order();
+    hegel::test([](hegel::TestCase& tc) {
+        const auto keys = tc.draw("keys", gs::vectors(
+            gs::integers<int>({.min_value = 0, .max_value = 127}),
+            {.min_size = 1, .max_size = 16, .unique = true}
+        ));
+        const auto selected_index = tc.draw(
+            "selected_index",
+            gs::integers<SoundFontIndex>({
+                .min_value = 0,
+                .max_value = keys.size() - 1,
+            })
+        );
+        const auto definitions = definitionsFor(keys);
+        SoundFontSelector selector{definitions};
+
+        const auto* selected = selector.selectByKey(keys[selected_index]);
+        ASSERT_EQ(selected, &definitions[selected_index])
+            << "physical-key selection disagrees with catalog order";
+        ASSERT_EQ(&selector.current(), &definitions[selected_index])
+            << "current SoundFont disagrees with the key selection";
+    });
 }
 
 TEST(SoundFontSelectorTest, NextAndDirectSelectionShareCurrentSoundFont) {

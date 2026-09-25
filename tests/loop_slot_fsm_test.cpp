@@ -2,7 +2,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <stdexcept>
 #include <vector>
@@ -165,13 +165,6 @@ private:
     bool was_terminated_{};
 };
 
-HEGEL_TEST(loop_slot_playback_stateful_lifecycle_matches_independent_model)(
-    hegel::TestCase& tc
-) {
-    PlaybackLifecycleMachine machine;
-    hegel::stateful::run(machine, tc);
-}
-
 TEST(LoopSlotPlaybackFsmTest, StartsOnlyFromMuted) {
     MockPlaybackOutput output;
     LoopSlotPlaybackFsm fsm{output};
@@ -223,7 +216,10 @@ TEST(LoopSlotPlaybackFsmTest, TerminatesExactlyOnceFromEveryLiveState) {
 }
 
 TEST(LoopSlotPlaybackPropertyTest, CommandsMatchIndependentModel) {
-    loop_slot_playback_stateful_lifecycle_matches_independent_model();
+    hegel::test([](hegel::TestCase& tc) {
+        PlaybackLifecycleMachine machine;
+        hegel::stateful::run(machine, tc);
+    });
 }
 
 } // namespace

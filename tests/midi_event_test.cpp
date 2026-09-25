@@ -1,12 +1,11 @@
 #include "../midi_event.hpp"
 
 #include <gtest/gtest.h>
-#include <hegel/hegel.h>
+#include <hegel/gtest.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
 
 namespace {
 
@@ -29,46 +28,42 @@ constexpr std::array channel_message_shapes{
     ChannelMessageShape{0xEF, 2},
 };
 
-HEGEL_TEST(channel_voice_decoder_accepts_only_valid_data_bytes)(
-    hegel::TestCase& tc
-) {
-    const auto shape_index = tc.draw("shape_index", gs::integers<std::size_t>({
-        .min_value = 0,
-        .max_value = channel_message_shapes.size() - 1,
-    }));
-    const auto channel = tc.draw("channel", gs::integers<std::uint8_t>({
-        .min_value = 0,
-        .max_value = 15,
-    }));
-    const auto first_data_byte = tc.draw(
-        "first_data_byte",
-        gs::integers<std::uint8_t>()
-    );
-    const auto second_data_byte = tc.draw(
-        "second_data_byte",
-        gs::integers<std::uint8_t>()
-    );
-    const auto& shape = channel_message_shapes[shape_index];
-    const std::array bytes{
-        static_cast<std::uint8_t>((shape.status & 0xF0) | channel),
-        first_data_byte,
-        second_data_byte,
-    };
-
-    const auto event = zeta::decodeMidiEvent(
-        std::span{bytes}.first(shape.data_byte_count + 1)
-    );
-    const bool data_bytes_are_valid = first_data_byte < 0x80
-        && (shape.data_byte_count == 1 || second_data_byte < 0x80);
-    if (event.has_value() != data_bytes_are_valid) {
-        throw std::runtime_error(
-            "channel voice decoder violated the MIDI data-byte domain"
-        );
-    }
-}
-
 TEST(MidiDecoderPropertyTest, AcceptsOnlyValidChannelVoiceDataBytes) {
-    channel_voice_decoder_accepts_only_valid_data_bytes();
+    hegel::test([](hegel::TestCase& tc) {
+        const auto shape_index = tc.draw(
+            "shape_index",
+            gs::integers<std::size_t>({
+                .min_value = 0,
+                .max_value = channel_message_shapes.size() - 1,
+            })
+        );
+        const auto channel = tc.draw("channel", gs::integers<std::uint8_t>({
+            .min_value = 0,
+            .max_value = 15,
+        }));
+        const auto first_data_byte = tc.draw(
+            "first_data_byte",
+            gs::integers<std::uint8_t>()
+        );
+        const auto second_data_byte = tc.draw(
+            "second_data_byte",
+            gs::integers<std::uint8_t>()
+        );
+        const auto& shape = channel_message_shapes[shape_index];
+        const std::array bytes{
+            static_cast<std::uint8_t>((shape.status & 0xF0) | channel),
+            first_data_byte,
+            second_data_byte,
+        };
+
+        const auto event = zeta::decodeMidiEvent(
+            std::span{bytes}.first(shape.data_byte_count + 1)
+        );
+        const bool data_bytes_are_valid = first_data_byte < 0x80
+            && (shape.data_byte_count == 1 || second_data_byte < 0x80);
+        ASSERT_EQ(event.has_value(), data_bytes_are_valid)
+            << "channel voice decoder violated the MIDI data-byte domain";
+    });
 }
 
 TEST(MidiTest, DecodesChannelVoiceMessages) {
