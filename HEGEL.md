@@ -56,6 +56,9 @@ interleavings deterministic.
 A concurrent stateful test fits a contract that must hold under every thread
 interleaving, such as shutdown leaving no note sounding while performer MIDI
 and loop playback race it. See "Adding a concurrent stateful Hegel test".
+When production serializes the commands but they race the component's own
+worker threads, as slot commands race the playback workers, a sequential
+stateful test issues the commands from one thread instead.
 
 If no strong property is apparent after reading the implementation, existing
 tests, and usage sites, do not force PBT onto the component.
@@ -87,11 +90,17 @@ specific cases matter.
 ## Adding a stateful Hegel test
 
 Use native stateful testing only for a deterministic component whose commands
-and independently modeled state form one cohesive contract. Derive a test-only
-machine from `hegel::stateful::StateMachine<Machine, ModelState>`, pass the
-initial model state to its constructor, return labeled actions from `rules()`,
-and return named predicates from `invariants()`. The base holds the model state
-as `state` and, for a failing sequence, prints it before the first step and
+and independently modeled state form one cohesive contract, or for a component
+whose own workers race serialized commands. In the second case, assert only
+invariants that hold under every interleaving of commands and workers. A
+failure is shrunk, but its replay can pass and be reported as
+`Flaky test detected`.
+
+Derive a test-only machine from
+`hegel::stateful::StateMachine<Machine, ModelState>`, pass the initial model
+state to its constructor, return labeled actions from `rules()`, and return
+named predicates from `invariants()`. The base holds the model state as
+`state` and, for a failing sequence, prints it before the first step and
 after each completed step. Enums and standard containers print as C++
 expressions; with `HEGEL_REFLECTION` off, a struct prints only through its
 `operator<<`. Keep the subject and its test doubles as ordinary members. Run
@@ -225,7 +234,8 @@ Current examples are in:
 - `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
   sequences compared with an independent native stateful three-state model.
 - `tests/current_behavior_test.cpp` for shutdown racing performer MIDI and loop
-  playback in a concurrent stateful machine.
+  playback in a concurrent stateful machine, and for slot commands racing the
+  playback workers in a sequential one.
 
 ## Running Hegel properties
 

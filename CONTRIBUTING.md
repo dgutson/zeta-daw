@@ -515,7 +515,9 @@ The test suites divide responsibilities as follows:
   isolation and replacement, synchronized playback, raw-note consumption,
   clean held-note completion, and shutdown with fake MIDI and FluidSynth
   boundaries, plus a concurrent Hegel property in which shutdown races
-  performer MIDI from several threads and loop playback.
+  performer MIDI from several threads and loop playback, and a sequential one
+  in which slot commands race the playback workers and no stopped take sounds
+  again.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.
