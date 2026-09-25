@@ -76,6 +76,8 @@ All notable changes to Zeta DAW are documented in this file.
   `LoopSlotGroupPropertyTest`, and the helpers both files use moved to
   `tests/integration_support.{hpp,cpp}`; both files still build into
   `current_behavior_tests`.
+- Git ignores the `.serena/` directory that the Serena coding tool creates in
+  the repository.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
