@@ -274,6 +274,7 @@ if(BUILD_TESTING)
         tests/fake_fluidsynth.cpp
         tests/fake_midi_input.cpp
         tests/integration_support.cpp
+        tests/loop_slot_group_test.cpp
         application.cpp
         configuration.cpp
         loop_slot.cpp
