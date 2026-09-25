@@ -6,9 +6,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
-- Added `CLAUDE.md` guidance for Claude Code with verified build,
-  test-selection, and static-analysis commands, the MIDI event path through
-  the code, and how tests replace MIDI input and FluidSynth.
+- Added `CLAUDE.md` as the only agent instruction file: the working agreement
+  formerly in `AGENTS.md`, verified build, test-selection, and static-analysis
+  commands, the MIDI event path through the code, and how tests replace MIDI
+  input and FluidSynth.
 - Added a concurrent Hegel property in which shutdown races performer MIDI
   from several threads and playing loops, checking that notes sound only on
   configured channels, nothing sounds after shutdown returns, and no channel
