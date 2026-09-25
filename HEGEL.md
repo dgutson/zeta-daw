@@ -233,6 +233,9 @@ Current examples are in:
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
 - `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
   sequences compared with an independent native stateful three-state model.
+- `tests/pending_take_test.cpp` for recording commands compared with an
+  independent capacity model, using a rule that fills the take to near its
+  event bound.
 - `tests/current_behavior_test.cpp` for shutdown racing performer MIDI and loop
   playback in a concurrent stateful machine, and for slot commands racing the
   playback workers in a sequential one.

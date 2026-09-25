@@ -9,6 +9,9 @@ All notable changes to Zeta DAW are documented in this file.
 - Added a Hegel property in which slot selection, recording, completion,
   cancellation, and stops race the playback workers, checking that no Note On
   of a stopped take follows the stop's silencing of its channel.
+- Added a Hegel property that compares pending-take command sequences, including
+  sequences that reach the event bound with notes held, against an independent
+  model of recorded events, held notes, and capacity.
 - Added a CI job that runs the integration tests under ThreadSanitizer, so a
   data race in MIDI handling, shutdown, or loop playback fails CI even when
   every assertion passes, and documented the same command for developers.

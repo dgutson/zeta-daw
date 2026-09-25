@@ -368,7 +368,7 @@ if(BUILD_TESTING)
         pending_take_tests
         PRIVATE -Wall -Wextra -Wpedantic
     )
-    target_link_libraries(pending_take_tests PRIVATE GTest::gtest_main)
+    target_link_libraries(pending_take_tests PRIVATE GTest::gtest_main hegel)
 
     add_executable(
         midi_control_change_mapping_tests
