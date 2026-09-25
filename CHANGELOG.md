@@ -6,6 +6,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added a concurrent Hegel property in which shutdown races performer MIDI
+  from several threads and playing loops, checking that notes sound only on
+  configured channels, nothing sounds after shutdown returns, and no channel
+  is left sounding.
 - Added the interactive `zsoundtest` diagnostic to exercise configured
   SoundFont presets across gain, pitch-direction, speed, separation, and
   overlap combinations while recording the listener's observations.

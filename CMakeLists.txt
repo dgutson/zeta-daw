@@ -303,6 +303,7 @@ if(BUILD_TESTING)
             Threads::Threads
             ${ZETA_YAML_TARGET}
             libremidi::libremidi
+            hegel
     )
     add_dependencies(current_behavior_tests zeta_fluidsynth_external)
 

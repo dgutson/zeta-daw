@@ -6,16 +6,19 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <hegel/gtest.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <streambuf>
 #include <string>
 #include <thread>
@@ -201,6 +204,13 @@ int pressSoundFontByNoteControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
         .machine_control_command = 0x09,
+    });
+}
+
+int pressOctaveDownControl() {
+    return fake_midi_input::emitMidi({
+        .type = raw(MidiMessageType::MachineControl),
+        .machine_control_command = 0x02,
     });
 }
 
@@ -1025,6 +1035,329 @@ TEST_F(CurrentBehaviorTest, ShutdownJoinsEveryWorkerAndSilencesEveryChannel) {
             silence_counts_before[index]
         );
     }
+}
+
+namespace gs = hegel::generators;
+
+constexpr int live_channel = 0;
+constexpr int all_notes_off_controller = 123;
+constexpr int midi_channel_count = 16;
+const std::vector<int> plain_note_keys{60, 64};
+constexpr int minimum_concurrent_performers = 1;
+constexpr int maximum_concurrent_performers = 3;
+// Shutdown usually comes within the first rounds; later rounds only prove
+// that stimuli stay inert, so a short run keeps the suite fast.
+constexpr std::int64_t performance_rounds = 10;
+constexpr int longest_pause_microseconds = 3000;
+constexpr int shortest_loop_note_microseconds = 500;
+constexpr int longest_loop_note_microseconds = 4000;
+constexpr int longest_trailing_silence_microseconds = 2000;
+// Rules run many times per case, so their draws print numbered.
+constexpr bool repeatable = true;
+
+class DiscardedStandardOutput final {
+public:
+    DiscardedStandardOutput() : previous_(std::cout.rdbuf(&discarded_)) {}
+
+    ~DiscardedStandardOutput() {
+        std::cout.rdbuf(previous_);
+    }
+
+    DiscardedStandardOutput(const DiscardedStandardOutput&) = delete;
+    DiscardedStandardOutput& operator=(const DiscardedStandardOutput&) = delete;
+
+private:
+    class DiscardingBuffer final : public std::streambuf {
+    protected:
+        int_type overflow(int_type character) override {
+            return traits_type::not_eof(character);
+        }
+    };
+
+    DiscardingBuffer discarded_;
+    std::streambuf* previous_;
+};
+
+std::chrono::microseconds drawDuration(
+    hegel::TestCase& tc,
+    std::string_view name,
+    int shortest_microseconds,
+    int longest_microseconds
+) {
+    return std::chrono::microseconds(tc.draw(
+        name,
+        gs::integers<int>({
+            .min_value = shortest_microseconds,
+            .max_value = longest_microseconds,
+        }),
+        repeatable
+    ));
+}
+
+class ConcurrentPerformanceMachine final
+    : public hegel::stateful::ConcurrentStateMachine<
+        ConcurrentPerformanceMachine
+    > {
+public:
+    ConcurrentPerformanceMachine()
+        : application_{testConfig(), fake_midi_input::makeInput()} {
+        const auto config = testConfig();
+        last_channel_ = static_cast<int>(config.loop_slots.size());
+        for (const auto& slot : config.loop_slots) {
+            slot_keys_.push_back(slot.key);
+        }
+        performance_keys_ = slot_keys_;
+        for (const auto& soundfont : config.soundfonts) {
+            if (soundfont.key) {
+                performance_keys_.push_back(*soundfont.key);
+            }
+        }
+        performance_keys_.insert(
+            performance_keys_.end(),
+            plain_note_keys.begin(),
+            plain_note_keys.end()
+        );
+    }
+
+    std::vector<hegel::stateful::ConcurrentRule<ConcurrentPerformanceMachine>>
+    rules() {
+        using Rule =
+            hegel::stateful::ConcurrentRule<ConcurrentPerformanceMachine>;
+        // A single group lets every performer action race every other one,
+        // shutdown included.
+        const std::string group = "performance";
+
+        return {
+            Rule("press key", group, [](hegel::TestCase& tc, auto& machine) {
+                const int key = machine.drawPerformanceKey(tc);
+                const int channel = drawInputChannel(tc);
+                emitNoteOn(key, 100, channel);
+            }),
+            Rule("release key", group, [](hegel::TestCase& tc, auto& machine) {
+                const int key = machine.drawPerformanceKey(tc);
+                const int channel = drawInputChannel(tc);
+                emitNoteOff(key, channel);
+            }),
+            Rule("press loop-slot control", group, [](hegel::TestCase&, auto&) {
+                pressLoopSlotControl();
+            }),
+            Rule("press next SoundFont", group, [](hegel::TestCase&, auto&) {
+                pressNextSoundFontControl();
+            }),
+            Rule("press SoundFont by note", group, [](hegel::TestCase&, auto&) {
+                pressSoundFontByNoteControl();
+            }),
+            Rule("press octave down", group, [](hegel::TestCase&, auto&) {
+                pressOctaveDownControl();
+            }),
+            Rule("press octave up", group, [](hegel::TestCase&, auto&) {
+                pressOctaveUpControl();
+            }),
+            Rule("record a loop", group, [](hegel::TestCase& tc, auto& machine) {
+                machine.recordLoop(tc);
+            }),
+            Rule("wait", group, [](hegel::TestCase& tc, auto&) {
+                std::this_thread::sleep_for(
+                    drawDuration(tc, "pause", 0, longest_pause_microseconds)
+                );
+            }),
+            Rule("request shutdown", group, [](hegel::TestCase&, auto& machine) {
+                machine.requestShutdown();
+            }),
+        };
+    }
+
+    std::vector<hegel::stateful::Invariant<ConcurrentPerformanceMachine>>
+    invariants() const {
+        using Invariant =
+            hegel::stateful::Invariant<ConcurrentPerformanceMachine>;
+
+        return {
+            Invariant(
+                "notes sound only on configured channels",
+                [](const auto& machine) {
+                    if (!machine.notesSoundOnlyOnConfiguredChannels()) {
+                        throw std::runtime_error(
+                            "a note sounded outside the configured channels"
+                        );
+                    }
+                }
+            ),
+            Invariant(
+                "nothing sounds after shutdown",
+                [](const auto& machine) {
+                    if (!machine.nothingSoundsAfterShutdown()) {
+                        throw std::runtime_error(
+                            "a note sounded after shutdown returned"
+                        );
+                    }
+                }
+            ),
+            Invariant(
+                "shutdown silences every channel",
+                [](const auto& machine) {
+                    if (!machine.shutdownSilencedEverySoundingChannel()) {
+                        throw std::runtime_error(
+                            "a channel was left sounding after shutdown"
+                        );
+                    }
+                }
+            ),
+        };
+    }
+
+    void requestShutdown() {
+        application_.shutdownRequested();
+        const auto log_size = fake_fluidsynth::calls().size();
+
+        std::lock_guard lock(shutdown_mutex_);
+        shutdown_log_size_ = shutdown_log_size_
+            ? std::min(*shutdown_log_size_, log_size)
+            : log_size;
+    }
+
+    bool notesSoundOnlyOnConfiguredChannels() const {
+        return std::ranges::all_of(
+            fake_fluidsynth::calls(),
+            [this](const Call& call) {
+                return call.kind != CallKind::SynthNoteOn
+                    || (call.channel >= live_channel
+                        && call.channel <= last_channel_);
+            }
+        );
+    }
+
+    bool nothingSoundsAfterShutdown() const {
+        const auto boundary = shutdownLogSize();
+        if (!boundary) {
+            return true;
+        }
+
+        const auto calls = fake_fluidsynth::calls();
+        return std::none_of(
+            calls.begin() + static_cast<std::ptrdiff_t>(*boundary),
+            calls.end(),
+            [](const Call& call) {
+                return call.kind == CallKind::SynthNoteOn;
+            }
+        );
+    }
+
+    bool shutdownSilencedEverySoundingChannel() const {
+        if (!shutdownLogSize()) {
+            return true;
+        }
+
+        const auto calls = fake_fluidsynth::calls();
+        for (int channel = live_channel; channel <= last_channel_; ++channel) {
+            std::optional<std::size_t> last_note_on;
+            std::optional<std::size_t> last_all_notes_off;
+            for (std::size_t index = 0; index < calls.size(); ++index) {
+                const auto& call = calls[index];
+                if (call.channel != channel) {
+                    continue;
+                }
+                if (call.kind == CallKind::SynthNoteOn) {
+                    last_note_on = index;
+                } else if (call.kind == CallKind::SynthControlChange
+                    && call.control == all_notes_off_controller) {
+                    last_all_notes_off = index;
+                }
+            }
+            const bool silenced_after_last_note = !last_note_on
+                || (last_all_notes_off && *last_all_notes_off > *last_note_on);
+            if (!silenced_after_last_note) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+private:
+    static int drawInputChannel(hegel::TestCase& tc) {
+        return tc.draw(
+            "channel",
+            gs::integers<int>({
+                .min_value = 0,
+                .max_value = midi_channel_count - 1,
+            }),
+            repeatable
+        );
+    }
+
+    int drawPerformanceKey(hegel::TestCase& tc) const {
+        return tc.draw("key", gs::sampled_from(performance_keys_), repeatable);
+    }
+
+    void recordLoop(hegel::TestCase& tc) const {
+        const int slot_key = tc.draw(
+            "slot_key",
+            gs::sampled_from(slot_keys_),
+            repeatable
+        );
+        const int loop_key = tc.draw(
+            "loop_key",
+            gs::sampled_from(plain_note_keys),
+            repeatable
+        );
+        const auto held_for = drawDuration(
+            tc,
+            "held_for",
+            shortest_loop_note_microseconds,
+            longest_loop_note_microseconds
+        );
+        const auto trailing_silence = drawDuration(
+            tc,
+            "trailing_silence",
+            0,
+            longest_trailing_silence_microseconds
+        );
+
+        pressLoopSlotControl();
+        emitNoteOn(slot_key);
+        emitNoteOn(loop_key);
+        std::this_thread::sleep_for(held_for);
+        emitNoteOff(loop_key);
+        std::this_thread::sleep_for(trailing_silence);
+        pressLoopSlotControl();
+    }
+
+    std::optional<std::size_t> shutdownLogSize() const {
+        std::lock_guard lock(shutdown_mutex_);
+        return shutdown_log_size_;
+    }
+
+    // Application announces every performer action on std::cout; discarding
+    // it keeps a failing run's report, which Hegel writes to stderr, readable.
+    DiscardedStandardOutput discarded_output_;
+    Application application_;
+    int last_channel_{};
+    std::vector<int> slot_keys_;
+    std::vector<int> performance_keys_;
+    mutable std::mutex shutdown_mutex_;
+    std::optional<std::size_t> shutdown_log_size_;
+};
+
+TEST(CurrentBehaviorPropertyTest, ShutdownRacingMidiAndLoopsLeavesNothingSounding) {
+    hegel::Settings settings;
+    settings.stateful_step_count = performance_rounds;
+
+    hegel::test([](hegel::TestCase& tc) {
+        fake_fluidsynth::reset();
+        fake_midi_input::reset();
+        ConcurrentPerformanceMachine machine;
+
+        hegel::stateful::run_concurrent(
+            machine,
+            tc,
+            minimum_concurrent_performers,
+            maximum_concurrent_performers
+        );
+
+        machine.requestShutdown();
+        ASSERT_TRUE(machine.nothingSoundsAfterShutdown());
+        ASSERT_TRUE(machine.shutdownSilencedEverySoundingChannel());
+    }, settings);
 }
 
 } // namespace

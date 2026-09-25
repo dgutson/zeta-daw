@@ -1,10 +1,11 @@
 # Property-based testing with Hegel
 
 Zeta uses [Hegel](https://github.com/hegeldev/hegel-cpp) selectively for
-property-based testing (PBT) of pure, deterministic contracts. Hegel generates
-many inputs for one general property and shrinks a failure to a smaller
-counterexample. This complements deterministic GoogleTest examples; it does
-not replace them or make Hegel the default choice for every test.
+property-based testing (PBT) of pure, deterministic contracts, and of
+concurrency contracts that must hold under every thread interleaving. Hegel
+generates many inputs for one general property and shrinks a failure to a
+smaller counterexample. This complements deterministic GoogleTest examples; it
+does not replace them or make Hegel the default choice for every test.
 
 The Hegel C++ version and archive hash in `CMakeLists.txt` are authoritative,
 and that release selects its matching native `libhegel` engine. `CMakeLists.txt`
@@ -42,15 +43,19 @@ Good Zeta patterns include:
   explicit.
 
 Prefer deterministic unit or integration tests when the assertion concerns an
-exact output or error string, setup dominates the property, or behavior
+exact output or error string, setup dominates the property, or an exact outcome
 depends on audio, hardware, thread scheduling, wall-clock timing, or process
-lifecycle. Keep the master looper FSM and worker scheduling in deterministic
+lifecycle. Keep exact master-FSM transitions and worker timing in deterministic
 tests. A small dependency-free subordinate FSM may use Hegel's native stateful
 API when it has a genuinely independent model. Hegel C++ v0.13.0 supplies named
 rules; invariants checked in full before the first rule and after the last, and
 sampled between rules; sequence shrinking; printing of the model state for a
 failing sequence; and replay. This does not make wall-clock or thread
 interleavings deterministic.
+
+A concurrent stateful test fits a contract that must hold under every thread
+interleaving, such as shutdown leaving no note sounding while performer MIDI
+and loop playback race it. See "Adding a concurrent stateful Hegel test".
 
 If no strong property is apparent after reading the implementation, existing
 tests, and usage sites, do not force PBT onto the component.
@@ -128,6 +133,37 @@ Do not add a controllable clock, scheduler interface, synchronization hook, or
 other production seam merely to drive a worker from Hegel without a separately
 approved design.
 
+## Adding a concurrent stateful Hegel test
+
+Use a concurrent stateful test for a contract that must hold whatever order
+threads run in, and drive the component through its existing interface and
+test doubles. Derive a test-only machine from
+`hegel::stateful::ConcurrentStateMachine<Machine>`, return
+`hegel::stateful::ConcurrentRule`s from `rules()`, and run it with
+`hegel::stateful::run_concurrent(machine, tc, minimum_workers,
+maximum_workers)` inside `hegel::test`. A run proceeds in rounds: each round
+picks one rule group, and every worker thread runs a short sequence of that
+group's rules at the same time as the other workers. Put actions that happen
+concurrently in production in one group so they race each other.
+
+The scheduler, not Hegel, decides how the threads interleave. A failing run
+prints the concurrency level and each worker's rules and draws with
+timestamps, but it is not shrunk and cannot be replayed. A `Flaky test
+detected` report still means an invariant failed under some interleaving.
+Therefore:
+
+- assert only invariants that hold under every interleaving, never a
+  particular order or timing;
+- make rules and invariants throw on a violation: rules run on Hegel's worker
+  threads, where the GoogleTest integration does not intercept assertions;
+- keep machine state that rules share thread-safe, since a round's rules run
+  at once;
+- keep rules short and cap the rounds with `Settings::stateful_step_count`, so
+  the property stays fast enough for the normal suite.
+
+Invariants see only effects the test can observe. A data race that breaks no
+invariant needs ThreadSanitizer to detect.
+
 ## Adding a Hegel test
 
 Add the property to the existing test file for the owning component. Do not
@@ -188,6 +224,8 @@ Current examples are in:
 - `tests/configuration_test.cpp` for symmetry and finite-domain consistency.
 - `tests/loop_slot_fsm_test.cpp` for arbitrary subordinate playback-FSM command
   sequences compared with an independent native stateful three-state model.
+- `tests/current_behavior_test.cpp` for shutdown racing performer MIDI and loop
+  playback in a concurrent stateful machine.
 
 ## Running Hegel properties
 
