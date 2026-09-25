@@ -6,6 +6,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added a CI job that runs the integration tests under ThreadSanitizer, so a
+  data race in MIDI handling, shutdown, or loop playback fails CI even when
+  every assertion passes, and documented the same command for developers.
 - Added `CLAUDE.md` as the only agent instruction file: the working agreement
   formerly in `AGENTS.md`, verified build, test-selection, and static-analysis
   commands, the MIDI event path through the code, and how tests replace MIDI
