@@ -45,9 +45,10 @@ exact output or error string, setup dominates the property, or behavior
 depends on audio, hardware, thread scheduling, wall-clock timing, or process
 lifecycle. Keep the master looper FSM and worker scheduling in deterministic
 tests. A small dependency-free subordinate FSM may use Hegel's native stateful
-API when it has a genuinely independent model. Hegel C++ v0.7.4 supplies named
-rules, invariants checked before the first rule and after each successful rule,
-sequence shrinking, and replay; this does not make wall-clock or thread
+API when it has a genuinely independent model. Hegel C++ v0.13.0 supplies named
+rules; invariants checked in full before the first rule and after the last, and
+sampled between rules; sequence shrinking; printing of the model state for a
+failing sequence; and replay. This does not make wall-clock or thread
 interleavings deterministic.
 
 If no strong property is apparent after reading the implementation, existing
@@ -81,21 +82,27 @@ specific cases matter.
 
 Use native stateful testing only for a deterministic component whose commands
 and independently modeled state form one cohesive contract. Derive a test-only
-machine from `hegel::stateful::StateMachine<T>`, return labeled actions from
-`rules()`, and return named predicates from `invariants()`. Run the machine
-inside a stable `HEGEL_TEST` so minimized rule sequences use the same failure
-database and reproduction workflow as other properties:
+machine from `hegel::stateful::StateMachine<Machine, ModelState>`, pass the
+initial model state to its constructor, return labeled actions from `rules()`,
+and return named predicates from `invariants()`. The base holds the model state
+as `state` and, for a failing sequence, prints it before the first step and
+after each completed step. Enums and standard containers print as C++
+expressions; with `HEGEL_REFLECTION` off, a struct prints only through its
+`operator<<`. Keep the subject and its test doubles as ordinary members. Run
+the machine inside a stable `HEGEL_TEST` so minimized rule sequences use the
+same failure database and reproduction workflow as other properties:
 
 ```cpp
 class ComponentMachine
-    : public hegel::stateful::StateMachine<ComponentMachine> {
+    : public hegel::stateful::StateMachine<ComponentMachine, ModelState> {
 public:
+    ComponentMachine() : StateMachine({.initial_state = ModelState{}}) {}
+
     std::vector<hegel::stateful::Rule<ComponentMachine>> rules();
     std::vector<hegel::stateful::Invariant<ComponentMachine>> invariants();
 
 private:
     Component subject_;
-    IndependentModel model_;
 };
 
 HEGEL_TEST(component_commands_match_model)(hegel::TestCase& tc) {
@@ -106,9 +113,9 @@ HEGEL_TEST(component_commands_match_model)(hegel::TestCase& tc) {
 
 Rules may draw their own arguments from the supplied `TestCase`. Check rule
 preconditions with `tc.assume()` before mutating the machine; prefer rules that
-are valid in every model state when no precondition is required. Keep the
-subject and model in the test-only machine, and make invariants throw on a
-contract violation so Hegel can shrink and report the labeled sequence.
+are valid in every model state when no precondition is required. Make
+invariants throw on a contract violation so Hegel can shrink and report the
+labeled sequence.
 
 Native statefulness changes test generation, not the production architecture.
 Do not add a controllable clock, scheduler interface, synchronization hook, or

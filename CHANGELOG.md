@@ -53,6 +53,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Upgraded the test-only Hegel pin to v0.13.0 and moved the subordinate
+  playback lifecycle property's three-state model into the stateful base, which
+  prints the model for a failing sequence. Stateful invariants are now checked
+  in full only before the first and after the last rule, and sampled between
+  rules.
 - Kept the pinned yaml-cpp fallback configurable without its legacy-policy
   diagnostic on supported CMake 3.x and compatible with CMake 4.x.
 - Single-configuration builds now default to Release, and Release builds
