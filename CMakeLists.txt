@@ -273,6 +273,8 @@ if(BUILD_TESTING)
         tests/current_behavior_test.cpp
         tests/fake_fluidsynth.cpp
         tests/fake_midi_input.cpp
+        tests/integration_support.cpp
+        tests/loop_slot_group_test.cpp
         application.cpp
         configuration.cpp
         loop_slot.cpp
@@ -368,7 +370,7 @@ if(BUILD_TESTING)
         pending_take_tests
         PRIVATE -Wall -Wextra -Wpedantic
     )
-    target_link_libraries(pending_take_tests PRIVATE GTest::gtest_main)
+    target_link_libraries(pending_take_tests PRIVATE GTest::gtest_main hegel)
 
     add_executable(
         midi_control_change_mapping_tests

@@ -510,12 +510,15 @@ The test suites divide responsibilities as follows:
   for the smallest covering guide multiple, first matching phase, and phase
   preservation.
 - `pending_take_tests`: bounded event/held-note accounting, synthesized release,
-  trailing-silence trimming, and reset behavior.
+  trailing-silence trimming, and reset behavior, plus a Hegel command-sequence
+  property against an independent capacity model.
 - `current_behavior_tests`: guide-first gating, guide cascade, regular-slot
   isolation and replacement, synchronized playback, raw-note consumption,
   clean held-note completion, and shutdown with fake MIDI and FluidSynth
   boundaries, plus a concurrent Hegel property in which shutdown races
-  performer MIDI from several threads and loop playback.
+  performer MIDI from several threads and loop playback, and a sequential one
+  in which slot commands race the playback workers and no stopped take sounds
+  again.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.

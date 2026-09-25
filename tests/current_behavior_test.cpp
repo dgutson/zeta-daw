@@ -1,7 +1,7 @@
 #include "fake_fluidsynth.hpp"
 #include "fake_midi_input.hpp"
+#include "integration_support.hpp"
 #include "../application.hpp"
-#include "../loop_slot_group.hpp"
 #include "../synth_engine.hpp"
 
 #include <gmock/gmock.h>
@@ -27,38 +27,14 @@
 namespace {
 
 using namespace std::chrono_literals;
+using namespace integration_support;
 using fake_fluidsynth::Call;
 using fake_fluidsynth::CallKind;
 using zeta::Application;
-using zeta::ApplicationConfig;
-using zeta::LoopSlotDefinition;
-using zeta::LoopSlotGroup;
-using zeta::LoopSlotSelectionOutcome;
-using zeta::LooperClock;
-using zeta::Milliseconds;
-using zeta::MidiControlBinding;
-using zeta::MidiControlType;
 using zeta::MidiEvent;
 using zeta::MidiInput;
-using zeta::MidiMessage;
 using zeta::MidiMessageType;
-using zeta::OctaveTransposer;
-using zeta::RecordedNoteKind;
-using zeta::SoundFontDefinition;
 using zeta::SynthEngine;
-using zeta::TakeTiming;
-using zeta::TimePoint;
-
-constexpr int first_slot_key = 48;
-constexpr int second_slot_key = 50;
-constexpr int third_slot_key = 52;
-constexpr int first_slot_channel = 1;
-constexpr int second_slot_channel = 2;
-constexpr int third_slot_channel = 3;
-
-constexpr int raw(MidiMessageType type) {
-    return static_cast<int>(type);
-}
 
 class CapturingOutputBuffer final : public std::streambuf {
 public:
@@ -133,59 +109,6 @@ private:
     std::jthread thread_;
 };
 
-ApplicationConfig testConfig() {
-    return {
-        .audio = {},
-        .loop_slots = {
-            LoopSlotDefinition{.key = first_slot_key},
-            LoopSlotDefinition{.key = second_slot_key},
-        },
-        .soundfonts = {
-            SoundFontDefinition{
-                .id = "piano",
-                .file = "piano.sf2",
-                .bank = 0,
-                .preset = 0,
-                .key = 71,
-            },
-            SoundFontDefinition{
-                .id = "bass",
-                .file = "bass.sf2",
-                .bank = 0,
-                .preset = 34,
-                .key = 72,
-            },
-        },
-        .midi_control_change_mappings = {},
-        .loop_slot_by_note_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x05,
-        },
-        .next_soundfont_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x01,
-        },
-        .soundfont_by_note_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x09,
-        },
-        .octave_down_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x02,
-        },
-        .octave_up_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x06,
-        },
-    };
-}
-
-ApplicationConfig threeSlotConfig() {
-    auto config = testConfig();
-    config.loop_slots.push_back(LoopSlotDefinition{.key = third_slot_key});
-    return config;
-}
-
 int pressLoopSlotControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
@@ -256,67 +179,6 @@ void completeTake(
     ASSERT_EQ(pressLoopSlotControl(), 0);
 }
 
-MidiMessage recordedNote(MidiMessageType type, int key, int velocity = 0) {
-    return {
-        .raw_type = raw(type),
-        .key = key,
-        .velocity = velocity,
-    };
-}
-
-void completeDirectGuide(
-    LoopSlotGroup& slots,
-    const SoundFontDefinition& soundfont,
-    const OctaveTransposer& transposer,
-    TimePoint first_cycle_at,
-    Milliseconds period
-) {
-    const auto guide = slots.requestSelection(
-        first_slot_key,
-        soundfont,
-        transposer
-    );
-    ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
-    slots.recordNote(
-        guide.id,
-        RecordedNoteKind::NoteOn,
-        recordedNote(MidiMessageType::NoteOn, 72, 100),
-        0ms
-    );
-    slots.recordNote(
-        guide.id,
-        RecordedNoteKind::NoteOff,
-        recordedNote(MidiMessageType::NoteOff, 72),
-        0ms
-    );
-    slots.completeRecording(guide.id, TakeTiming{
-        .recording_started_at = first_cycle_at - period,
-        .completed_at = first_cycle_at,
-    });
-}
-
-std::size_t callCount(CallKind kind, int channel, int key) {
-    return static_cast<std::size_t>(std::ranges::count_if(
-        fake_fluidsynth::calls(),
-        [&](const Call& call) {
-            return call.kind == kind
-                && call.channel == channel
-                && call.key == key;
-        }
-    ));
-}
-
-std::size_t controlChangeCount(int channel, int control) {
-    return static_cast<std::size_t>(std::ranges::count_if(
-        fake_fluidsynth::calls(),
-        [&](const Call& call) {
-            return call.kind == CallKind::SynthControlChange
-                && call.channel == channel
-                && call.control == control;
-        }
-    ));
-}
-
 bool hasCall(
     CallKind kind,
     int channel,
@@ -329,48 +191,6 @@ bool hasCall(
                 && call.channel == channel
                 && (!key || call.key == *key);
         }
-    );
-}
-
-bool waitForNoteCount(
-    int channel,
-    int key,
-    std::size_t count,
-    std::chrono::milliseconds timeout = 1s
-) {
-    return fake_fluidsynth::waitUntil(
-        [&](const std::vector<Call>& calls) {
-            return static_cast<std::size_t>(std::ranges::count_if(
-                calls,
-                [&](const Call& call) {
-                    return call.kind == CallKind::SynthNoteOn
-                        && call.channel == channel
-                        && call.key == key;
-                }
-            )) >= count;
-        },
-        timeout
-    );
-}
-
-bool waitForNoteOffCount(
-    int channel,
-    int key,
-    std::size_t count,
-    std::chrono::milliseconds timeout = 1s
-) {
-    return fake_fluidsynth::waitUntil(
-        [&](const std::vector<Call>& calls) {
-            return static_cast<std::size_t>(std::ranges::count_if(
-                calls,
-                [&](const Call& call) {
-                    return call.kind == CallKind::SynthNoteOff
-                        && call.channel == channel
-                        && call.key == key;
-                }
-            )) >= count;
-        },
-        timeout
     );
 }
 
@@ -574,182 +394,6 @@ TEST_F(CurrentBehaviorTest, TwoSlotsLoopConcurrently) {
 
     ASSERT_TRUE(waitForNoteCount(first_slot_channel, 60, 3));
     ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 2));
-}
-
-TEST_F(CurrentBehaviorTest, LateDependentDispatchKeepsNextGuideDeadline) {
-    auto config = testConfig();
-    SynthEngine synth_engine{config};
-    LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
-    const auto& soundfont = config.soundfonts.front();
-    const MidiMessage note_on{
-        .raw_type = raw(MidiMessageType::NoteOn),
-        .key = 64,
-        .velocity = 100,
-    };
-    const MidiMessage note_off{
-        .raw_type = raw(MidiMessageType::NoteOff),
-        .key = 64,
-    };
-
-    constexpr auto guide_period = 2000ms;
-    constexpr auto dispatch_lateness = 1500ms;
-    static_assert(dispatch_lateness < guide_period);
-    const auto guide_first_cycle_at = LooperClock::now() - dispatch_lateness;
-
-    const auto guide = slots.requestSelection(
-        first_slot_key,
-        soundfont,
-        transposer
-    );
-    ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
-    slots.recordNote(guide.id, RecordedNoteKind::NoteOn, note_on, 0ms);
-    slots.recordNote(guide.id, RecordedNoteKind::NoteOff, note_off, 0ms);
-    slots.completeRecording(guide.id, TakeTiming{
-        .recording_started_at = guide_first_cycle_at - guide_period,
-        .completed_at = guide_first_cycle_at,
-    });
-
-    const auto dependent = slots.requestSelection(
-        second_slot_key,
-        soundfont,
-        transposer
-    );
-    ASSERT_EQ(dependent.outcome, LoopSlotSelectionOutcome::Armed);
-    slots.recordNote(dependent.id, RecordedNoteKind::NoteOn, note_on, 0ms);
-    slots.recordNote(dependent.id, RecordedNoteKind::NoteOff, note_off, 0ms);
-    slots.completeRecording(dependent.id, TakeTiming{
-        .recording_started_at = guide_first_cycle_at - guide_period,
-        .completed_at = guide_first_cycle_at,
-    });
-
-    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 1));
-    EXPECT_TRUE(waitForNoteCount(second_slot_channel, 64, 2, 1200ms));
-}
-
-TEST_F(
-    CurrentBehaviorTest,
-    RegularFirstCycleSkipsExpiredPrefixAndIncludesCompletionBoundary
-) {
-    auto config = testConfig();
-    SynthEngine synth_engine{config};
-    LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
-    const auto& soundfont = config.soundfonts.front();
-
-    constexpr auto guide_period = 400ms;
-    constexpr auto elapsed_repetition = 80ms;
-    const auto completed_at = LooperClock::now();
-    const auto first_cycle_at = completed_at - elapsed_repetition;
-    const auto recording_started_at = first_cycle_at - guide_period;
-    completeDirectGuide(
-        slots,
-        soundfont,
-        transposer,
-        completed_at - guide_period / 2,
-        guide_period
-    );
-
-    const auto regular = slots.requestSelection(
-        second_slot_key,
-        soundfont,
-        transposer
-    );
-    ASSERT_EQ(regular.outcome, LoopSlotSelectionOutcome::Armed);
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOn,
-        recordedNote(MidiMessageType::NoteOn, 64, 100),
-        0ms
-    );
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOn,
-        recordedNote(MidiMessageType::NoteOn, 67, 100),
-        elapsed_repetition
-    );
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOff,
-        recordedNote(MidiMessageType::NoteOff, 64),
-        140ms
-    );
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOff,
-        recordedNote(MidiMessageType::NoteOff, 67),
-        180ms
-    );
-    const auto silence_count = controlChangeCount(second_slot_channel, 123);
-
-    slots.completeRecording(regular.id, TakeTiming{
-        .recording_started_at = recording_started_at,
-        .completed_at = completed_at,
-    });
-
-    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 67, 1, 200ms));
-    EXPECT_EQ(
-        callCount(CallKind::SynthNoteOn, second_slot_channel, 64),
-        0U
-    );
-    ASSERT_TRUE(waitForNoteOffCount(second_slot_channel, 64, 1, 200ms));
-    EXPECT_GT(controlChangeCount(second_slot_channel, 123), silence_count);
-
-    ASSERT_TRUE(waitForNoteCount(second_slot_channel, 64, 1, 500ms));
-    EXPECT_TRUE(waitForNoteCount(second_slot_channel, 67, 2, 200ms));
-}
-
-TEST_F(CurrentBehaviorTest, RegularWaitsWhenCurrentRepetitionEventsArePast) {
-    auto config = testConfig();
-    SynthEngine synth_engine{config};
-    LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
-    const auto& soundfont = config.soundfonts.front();
-
-    constexpr auto guide_period = 400ms;
-    constexpr auto elapsed_repetition = 180ms;
-    const auto completed_at = LooperClock::now();
-    const auto first_cycle_at = completed_at - elapsed_repetition;
-    const auto recording_started_at = first_cycle_at - guide_period;
-    completeDirectGuide(
-        slots,
-        soundfont,
-        transposer,
-        completed_at - guide_period / 2,
-        guide_period
-    );
-
-    const auto regular = slots.requestSelection(
-        second_slot_key,
-        soundfont,
-        transposer
-    );
-    ASSERT_EQ(regular.outcome, LoopSlotSelectionOutcome::Armed);
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOn,
-        recordedNote(MidiMessageType::NoteOn, 64, 100),
-        0ms
-    );
-    slots.recordNote(
-        regular.id,
-        RecordedNoteKind::NoteOff,
-        recordedNote(MidiMessageType::NoteOff, 64),
-        100ms
-    );
-
-    slots.completeRecording(regular.id, TakeTiming{
-        .recording_started_at = recording_started_at,
-        .completed_at = completed_at,
-    });
-
-    std::this_thread::sleep_for(75ms);
-    EXPECT_EQ(
-        callCount(CallKind::SynthNoteOn, second_slot_channel, 64),
-        0U
-    );
-    EXPECT_TRUE(waitForNoteCount(second_slot_channel, 64, 1, 400ms));
-    EXPECT_TRUE(waitForNoteOffCount(second_slot_channel, 64, 1, 200ms));
 }
 
 TEST_F(CurrentBehaviorTest, ExistingLoopContinuesWhileAnotherSlotIsArmedAndRecorded) {
@@ -1040,7 +684,6 @@ TEST_F(CurrentBehaviorTest, ShutdownJoinsEveryWorkerAndSilencesEveryChannel) {
 namespace gs = hegel::generators;
 
 constexpr int live_channel = 0;
-constexpr int all_notes_off_controller = 123;
 constexpr int midi_channel_count = 16;
 const std::vector<int> plain_note_keys{60, 64};
 constexpr int minimum_concurrent_performers = 1;
@@ -1052,47 +695,6 @@ constexpr int longest_pause_microseconds = 3000;
 constexpr int shortest_loop_note_microseconds = 500;
 constexpr int longest_loop_note_microseconds = 4000;
 constexpr int longest_trailing_silence_microseconds = 2000;
-// Rules run many times per case, so their draws print numbered.
-constexpr bool repeatable = true;
-
-class DiscardedStandardOutput final {
-public:
-    DiscardedStandardOutput() : previous_(std::cout.rdbuf(&discarded_)) {}
-
-    ~DiscardedStandardOutput() {
-        std::cout.rdbuf(previous_);
-    }
-
-    DiscardedStandardOutput(const DiscardedStandardOutput&) = delete;
-    DiscardedStandardOutput& operator=(const DiscardedStandardOutput&) = delete;
-
-private:
-    class DiscardingBuffer final : public std::streambuf {
-    protected:
-        int_type overflow(int_type character) override {
-            return traits_type::not_eof(character);
-        }
-    };
-
-    DiscardingBuffer discarded_;
-    std::streambuf* previous_;
-};
-
-std::chrono::microseconds drawDuration(
-    hegel::TestCase& tc,
-    std::string_view name,
-    int shortest_microseconds,
-    int longest_microseconds
-) {
-    return std::chrono::microseconds(tc.draw(
-        name,
-        gs::integers<int>({
-            .min_value = shortest_microseconds,
-            .max_value = longest_microseconds,
-        }),
-        repeatable
-    ));
-}
 
 class ConcurrentPerformanceMachine final
     : public hegel::stateful::ConcurrentStateMachine<

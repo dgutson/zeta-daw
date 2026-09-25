@@ -6,6 +6,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added a Hegel property in which slot selection, recording, completion,
+  cancellation, and stops race the playback workers, checking that no Note On
+  of a stopped take follows the stop's silencing of its channel.
+- Added a Hegel property that compares pending-take command sequences, including
+  sequences that reach the event bound with notes held, against an independent
+  model of recorded events, held notes, and capacity.
 - Added a CI job that runs the integration tests under ThreadSanitizer, so a
   data race in MIDI handling, shutdown, or loop playback fails CI even when
   every assertion passes, and documented the same command for developers.
@@ -64,6 +70,14 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Tests that drive `LoopSlotGroup` directly, including the slot-stop
+  property, moved from `tests/current_behavior_test.cpp` to
+  `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and
+  `LoopSlotGroupPropertyTest`, and the helpers both files use moved to
+  `tests/integration_support.{hpp,cpp}`; both files still build into
+  `current_behavior_tests`.
+- Git ignores the `.serena/` directory that the Serena coding tool creates in
+  the repository.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
