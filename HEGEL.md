@@ -237,8 +237,9 @@ Current examples are in:
   independent capacity model, using a rule that fills the take to near its
   event bound.
 - `tests/current_behavior_test.cpp` for shutdown racing performer MIDI and loop
-  playback in a concurrent stateful machine, and for slot commands racing the
-  playback workers in a sequential one.
+  playback in a concurrent stateful machine.
+- `tests/loop_slot_group_test.cpp` for slot commands racing the playback
+  workers in a sequential stateful machine.
 
 ## Running Hegel properties
 

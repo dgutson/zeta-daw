@@ -70,6 +70,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Tests that drive `LoopSlotGroup` directly, including the slot-stop
+  property, moved from `tests/current_behavior_test.cpp` to
+  `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and
+  `LoopSlotGroupPropertyTest`, and the helpers both files use moved to
+  `tests/integration_support.{hpp,cpp}`; both files still build into
+  `current_behavior_tests`.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
