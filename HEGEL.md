@@ -142,7 +142,7 @@ a GoogleTest case whose suite name ends in `PropertyTest`:
 
 ```cpp
 HEGEL_TEST(component_matches_reference_model)(hegel::TestCase& tc) {
-    const int input = tc.draw(gs::integers<int>());
+    const int input = tc.draw("input", gs::integers<int>());
 
     const auto expected = referenceModel(input);
     const auto actual = componentUnderTest(input);
@@ -159,6 +159,11 @@ TEST(ComponentPropertyTest, MatchesReferenceModel) {
 The `HEGEL_TEST` name gives Hegel a stable failure-database key. The GoogleTest
 wrapper makes the property discoverable by the existing CTest integration and
 by the `PropertyTest` selection convention.
+
+Name each draw after the variable it initializes, so a counterexample prints as
+`auto input = 3;` rather than `auto draw_1 = 3;`. A draw that runs more than
+once per case, inside a loop or a helper called twice, passes
+`repeatable = true` so its values print as `input_1`, `input_2`, and so on.
 
 Signal property failure by throwing an exception from the Hegel body, as the
 existing properties do. Hegel must observe the failure so it can shrink the

@@ -129,14 +129,34 @@ MidiControlType generatedControlType(int choice) {
 }
 
 MidiControlBinding generatedBinding(hegel::TestCase& tc) {
+    // Each property draws two bindings; numbered names keep their fields apart.
+    constexpr bool repeatable = true;
     return {
-        .type = generatedControlType(
-            tc.draw(gs::integers<int>({.min_value = 0, .max_value = 3}))
+        .type = generatedControlType(tc.draw(
+            "control_type_index",
+            gs::integers<int>({.min_value = 0, .max_value = 3}),
+            repeatable
+        )),
+        .channel = tc.draw(
+            "channel",
+            gs::integers<int>({.min_value = 0, .max_value = 15}),
+            repeatable
         ),
-        .channel = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 15})),
-        .number = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .value = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .match_any_program = tc.draw(gs::booleans()),
+        .number = tc.draw(
+            "number",
+            gs::integers<int>({.min_value = 0, .max_value = 127}),
+            repeatable
+        ),
+        .value = tc.draw(
+            "value",
+            gs::integers<int>({.min_value = 0, .max_value = 127}),
+            repeatable
+        ),
+        .match_any_program = tc.draw(
+            "match_any_program",
+            gs::booleans(),
+            repeatable
+        ),
     };
 }
 

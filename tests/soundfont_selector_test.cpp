@@ -29,14 +29,17 @@ std::vector<SoundFontDefinition> definitionsFor(const std::vector<int>& keys) {
 }
 
 HEGEL_TEST(key_selection_matches_catalog_order)(hegel::TestCase& tc) {
-    const auto keys = tc.draw(gs::vectors(
+    const auto keys = tc.draw("keys", gs::vectors(
         gs::integers<int>({.min_value = 0, .max_value = 127}),
         {.min_size = 1, .max_size = 16, .unique = true}
     ));
-    const auto selected_index = tc.draw(gs::integers<SoundFontIndex>({
-        .min_value = 0,
-        .max_value = keys.size() - 1,
-    }));
+    const auto selected_index = tc.draw(
+        "selected_index",
+        gs::integers<SoundFontIndex>({
+            .min_value = 0,
+            .max_value = keys.size() - 1,
+        })
+    );
     const auto definitions = definitionsFor(keys);
     SoundFontSelector selector{definitions};
 

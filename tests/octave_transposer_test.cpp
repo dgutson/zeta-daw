@@ -68,19 +68,28 @@ MidiMessage generatedMessage(
     hegel::TestCase& tc,
     MidiMessageType type
 ) {
+    const auto data_byte = gs::integers<int>({
+        .min_value = 0,
+        .max_value = 127,
+    });
     return {
         .raw_type = raw(type),
-        .channel = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 15})),
-        .key = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .velocity = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .control = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .value = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .program = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .pitch = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 16383})),
-        .pressure = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .device_id = tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
-        .machine_control_command =
-            tc.draw(gs::integers<int>({.min_value = 0, .max_value = 127})),
+        .channel = tc.draw(
+            "channel",
+            gs::integers<int>({.min_value = 0, .max_value = 15})
+        ),
+        .key = tc.draw("key", data_byte),
+        .velocity = tc.draw("velocity", data_byte),
+        .control = tc.draw("control", data_byte),
+        .value = tc.draw("value", data_byte),
+        .program = tc.draw("program", data_byte),
+        .pitch = tc.draw(
+            "pitch",
+            gs::integers<int>({.min_value = 0, .max_value = 16383})
+        ),
+        .pressure = tc.draw("pressure", data_byte),
+        .device_id = tc.draw("device_id", data_byte),
+        .machine_control_command = tc.draw("machine_control_command", data_byte),
     };
 }
 
@@ -102,9 +111,9 @@ bool equalMessage(const MidiMessage& first, const MidiMessage& second) {
 }
 
 HEGEL_TEST(octave_sequence_matches_clamped_model)(hegel::TestCase& tc) {
-    const auto operations = tc.draw(gs::vectors(gs::booleans()));
+    const auto operations = tc.draw("operations", gs::vectors(gs::booleans()));
     const auto type = keyMessageType(
-        tc.draw(gs::integers<int>({.min_value = 0, .max_value = 2}))
+        tc.draw("type_index", gs::integers<int>({.min_value = 0, .max_value = 2}))
     );
     const auto message = generatedMessage(tc, type);
 
@@ -124,9 +133,9 @@ HEGEL_TEST(octave_sequence_matches_clamped_model)(hegel::TestCase& tc) {
 HEGEL_TEST(octave_transposition_preserves_non_key_fields)(
     hegel::TestCase& tc
 ) {
-    const auto operations = tc.draw(gs::vectors(gs::booleans()));
+    const auto operations = tc.draw("operations", gs::vectors(gs::booleans()));
     const auto type = keyMessageType(
-        tc.draw(gs::integers<int>({.min_value = 0, .max_value = 2}))
+        tc.draw("type_index", gs::integers<int>({.min_value = 0, .max_value = 2}))
     );
     const auto message = generatedMessage(tc, type);
 
@@ -149,8 +158,8 @@ HEGEL_TEST(octave_transposition_preserves_non_key_messages)(
         MidiMessageType::MachineControl,
         MidiMessageType::Other,
     };
-    const auto operations = tc.draw(gs::vectors(gs::booleans()));
-    const auto type_index = tc.draw(gs::integers<std::size_t>({
+    const auto operations = tc.draw("operations", gs::vectors(gs::booleans()));
+    const auto type_index = tc.draw("type_index", gs::integers<std::size_t>({
         .min_value = 0,
         .max_value = non_key_types.size() - 1,
     }));

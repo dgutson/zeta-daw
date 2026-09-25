@@ -39,8 +39,9 @@ HEGEL_TEST(control_change_mapping_matches_linear_model)(
     constexpr int controller_count = 128;
     constexpr int source_count = 2;
     constexpr int mappings_per_source = channel_count * controller_count;
+    constexpr bool repeatable = true;
 
-    const auto mapping_keys = tc.draw(gs::vectors(
+    const auto mapping_keys = tc.draw("mapping_keys", gs::vectors(
         gs::integers<int>({
             .min_value = 0,
             .max_value = source_count * mappings_per_source - 1,
@@ -61,22 +62,26 @@ HEGEL_TEST(control_change_mapping_matches_linear_model)(
             .source_port = source == 0 ? "Selected Controller" : "Other Controller",
             .channel = source_key / controller_count,
             .controller = source_key % controller_count,
-            .target_controller = tc.draw(gs::integers<int>({
-                .min_value = 0,
-                .max_value = controller_count - 1,
-            })),
+            .target_controller = tc.draw(
+                "target_controller",
+                gs::integers<int>({
+                    .min_value = 0,
+                    .max_value = controller_count - 1,
+                }),
+                repeatable
+            ),
         });
     }
 
-    const int channel = tc.draw(gs::integers<int>({
+    const int channel = tc.draw("channel", gs::integers<int>({
         .min_value = 0,
         .max_value = channel_count - 1,
     }));
-    const int controller = tc.draw(gs::integers<int>({
+    const int controller = tc.draw("controller", gs::integers<int>({
         .min_value = 0,
         .max_value = controller_count - 1,
     }));
-    const int value = tc.draw(gs::integers<int>({
+    const int value = tc.draw("value", gs::integers<int>({
         .min_value = 0,
         .max_value = controller_count - 1,
     }));

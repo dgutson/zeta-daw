@@ -32,16 +32,22 @@ constexpr std::array channel_message_shapes{
 HEGEL_TEST(channel_voice_decoder_accepts_only_valid_data_bytes)(
     hegel::TestCase& tc
 ) {
-    const auto shape_index = tc.draw(gs::integers<std::size_t>({
+    const auto shape_index = tc.draw("shape_index", gs::integers<std::size_t>({
         .min_value = 0,
         .max_value = channel_message_shapes.size() - 1,
     }));
-    const auto channel = tc.draw(gs::integers<std::uint8_t>({
+    const auto channel = tc.draw("channel", gs::integers<std::uint8_t>({
         .min_value = 0,
         .max_value = 15,
     }));
-    const auto first_data_byte = tc.draw(gs::integers<std::uint8_t>());
-    const auto second_data_byte = tc.draw(gs::integers<std::uint8_t>());
+    const auto first_data_byte = tc.draw(
+        "first_data_byte",
+        gs::integers<std::uint8_t>()
+    );
+    const auto second_data_byte = tc.draw(
+        "second_data_byte",
+        gs::integers<std::uint8_t>()
+    );
     const auto& shape = channel_message_shapes[shape_index];
     const std::array bytes{
         static_cast<std::uint8_t>((shape.status & 0xF0) | channel),

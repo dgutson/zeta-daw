@@ -26,31 +26,43 @@ struct GeneratedTiming {
 
 GeneratedTiming generatedTiming(hegel::TestCase& tc) {
     const auto guide_period_count = tc.draw(
+        "guide_period_count",
         gs::integers<std::uint32_t>({
             .min_value = 1,
             .max_value = std::numeric_limits<std::uint32_t>::max(),
         })
     );
     const auto guide_period = Milliseconds(guide_period_count);
-    const auto guide_origin_count = tc.draw(gs::integers<std::uint32_t>());
+    const auto guide_origin_count = tc.draw(
+        "guide_origin_count",
+        gs::integers<std::uint32_t>()
+    );
     const auto guide_origin = TimePoint(Milliseconds(guide_origin_count));
     // Keeps even the maximum generated period inside steady_clock's range.
     constexpr std::uint16_t maximum_safe_elapsed_cycles = 1024;
     const auto elapsed_guide_cycles = tc.draw(
+        "elapsed_guide_cycles",
         gs::integers<std::uint16_t>({
             .min_value = 0,
             .max_value = maximum_safe_elapsed_cycles,
         })
     );
-    const auto phase_count = tc.draw(gs::integers<std::uint32_t>({
-        .min_value = 0,
-        .max_value = guide_period_count - 1,
-    }));
+    const auto phase_count = tc.draw(
+        "phase_count",
+        gs::integers<std::uint32_t>({
+            .min_value = 0,
+            .max_value = guide_period_count - 1,
+        })
+    );
     const auto recording_started_at = guide_origin
         + guide_period * elapsed_guide_cycles
         + Milliseconds(phase_count);
-    const auto completion_delay = tc.draw(gs::integers<std::uint32_t>());
+    const auto completion_delay = tc.draw(
+        "completion_delay",
+        gs::integers<std::uint32_t>()
+    );
     const auto completion_microseconds = tc.draw(
+        "completion_microseconds",
         gs::integers<std::uint16_t>({.min_value = 0, .max_value = 999})
     );
 
@@ -67,7 +79,7 @@ GeneratedTiming generatedTiming(hegel::TestCase& tc) {
                 + std::chrono::microseconds(completion_microseconds),
         },
         .content_duration = Milliseconds(
-            tc.draw(gs::integers<std::uint32_t>())
+            tc.draw("content_duration", gs::integers<std::uint32_t>())
         ),
     };
 }

@@ -53,6 +53,8 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Every Hegel draw is named after the variable it initializes, so a
+  counterexample reads as named C++ declarations.
 - The native Hegel engine version now comes from the pinned Hegel release
   instead of a second pin in `CMakeLists.txt`.
 - Upgraded the test-only Hegel pin to v0.13.0 and migrated the subordinate
