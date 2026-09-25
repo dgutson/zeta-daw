@@ -273,6 +273,7 @@ if(BUILD_TESTING)
         tests/current_behavior_test.cpp
         tests/fake_fluidsynth.cpp
         tests/fake_midi_input.cpp
+        tests/integration_support.cpp
         application.cpp
         configuration.cpp
         loop_slot.cpp

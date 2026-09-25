@@ -1,5 +1,6 @@
 #include "fake_fluidsynth.hpp"
 #include "fake_midi_input.hpp"
+#include "integration_support.hpp"
 #include "../application.hpp"
 #include "../loop_slot_group.hpp"
 #include "../synth_engine.hpp"
@@ -27,17 +28,15 @@
 namespace {
 
 using namespace std::chrono_literals;
+using namespace integration_support;
 using fake_fluidsynth::Call;
 using fake_fluidsynth::CallKind;
 using zeta::Application;
 using zeta::ApplicationConfig;
-using zeta::LoopSlotDefinition;
 using zeta::LoopSlotGroup;
 using zeta::LoopSlotSelectionOutcome;
 using zeta::LooperClock;
 using zeta::Milliseconds;
-using zeta::MidiControlBinding;
-using zeta::MidiControlType;
 using zeta::MidiEvent;
 using zeta::MidiInput;
 using zeta::MidiMessage;
@@ -49,17 +48,6 @@ using zeta::SoundFontDefinition;
 using zeta::SynthEngine;
 using zeta::TakeTiming;
 using zeta::TimePoint;
-
-constexpr int first_slot_key = 48;
-constexpr int second_slot_key = 50;
-constexpr int third_slot_key = 52;
-constexpr int first_slot_channel = 1;
-constexpr int second_slot_channel = 2;
-constexpr int third_slot_channel = 3;
-
-constexpr int raw(MidiMessageType type) {
-    return static_cast<int>(type);
-}
 
 class CapturingOutputBuffer final : public std::streambuf {
 public:
@@ -134,59 +122,6 @@ private:
     std::jthread thread_;
 };
 
-ApplicationConfig testConfig() {
-    return {
-        .audio = {},
-        .loop_slots = {
-            LoopSlotDefinition{.key = first_slot_key},
-            LoopSlotDefinition{.key = second_slot_key},
-        },
-        .soundfonts = {
-            SoundFontDefinition{
-                .id = "piano",
-                .file = "piano.sf2",
-                .bank = 0,
-                .preset = 0,
-                .key = 71,
-            },
-            SoundFontDefinition{
-                .id = "bass",
-                .file = "bass.sf2",
-                .bank = 0,
-                .preset = 34,
-                .key = 72,
-            },
-        },
-        .midi_control_change_mappings = {},
-        .loop_slot_by_note_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x05,
-        },
-        .next_soundfont_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x01,
-        },
-        .soundfont_by_note_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x09,
-        },
-        .octave_down_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x02,
-        },
-        .octave_up_control = MidiControlBinding{
-            .type = MidiControlType::MachineControl,
-            .number = 0x06,
-        },
-    };
-}
-
-ApplicationConfig threeSlotConfig() {
-    auto config = testConfig();
-    config.loop_slots.push_back(LoopSlotDefinition{.key = third_slot_key});
-    return config;
-}
-
 int pressLoopSlotControl() {
     return fake_midi_input::emitMidi({
         .type = raw(MidiMessageType::MachineControl),
@@ -257,14 +192,6 @@ void completeTake(
     ASSERT_EQ(pressLoopSlotControl(), 0);
 }
 
-MidiMessage recordedNote(MidiMessageType type, int key, int velocity = 0) {
-    return {
-        .raw_type = raw(type),
-        .key = key,
-        .velocity = velocity,
-    };
-}
-
 void completeDirectGuide(
     LoopSlotGroup& slots,
     const SoundFontDefinition& soundfont,
@@ -296,28 +223,6 @@ void completeDirectGuide(
     });
 }
 
-std::size_t callCount(CallKind kind, int channel, int key) {
-    return static_cast<std::size_t>(std::ranges::count_if(
-        fake_fluidsynth::calls(),
-        [&](const Call& call) {
-            return call.kind == kind
-                && call.channel == channel
-                && call.key == key;
-        }
-    ));
-}
-
-std::size_t controlChangeCount(int channel, int control) {
-    return static_cast<std::size_t>(std::ranges::count_if(
-        fake_fluidsynth::calls(),
-        [&](const Call& call) {
-            return call.kind == CallKind::SynthControlChange
-                && call.channel == channel
-                && call.control == control;
-        }
-    ));
-}
-
 bool hasCall(
     CallKind kind,
     int channel,
@@ -330,48 +235,6 @@ bool hasCall(
                 && call.channel == channel
                 && (!key || call.key == *key);
         }
-    );
-}
-
-bool waitForNoteCount(
-    int channel,
-    int key,
-    std::size_t count,
-    std::chrono::milliseconds timeout = 1s
-) {
-    return fake_fluidsynth::waitUntil(
-        [&](const std::vector<Call>& calls) {
-            return static_cast<std::size_t>(std::ranges::count_if(
-                calls,
-                [&](const Call& call) {
-                    return call.kind == CallKind::SynthNoteOn
-                        && call.channel == channel
-                        && call.key == key;
-                }
-            )) >= count;
-        },
-        timeout
-    );
-}
-
-bool waitForNoteOffCount(
-    int channel,
-    int key,
-    std::size_t count,
-    std::chrono::milliseconds timeout = 1s
-) {
-    return fake_fluidsynth::waitUntil(
-        [&](const std::vector<Call>& calls) {
-            return static_cast<std::size_t>(std::ranges::count_if(
-                calls,
-                [&](const Call& call) {
-                    return call.kind == CallKind::SynthNoteOff
-                        && call.channel == channel
-                        && call.key == key;
-                }
-            )) >= count;
-        },
-        timeout
     );
 }
 
@@ -1041,7 +904,6 @@ TEST_F(CurrentBehaviorTest, ShutdownJoinsEveryWorkerAndSilencesEveryChannel) {
 namespace gs = hegel::generators;
 
 constexpr int live_channel = 0;
-constexpr int all_notes_off_controller = 123;
 constexpr int midi_channel_count = 16;
 const std::vector<int> plain_note_keys{60, 64};
 constexpr int minimum_concurrent_performers = 1;
@@ -1053,47 +915,6 @@ constexpr int longest_pause_microseconds = 3000;
 constexpr int shortest_loop_note_microseconds = 500;
 constexpr int longest_loop_note_microseconds = 4000;
 constexpr int longest_trailing_silence_microseconds = 2000;
-// Rules run many times per case, so their draws print numbered.
-constexpr bool repeatable = true;
-
-class DiscardedStandardOutput final {
-public:
-    DiscardedStandardOutput() : previous_(std::cout.rdbuf(&discarded_)) {}
-
-    ~DiscardedStandardOutput() {
-        std::cout.rdbuf(previous_);
-    }
-
-    DiscardedStandardOutput(const DiscardedStandardOutput&) = delete;
-    DiscardedStandardOutput& operator=(const DiscardedStandardOutput&) = delete;
-
-private:
-    class DiscardingBuffer final : public std::streambuf {
-    protected:
-        int_type overflow(int_type character) override {
-            return traits_type::not_eof(character);
-        }
-    };
-
-    DiscardingBuffer discarded_;
-    std::streambuf* previous_;
-};
-
-std::chrono::microseconds drawDuration(
-    hegel::TestCase& tc,
-    std::string_view name,
-    int shortest_microseconds,
-    int longest_microseconds
-) {
-    return std::chrono::microseconds(tc.draw(
-        name,
-        gs::integers<int>({
-            .min_value = shortest_microseconds,
-            .max_value = longest_microseconds,
-        }),
-        repeatable
-    ));
-}
 
 class ConcurrentPerformanceMachine final
     : public hegel::stateful::ConcurrentStateMachine<
