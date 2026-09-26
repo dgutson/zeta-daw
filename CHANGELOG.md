@@ -74,6 +74,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `LoopSlot::recordingCompleted` selects the slot's locked program itself, just
+  before starting playback, instead of the playback-activation callback. The
+  FluidSynth calls on the slot channel and their order are unchanged.
 - Tests that drive `LoopSlotGroup` directly, including the slot-stop
   property, moved from `tests/current_behavior_test.cpp` to
   `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and

@@ -249,7 +249,7 @@ App -> Group : completeRecording(slot, timing)
 Group -> Group : PendingTake.finish(); synthesize held-note releases
 Group -> Slot : recordingCompleted(immutable events, duration, timing)
 Slot -> Slot : makeSchedule(); commit immutable PlaybackTake
-Slot -> Synth : allNotesOff(channel n + 1)
+Slot -> Synth : allNotesOff(channel n + 1); select locked SoundFont
 Slot -> Slot : playback_fsm.startRequested()
 Slot -> Slot : activatePlayback(); ++playback_generation
 Slot -> Worker : notify_all(playback_changed)

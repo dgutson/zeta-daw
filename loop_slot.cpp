@@ -126,6 +126,7 @@ void LoopSlot::recordingCompleted(
         committed_take_ = std::move(take);
     }
     prepared_guide_.reset();
+    synth_engine_.select(*soundfont_, channel_);
     playback_fsm_.startRequested();
 }
 
@@ -175,11 +176,7 @@ void LoopSlot::activatePlayback() {
         if (!committed_take_) {
             throw std::logic_error("Cannot start a loop slot without a take");
         }
-        if (!soundfont_) {
-            throw std::logic_error("Cannot start an unconfigured loop slot");
-        }
 
-        synth_engine_.select(*soundfont_, channel_);
         ++playback_generation_;
     }
     playback_changed_.notify_all();
