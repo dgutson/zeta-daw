@@ -394,7 +394,8 @@ The current dependency strategy is intentional:
 - System packages provide the platform-facing ALSA, PulseAudio, and libsndfile
   libraries.
 - CMake downloads checksum-verified FluidSynth 2.5.7, builds its ALSA,
-  PulseAudio, SF2, and SF3 support, and links it statically into Zeta. This
+  PulseAudio, file-output, SF2, and SF3 support, and links it statically into
+  Zeta. The audio tests render through the file driver. This
   keeps the renderer identical on the desktop and Raspberry Pi instead of
   accepting the distro FluidSynth version.
 - CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned

@@ -90,7 +90,7 @@ ExternalProject_Add(
         -DGCEM_INCLUDE_DIR=${zeta_gcem_source_SOURCE_DIR}/include
         -DPROJECT_WC_REVISION=v${ZETA_FLUIDSYNTH_VERSION}
         -Denable-alsa=ON
-        -Denable-aufile=OFF
+        -Denable-aufile=ON
         -Denable-dbus=OFF
         -Denable-jack=OFF
         -Denable-ladspa=OFF
