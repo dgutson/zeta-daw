@@ -89,9 +89,13 @@ The main layers and ownership boundaries are:
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
-  FluidSynth channel, locked SoundFont/octave state, immutable committed take,
-  subordinate playback FSM, synchronization, and eagerly created worker. Role
-  commands perform their own behavior; callers do not query role predicates.
+  FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
+  and one `MidiTakePlayer`. Role commands perform their own behavior; callers
+  do not query role predicates.
+- `midi_take_player.*` owns one slot's immutable committed MIDI take and its
+  playback: the eagerly created worker, the generation counter and condition
+  variable that interrupt it, dispatch at absolute deadlines, and silencing of
+  the slot channel.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.

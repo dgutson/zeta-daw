@@ -24,6 +24,7 @@ box "Project domain" #F4FFF1
 participant "LooperFsm +\ncurrent LooperState" as Fsm
 participant LoopSlotGroup as Group
 participant "LoopSlot[n] +\nplayback FSM" as Slot
+participant "MidiTakePlayer[n]" as Player
 participant "worker_[n]\nworkerMain()" as Worker
 end box
 
@@ -33,7 +34,8 @@ end box
 
 note over App,Worker
   There is one master LooperFsm and one pending take.
-  Every configured LoopSlot eagerly owns a dedicated sleeping jthread;
+  Every configured LoopSlot owns a MidiTakePlayer, which eagerly owns a
+  dedicated sleeping jthread;
   [n] denotes the selected slot or all configured slots, as labeled.
 end note
 
@@ -45,7 +47,8 @@ App -> Synth : construct; eagerly load configured SoundFonts
 App -> Group : construct ordered slots
 loop for each configured slot [n]
   Group -> Slot : construct(id, key, channel n + 1)
-  Slot -> Worker : start jthread(workerMain(stop_token))
+  Slot -> Player : construct(id, channel n + 1)
+  Player -> Worker : start jthread(workerMain(stop_token))
   activate Worker
   Worker -> Worker : observed_generation = 0
   Worker -> Worker : waitForActivePlayback()
@@ -194,8 +197,10 @@ Fsm -> App : requestLoopSlotSelection(raw key)
 App -> Group : requestSelection(key, current SoundFont, live transposer)
 Group -> Slot : selectionRequested(context)
 alt slot is Muted and its role permits arming
-  Slot -> Slot : invalidate old generation; snapshot SoundFont/octave
-  Slot -> Synth : allNotesOff(channel n + 1); select SoundFont
+  Slot -> Player : invalidateAndSilence(): discard take; ++playback_generation
+  Player -> Synth : allNotesOff(channel n + 1)
+  Slot -> Slot : snapshot SoundFont/octave
+  Slot -> Synth : select SoundFont
   Slot --> Group : Armed
   Group -> Group : PendingTake.reset()
   Group --> App : {slot id, Armed}
@@ -248,18 +253,21 @@ Fsm -> App : completeLoopSlotRecording(slot, timing)
 App -> Group : completeRecording(slot, timing)
 Group -> Group : PendingTake.finish(); synthesize held-note releases
 Group -> Slot : recordingCompleted(immutable events, duration, timing)
-Slot -> Slot : makeSchedule(); commit immutable PlaybackTake
-Slot -> Synth : allNotesOff(channel n + 1); select locked SoundFont
+Slot -> Slot : makeSchedule()
+Slot -> Player : commitTake(events, schedule)
+Player -> Synth : allNotesOff(channel n + 1)
+Player -> Player : commit immutable PlaybackTake
+Slot -> Synth : select locked SoundFont
 Slot -> Slot : playback_fsm.startRequested()
-Slot -> Slot : activatePlayback(); ++playback_generation
-Slot -> Worker : notify_all(playback_changed)
+Slot -> Player : activatePlayback(); ++playback_generation
+Player -> Worker : notify_all(playback_changed)
 Group -> Group : PendingTake.reset()
 Fsm -> App : selectCurrentLiveSoundFont(); showLooping(slot)
 App -> Synth : select(current SoundFont, channel 0)
 Fsm -> Fsm : Recording -> Ready
 deactivate Fsm
 
-== Dedicated LoopSlot[n] workerMain loops ==
+== Dedicated MidiTakePlayer[n] workerMain loops ==
 
 activate Worker
 loop outer: while stop is not requested
@@ -311,9 +319,10 @@ else selected slot is the guide
   end
 end
 Slot -> Slot : playback_fsm.muteRequested()
-Slot -> Slot : discard take; ++playback_generation
-Slot -> Synth : allNotesOff(channel n + 1)
-Slot -> Worker : notify_all(playback_changed)
+Slot -> Player : deactivatePlayback()
+Player -> Player : discard take; ++playback_generation
+Player -> Synth : allNotesOff(channel n + 1)
+Player -> Worker : notify_all(playback_changed)
 
 == Shutdown ==
 
@@ -328,12 +337,13 @@ App -> Group : terminateAll()
 loop regular slots first, then guide
   Group -> Slot : terminationRequested()
   Slot -> Slot : playback_fsm.terminationRequested()
-  Slot -> Worker : request_stop()
-  Slot -> Slot : discard take; ++playback_generation
-  Slot -> Synth : allNotesOff(channel n + 1)
-  Slot -> Worker : notify_all(playback_changed)
-  Slot -> Worker : join()
-  Worker --> Slot : workerMain returns
+  Slot -> Player : terminatePlayback()
+  Player -> Worker : request_stop()
+  Player -> Player : discard take; ++playback_generation
+  Player -> Synth : allNotesOff(channel n + 1)
+  Player -> Worker : notify_all(playback_changed)
+  Player -> Worker : join()
+  Worker --> Player : workerMain returns
 end
 Fsm -> App : silenceAllChannels()
 App -> Synth : allNotesOff(all configured channels)

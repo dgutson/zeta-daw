@@ -74,6 +74,9 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Each loop slot's committed take, playback worker, and MIDI dispatch moved
+  from `LoopSlot` into a `MidiTakePlayer` (`midi_take_player.{hpp,cpp}`) that
+  the slot owns. Playback behavior is unchanged.
 - `LoopSlot::recordingCompleted` selects the slot's locked program itself, just
   before starting playback, instead of the playback-activation callback. The
   FluidSynth calls on the slot channel and their order are unchanged.
