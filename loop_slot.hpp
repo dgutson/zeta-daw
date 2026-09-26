@@ -4,18 +4,14 @@
 #include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
+#include "midi_take_recorder.hpp"
 #include "octave_transposer.hpp"
 #include "pending_take.hpp"
+#include "take_player.hpp"
 
-#include <condition_variable>
 #include <cstddef>
-#include <cstdint>
-#include <memory>
 #include <mutex>
 #include <optional>
-#include <stop_token>
-#include <thread>
-#include <vector>
 
 namespace zeta {
 
@@ -33,7 +29,7 @@ public:
     virtual void stopDependentSlots() = 0;
 };
 
-class LoopSlot : private LoopSlotPlaybackOutput {
+class LoopSlot {
 public:
     virtual ~LoopSlot();
 
@@ -49,16 +45,16 @@ public:
         const LoopSlotSelectionContext& context
     );
     void cancelRecording();
-    void recordingCompleted(
-        const std::vector<RecordedLoopEvent>& events,
-        Milliseconds content_duration,
-        const TakeTiming& timing
+    void recordNote(
+        RecordedNoteKind kind,
+        const MidiMessage& message,
+        Milliseconds offset
     );
+    void recordingCompleted(const TakeTiming& timing);
 
     void selectSoundFont(const SoundFontDefinition& soundfont);
     void octaveDown();
     void octaveUp();
-    MidiMessage transpose(const MidiMessage& message) const;
     int monitorMidi(const MidiMessage& message);
 
     void deactivate();
@@ -68,7 +64,8 @@ protected:
     LoopSlot(
         SlotId id,
         const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine
+        SynthEngine& synth_engine,
+        PendingTake& pending_take
     );
 
     virtual LoopSlotSelectionOutcome onMutedSelection(
@@ -87,41 +84,8 @@ protected:
     );
 
 private:
-    struct PlaybackTake {
-        std::vector<RecordedLoopEvent> events;
-        LoopPlaybackSchedule schedule;
-    };
-
-    struct ActivePlayback {
-        std::shared_ptr<const PlaybackTake> take;
-        std::uint64_t generation{};
-    };
-
-    static bool isPlayablePeriod(Milliseconds period) noexcept;
     LoopSlotPlaybackState playbackState() const;
-
-    void activatePlayback() override;
-    void deactivatePlayback() override;
-    void terminatePlayback() override;
-
-    void workerMain(const std::stop_token& stop_token);
-    bool waitForActivePlayback(
-        const std::stop_token& stop_token,
-        std::uint64_t& observed_generation,
-        ActivePlayback& playback
-    );
-    void playActiveTake(
-        const std::stop_token& stop_token,
-        const ActivePlayback& playback
-    );
-    bool playCycle(
-        const std::stop_token& stop_token,
-        const ActivePlayback& playback,
-        TimePoint loop_started_at,
-        bool joining_first_cycle
-    );
-    void playRecordedEvent(const RecordedLoopEvent& event);
-    void invalidateAndSilence();
+    MidiMessage transpose(const MidiMessage& message) const;
 
     SlotId id_;
     int selection_key_;
@@ -132,13 +96,9 @@ private:
     std::optional<LoopPlaybackSchedule> prepared_guide_;
 
     mutable std::mutex command_mutex_;
+    TakePlayer player_;
+    MidiTakeRecorder recorder_;
     LoopSlotPlaybackFsm playback_fsm_;
-
-    mutable std::mutex playback_mutex_;
-    std::condition_variable playback_changed_;
-    std::shared_ptr<const PlaybackTake> committed_take_;
-    std::uint64_t playback_generation_{};
-    std::jthread worker_;
 };
 
 class GuideLoopSlot final : public LoopSlot {
@@ -147,6 +107,7 @@ public:
         SlotId id,
         const LoopSlotDefinition& definition,
         SynthEngine& synth_engine,
+        PendingTake& pending_take,
         LoopSlotGroupOutput& output
     );
 
@@ -169,7 +130,8 @@ public:
     RegularLoopSlot(
         SlotId id,
         const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine
+        SynthEngine& synth_engine,
+        PendingTake& pending_take
     );
 
 private:
