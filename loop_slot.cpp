@@ -21,7 +21,7 @@ LoopSlot::LoopSlot(
       channel_(first_loop_slot_channel + static_cast<int>(id)),
       synth_engine_(synth_engine),
       player_(synth_engine, id, channel_),
-      playback_fsm_(*this) {}
+      playback_fsm_(player_) {}
 
 LoopSlot::~LoopSlot() {
     terminationRequested();
@@ -147,18 +147,6 @@ void LoopSlot::deactivate() {
 void LoopSlot::terminationRequested() {
     std::lock_guard lock(command_mutex_);
     playback_fsm_.terminationRequested();
-}
-
-void LoopSlot::activatePlayback() {
-    player_.activatePlayback();
-}
-
-void LoopSlot::deactivatePlayback() {
-    player_.deactivatePlayback();
-}
-
-void LoopSlot::terminatePlayback() {
-    player_.terminatePlayback();
 }
 
 GuideLoopSlot::GuideLoopSlot(

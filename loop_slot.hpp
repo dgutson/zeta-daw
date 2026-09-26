@@ -29,7 +29,7 @@ public:
     virtual void stopDependentSlots() = 0;
 };
 
-class LoopSlot : private LoopSlotPlaybackOutput {
+class LoopSlot {
 public:
     virtual ~LoopSlot();
 
@@ -84,10 +84,6 @@ protected:
 
 private:
     LoopSlotPlaybackState playbackState() const;
-
-    void activatePlayback() override;
-    void deactivatePlayback() override;
-    void terminatePlayback() override;
 
     SlotId id_;
     int selection_key_;

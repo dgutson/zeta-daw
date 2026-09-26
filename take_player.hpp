@@ -1,5 +1,6 @@
 #pragma once
 
+#include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
 #include "pending_take.hpp"
@@ -17,7 +18,7 @@ namespace zeta {
 
 class SynthEngine;
 
-class TakePlayer final {
+class TakePlayer final : public LoopSlotPlaybackOutput {
 public:
     TakePlayer(
         SynthEngine& synth_engine,
@@ -35,10 +36,6 @@ public:
     );
     void invalidateAndSilence();
 
-    void activatePlayback();
-    void deactivatePlayback();
-    void terminatePlayback();
-
 private:
     struct PlaybackTake {
         std::vector<RecordedLoopEvent> events;
@@ -51,6 +48,10 @@ private:
     };
 
     static bool isPlayablePeriod(Milliseconds period) noexcept;
+
+    void activatePlayback() override;
+    void deactivatePlayback() override;
+    void terminatePlayback() override;
 
     void workerMain(const std::stop_token& stop_token);
     bool waitForActivePlayback(

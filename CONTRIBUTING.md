@@ -62,6 +62,9 @@ The [runtime sequence diagram](runtime-sequence.puml) expands this overview
 with process startup, MIDI port lifecycle and callback routing, FSM output
 calls, recording, per-slot playback workers, and orderly shutdown.
 
+The [loop-slot class diagram](loop-slot-classes.md) shows how the loop-slot
+classes own and call each other.
+
 The main layers and ownership boundaries are:
 
 - `main.cpp` loads configuration, owns process signal handling, constructs the

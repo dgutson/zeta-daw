@@ -74,6 +74,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `TakePlayer` implements the slot playback FSM's output interface,
+  `LoopSlotPlaybackOutput`, so the FSM calls the player directly instead of
+  through three forwarding methods in `LoopSlot`. Playback behavior is
+  unchanged. The new `loop-slot-classes.md` shows the loop-slot classes as a
+  Mermaid class diagram.
 - Each loop slot's committed take, playback worker, and MIDI dispatch moved
   from `LoopSlot` into a `TakePlayer` (`take_player.{hpp,cpp}`) that
   the slot owns. Playback behavior is unchanged.
