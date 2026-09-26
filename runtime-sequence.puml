@@ -201,10 +201,10 @@ Group -> Slot : selectionRequested(context)
 alt slot is Muted and its role permits arming
   Slot -> Player : invalidateAndSilence(): discard take; ++playback_generation
   Player -> Synth : allNotesOff(channel n + 1)
+  Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
   Slot -> Slot : snapshot SoundFont/octave
   Slot -> Synth : select SoundFont
   Slot --> Group : Armed
-  Group -> Group : PendingTake.reset()
   Group --> App : {slot id, Armed}
   App --> Fsm : selection result
   Fsm -> App : showRecordingArmed(slot)

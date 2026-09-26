@@ -77,6 +77,7 @@ LoopSlotSelectionOutcome LoopSlot::arm(
     }
 
     player_.invalidateAndSilence();
+    recorder_.discardTake();
     soundfont_ = &context.soundfont;
     transposer_ = context.transposer;
     prepared_guide_ = guide;
@@ -91,6 +92,7 @@ void LoopSlot::cancelRecording() {
     }
     prepared_guide_.reset();
     player_.invalidateAndSilence();
+    recorder_.discardTake();
 }
 
 void LoopSlot::recordNote(

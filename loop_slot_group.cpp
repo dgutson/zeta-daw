@@ -112,9 +112,7 @@ LoopSlotSelectionResult LoopSlotGroup::requestSelection(
         .guide_schedule = impl_->guide().activeSchedule(),
     };
     const auto outcome = impl_->slot(id.value()).selectionRequested(context);
-    if (outcome == LoopSlotSelectionOutcome::Armed) {
-        impl_->pending_take.reset();
-    } else if (outcome == LoopSlotSelectionOutcome::GuideRequired) {
+    if (outcome == LoopSlotSelectionOutcome::GuideRequired) {
         std::cerr << "Loop slot " << id.value() + 1
                   << " requires the guide to be looping.\n";
     } else if (outcome == LoopSlotSelectionOutcome::Stopped) {
@@ -129,7 +127,6 @@ LoopSlotSelectionResult LoopSlotGroup::requestSelection(
 
 void LoopSlotGroup::cancelRecording(SlotId slot) {
     impl_->slot(slot).cancelRecording();
-    impl_->pending_take.reset();
 }
 
 void LoopSlotGroup::completeRecording(

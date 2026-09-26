@@ -74,6 +74,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- Arming or canceling a loop slot discards the pending take through the
+  slot's `MidiTakeRecorder`, right after the `TakePlayer` discards the
+  committed take; `LoopSlotGroup` owns the `PendingTake` but no longer calls
+  it. Arming and canceling behave as before.
 - `LoopSlot::recordingCompleted` takes only the take timing. The slot's
   `MidiTakeRecorder` finishes the group-owned `PendingTake`, selects the
   locked program after the `TakePlayer` commits the take, and discards the
