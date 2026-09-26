@@ -90,9 +90,9 @@ The main layers and ownership boundaries are:
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
   FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
-  and one `MidiTakePlayer`. Role commands perform their own behavior; callers
+  and one `TakePlayer`. Role commands perform their own behavior; callers
   do not query role predicates.
-- `midi_take_player.*` owns one slot's immutable committed MIDI take and its
+- `take_player.*` owns one slot's immutable committed MIDI take and its
   playback: the eagerly created worker, the generation counter and condition
   variable that interrupt it, dispatch at absolute deadlines, and silencing of
   the slot channel.

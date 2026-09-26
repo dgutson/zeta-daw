@@ -4,9 +4,9 @@
 #include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
-#include "midi_take_player.hpp"
 #include "octave_transposer.hpp"
 #include "pending_take.hpp"
+#include "take_player.hpp"
 
 #include <cstddef>
 #include <mutex>
@@ -98,7 +98,7 @@ private:
     std::optional<LoopPlaybackSchedule> prepared_guide_;
 
     mutable std::mutex command_mutex_;
-    MidiTakePlayer player_;
+    TakePlayer player_;
     LoopSlotPlaybackFsm playback_fsm_;
 };
 

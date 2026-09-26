@@ -17,16 +17,16 @@ namespace zeta {
 
 class SynthEngine;
 
-class MidiTakePlayer final {
+class TakePlayer final {
 public:
-    MidiTakePlayer(
+    TakePlayer(
         SynthEngine& synth_engine,
         SlotId id,
         int channel
     );
 
-    MidiTakePlayer(const MidiTakePlayer&) = delete;
-    MidiTakePlayer& operator=(const MidiTakePlayer&) = delete;
+    TakePlayer(const TakePlayer&) = delete;
+    TakePlayer& operator=(const TakePlayer&) = delete;
 
     std::optional<LoopPlaybackSchedule> schedule() const;
     void commitTake(

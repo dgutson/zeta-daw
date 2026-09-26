@@ -24,7 +24,7 @@ box "Project domain" #F4FFF1
 participant "LooperFsm +\ncurrent LooperState" as Fsm
 participant LoopSlotGroup as Group
 participant "LoopSlot[n] +\nplayback FSM" as Slot
-participant "MidiTakePlayer[n]" as Player
+participant "TakePlayer[n]" as Player
 participant "worker_[n]\nworkerMain()" as Worker
 end box
 
@@ -34,7 +34,7 @@ end box
 
 note over App,Worker
   There is one master LooperFsm and one pending take.
-  Every configured LoopSlot owns a MidiTakePlayer, which eagerly owns a
+  Every configured LoopSlot owns a TakePlayer, which eagerly owns a
   dedicated sleeping jthread;
   [n] denotes the selected slot or all configured slots, as labeled.
 end note
@@ -267,7 +267,7 @@ App -> Synth : select(current SoundFont, channel 0)
 Fsm -> Fsm : Recording -> Ready
 deactivate Fsm
 
-== Dedicated MidiTakePlayer[n] workerMain loops ==
+== Dedicated TakePlayer[n] workerMain loops ==
 
 activate Worker
 loop outer: while stop is not requested

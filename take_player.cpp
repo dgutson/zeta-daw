@@ -1,4 +1,4 @@
-#include "midi_take_player.hpp"
+#include "take_player.hpp"
 
 #include "synth_engine.hpp"
 
@@ -9,7 +9,7 @@
 
 namespace zeta {
 
-MidiTakePlayer::MidiTakePlayer(
+TakePlayer::TakePlayer(
     SynthEngine& synth_engine,
     // Slot identity and MIDI channel are distinct domain values.
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -23,7 +23,7 @@ MidiTakePlayer::MidiTakePlayer(
           workerMain(stop_token);
       }) {}
 
-std::optional<LoopPlaybackSchedule> MidiTakePlayer::schedule() const {
+std::optional<LoopPlaybackSchedule> TakePlayer::schedule() const {
     std::lock_guard lock(playback_mutex_);
     if (!committed_take_
         || !isPlayablePeriod(committed_take_->schedule.period)) {
@@ -32,7 +32,7 @@ std::optional<LoopPlaybackSchedule> MidiTakePlayer::schedule() const {
     return committed_take_->schedule;
 }
 
-void MidiTakePlayer::commitTake(
+void TakePlayer::commitTake(
     const std::vector<RecordedLoopEvent>& events,
     const LoopPlaybackSchedule& schedule
 ) {
@@ -48,11 +48,11 @@ void MidiTakePlayer::commitTake(
     }
 }
 
-bool MidiTakePlayer::isPlayablePeriod(Milliseconds period) noexcept {
+bool TakePlayer::isPlayablePeriod(Milliseconds period) noexcept {
     return period > Milliseconds::zero();
 }
 
-void MidiTakePlayer::activatePlayback() {
+void TakePlayer::activatePlayback() {
     {
         std::lock_guard lock(playback_mutex_);
         if (!committed_take_) {
@@ -64,11 +64,11 @@ void MidiTakePlayer::activatePlayback() {
     playback_changed_.notify_all();
 }
 
-void MidiTakePlayer::deactivatePlayback() {
+void TakePlayer::deactivatePlayback() {
     invalidateAndSilence();
 }
 
-void MidiTakePlayer::terminatePlayback() {
+void TakePlayer::terminatePlayback() {
     worker_.request_stop();
     invalidateAndSilence();
     if (worker_.joinable()) {
@@ -76,7 +76,7 @@ void MidiTakePlayer::terminatePlayback() {
     }
 }
 
-void MidiTakePlayer::workerMain(const std::stop_token& stop_token) {
+void TakePlayer::workerMain(const std::stop_token& stop_token) {
     std::uint64_t observed_generation = 0;
 
     while (!stop_token.stop_requested()) {
@@ -94,7 +94,7 @@ void MidiTakePlayer::workerMain(const std::stop_token& stop_token) {
     }
 }
 
-bool MidiTakePlayer::waitForActivePlayback(
+bool TakePlayer::waitForActivePlayback(
     const std::stop_token& stop_token,
     std::uint64_t& observed_generation,
     ActivePlayback& playback
@@ -121,7 +121,7 @@ bool MidiTakePlayer::waitForActivePlayback(
     return true;
 }
 
-void MidiTakePlayer::playActiveTake(
+void TakePlayer::playActiveTake(
     const std::stop_token& stop_token,
     const ActivePlayback& playback
 ) {
@@ -163,7 +163,7 @@ void MidiTakePlayer::playActiveTake(
     }
 }
 
-bool MidiTakePlayer::playCycle(
+bool TakePlayer::playCycle(
     const std::stop_token& stop_token,
     const ActivePlayback& playback,
     TimePoint loop_started_at,
@@ -192,7 +192,7 @@ bool MidiTakePlayer::playCycle(
     return true;
 }
 
-void MidiTakePlayer::playRecordedEvent(const RecordedLoopEvent& event) {
+void TakePlayer::playRecordedEvent(const RecordedLoopEvent& event) {
     #ifdef ZETA_MIDI_TRACE
     std::osyncstream{std::cerr}
         << "[loop slot playback]"
@@ -213,7 +213,7 @@ void MidiTakePlayer::playRecordedEvent(const RecordedLoopEvent& event) {
     }
 }
 
-void MidiTakePlayer::invalidateAndSilence() {
+void TakePlayer::invalidateAndSilence() {
     {
         std::lock_guard lock(playback_mutex_);
         committed_take_.reset();
