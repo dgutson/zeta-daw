@@ -39,6 +39,8 @@ using zeta::SynthEngine;
 using zeta::TakeTiming;
 using zeta::TimePoint;
 
+constexpr int direct_guide_key = 72;
+
 void completeDirectGuide(
     LoopSlotGroup& slots,
     const SoundFontDefinition& soundfont,
@@ -55,19 +57,59 @@ void completeDirectGuide(
     slots.recordNote(
         guide.id,
         RecordedNoteKind::NoteOn,
-        recordedNote(MidiMessageType::NoteOn, 72, 100),
+        recordedNote(MidiMessageType::NoteOn, direct_guide_key, 100),
         0ms
     );
     slots.recordNote(
         guide.id,
         RecordedNoteKind::NoteOff,
-        recordedNote(MidiMessageType::NoteOff, 72),
+        recordedNote(MidiMessageType::NoteOff, direct_guide_key),
         0ms
     );
     slots.completeRecording(guide.id, TakeTiming{
         .recording_started_at = first_cycle_at - period,
         .completed_at = first_cycle_at,
     });
+}
+
+std::string describeCall(const Call& call) {
+    switch (call.kind) {
+    case CallKind::SynthControlChange:
+        return "CC " + std::to_string(call.control)
+            + " = " + std::to_string(call.value);
+    case CallKind::SelectProgram:
+        return "program select sfid " + std::to_string(call.soundfont_id)
+            + " bank " + std::to_string(call.bank)
+            + " preset " + std::to_string(call.preset);
+    case CallKind::SynthNoteOn:
+        return "Note On " + std::to_string(call.key);
+    case CallKind::SynthNoteOff:
+        return "Note Off " + std::to_string(call.key);
+    default:
+        return "call kind " + std::to_string(static_cast<int>(call.kind));
+    }
+}
+
+// The calls on `channel` from call-log position `from` up to and including
+// the first Note On. The fake logs each synth call a second time as
+// HandleMidi; those copies are skipped.
+std::vector<std::string> channelCallsUntilNoteOn(
+    std::size_t from,
+    int channel
+) {
+    const auto calls = fake_fluidsynth::calls();
+    std::vector<std::string> described;
+    for (std::size_t index = from; index < calls.size(); ++index) {
+        const auto& call = calls[index];
+        if (call.channel != channel || call.kind == CallKind::HandleMidi) {
+            continue;
+        }
+        described.push_back(describeCall(call));
+        if (call.kind == CallKind::SynthNoteOn) {
+            break;
+        }
+    }
+    return described;
 }
 
 class LoopSlotGroupTest : public ::testing::Test {
@@ -251,6 +293,94 @@ TEST_F(LoopSlotGroupTest, RegularWaitsWhenCurrentRepetitionEventsArePast) {
     );
     EXPECT_TRUE(waitForNoteCount(second_slot_channel, 64, 1, 400ms));
     EXPECT_TRUE(waitForNoteOffCount(second_slot_channel, 64, 1, 200ms));
+}
+
+TEST_F(
+    LoopSlotGroupTest,
+    CompletionSilencesAndSelectsLockedProgramBeforePlayback
+) {
+    auto config = testConfig();
+    SynthEngine synth_engine{config};
+    LoopSlotGroup slots{config.loop_slots, synth_engine};
+    OctaveTransposer transposer;
+
+    const auto guide = slots.requestSelection(
+        first_slot_key,
+        config.soundfonts.front(),
+        transposer
+    );
+    ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
+    slots.recordNote(
+        guide.id,
+        RecordedNoteKind::NoteOn,
+        recordedNote(MidiMessageType::NoteOn, 72, 100),
+        0ms
+    );
+    const auto completion_calls_from = fake_fluidsynth::calls().size();
+
+    constexpr auto guide_period = 400ms;
+    const auto completed_at = LooperClock::now();
+    slots.completeRecording(guide.id, TakeTiming{
+        .recording_started_at = completed_at - guide_period,
+        .completed_at = completed_at,
+    });
+
+    ASSERT_TRUE(waitForNoteCount(first_slot_channel, 72, 1));
+    // The fake numbers SoundFonts from 1 in load order, so the piano is 1.
+    EXPECT_EQ(
+        channelCallsUntilNoteOn(completion_calls_from, first_slot_channel),
+        (std::vector<std::string>{
+            "CC 64 = 0",  // sustain off
+            "CC 123 = 0", // all notes off
+            "program select sfid 1 bank 0 preset 0",
+            "Note On 72",
+        })
+    );
+}
+
+// Completing the guide in the millisecond of its first note gives period
+// zero. The guide then counts as looping but plays nothing.
+TEST_F(LoopSlotGroupTest, ZeroLengthGuideTakeLoopsSilentlyUntilStopped) {
+    auto config = testConfig();
+    SynthEngine synth_engine{config};
+    LoopSlotGroup slots{config.loop_slots, synth_engine};
+    OctaveTransposer transposer;
+    const auto& soundfont = config.soundfonts.front();
+
+    completeDirectGuide(
+        slots,
+        soundfont,
+        transposer,
+        LooperClock::now(),
+        Milliseconds::zero()
+    );
+
+    // A zero-length take that played would sound its first note at once.
+    constexpr auto silence_wait = 50ms;
+    EXPECT_FALSE(waitForNoteCount(
+        first_slot_channel,
+        direct_guide_key,
+        1,
+        silence_wait
+    ));
+    EXPECT_EQ(
+        slots.requestSelection(second_slot_key, soundfont, transposer).outcome,
+        LoopSlotSelectionOutcome::GuideRequired
+    );
+    EXPECT_EQ(
+        slots.requestSelection(first_slot_key, soundfont, transposer).outcome,
+        LoopSlotSelectionOutcome::Stopped
+    );
+
+    constexpr auto guide_period = 400ms;
+    completeDirectGuide(
+        slots,
+        soundfont,
+        transposer,
+        LooperClock::now(),
+        guide_period
+    );
+    EXPECT_TRUE(waitForNoteCount(first_slot_channel, direct_guide_key, 1));
 }
 
 namespace gs = hegel::generators;
