@@ -74,31 +74,16 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
-- Arming or canceling a loop slot discards the pending take through the
-  slot's `MidiTakeRecorder`, right after the `TakePlayer` discards the
-  committed take; `LoopSlotGroup` owns the `PendingTake` but no longer calls
-  it. Arming and canceling behave as before.
-- `LoopSlot::recordingCompleted` takes only the take timing. The slot's
-  `MidiTakeRecorder` finishes the group-owned `PendingTake`, selects the
-  locked program after the `TakePlayer` commits the take, and discards the
-  take once playback starts; `LoopSlotGroup::completeRecording` only forwards
-  to the slot. The FluidSynth calls on the slot channel and their order are
-  unchanged.
-- `LoopSlot::recordNote` transposes a recorded note and passes it to the
-  slot's new `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`), which writes
-  it into the group-owned `PendingTake`; `LoopSlotGroup::recordNote` only
-  forwards to the slot. Recording behavior is unchanged.
-- `TakePlayer` implements the slot playback FSM's output interface,
-  `LoopSlotPlaybackOutput`, so the FSM calls the player directly instead of
-  through three forwarding methods in `LoopSlot`. Playback behavior is
-  unchanged. The new `loop-slot-classes.md` shows the loop-slot classes as a
-  Mermaid class diagram.
-- Each loop slot's committed take, playback worker, and MIDI dispatch moved
-  from `LoopSlot` into a `TakePlayer` (`take_player.{hpp,cpp}`) that
-  the slot owns. Playback behavior is unchanged.
-- `LoopSlot::recordingCompleted` selects the slot's locked program itself, just
-  before starting playback, instead of the playback-activation callback. The
-  FluidSynth calls on the slot channel and their order are unchanged.
+- Each loop slot's take is handled by two classes the slot owns.
+  `TakePlayer` (`take_player.{hpp,cpp}`) holds the committed take, the
+  playback worker and MIDI dispatch, and implements the slot playback FSM's
+  output interface. `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`)
+  records notes into the group-owned `PendingTake`, finishes and discards that
+  take, and selects the locked program when a take completes. `LoopSlotGroup`
+  forwards recording, completion and cancel to the slot. Recording and
+  playback behave as before, including the FluidSynth calls on each slot
+  channel and their order. `loop-slot-classes.md` shows the loop-slot classes
+  as a Mermaid class diagram.
 - Tests that drive `LoopSlotGroup` directly, including the slot-stop
   property, moved from `tests/current_behavior_test.cpp` to
   `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and
