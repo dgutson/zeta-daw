@@ -12,7 +12,6 @@
 #include <cstddef>
 #include <mutex>
 #include <optional>
-#include <vector>
 
 namespace zeta {
 
@@ -51,11 +50,7 @@ public:
         const MidiMessage& message,
         Milliseconds offset
     );
-    void recordingCompleted(
-        const std::vector<RecordedLoopEvent>& events,
-        Milliseconds content_duration,
-        const TakeTiming& timing
-    );
+    void recordingCompleted(const TakeTiming& timing);
 
     void selectSoundFont(const SoundFontDefinition& soundfont);
     void octaveDown();

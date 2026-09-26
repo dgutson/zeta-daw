@@ -100,7 +100,8 @@ The main layers and ownership boundaries are:
   variable that interrupt it, dispatch at absolute deadlines, and silencing of
   the slot channel.
 - `midi_take_recorder.*` records one slot's MIDI notes into the group-owned
-  `PendingTake`.
+  `PendingTake`, finishes and discards that take when recording completes, and
+  selects the slot's locked program before its playback starts.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.

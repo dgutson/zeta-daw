@@ -22,7 +22,7 @@ LoopSlot::LoopSlot(
       channel_(first_loop_slot_channel + static_cast<int>(id)),
       synth_engine_(synth_engine),
       player_(synth_engine, id, channel_),
-      recorder_(pending_take),
+      recorder_(pending_take, synth_engine, channel_),
       playback_fsm_(player_) {}
 
 LoopSlot::~LoopSlot() {
@@ -102,11 +102,7 @@ void LoopSlot::recordNote(
     recorder_.record(kind, transposed, offset);
 }
 
-void LoopSlot::recordingCompleted(
-    const std::vector<RecordedLoopEvent>& events,
-    Milliseconds content_duration,
-    const TakeTiming& timing
-) {
+void LoopSlot::recordingCompleted(const TakeTiming& timing) {
     std::lock_guard command_lock(command_mutex_);
     if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
         throw std::logic_error("Only a muted loop slot can complete recording");
@@ -115,13 +111,15 @@ void LoopSlot::recordingCompleted(
         throw std::logic_error("Cannot complete an unconfigured loop slot");
     }
 
+    const auto take = recorder_.finishTake(timing);
     player_.commitTake(
-        events,
-        makeSchedule(timing, content_duration, prepared_guide_)
+        take.events,
+        makeSchedule(timing, take.content_duration, prepared_guide_)
     );
     prepared_guide_.reset();
-    synth_engine_.select(*soundfont_, channel_);
+    recorder_.selectProgram(*soundfont_);
     playback_fsm_.startRequested();
+    recorder_.discardTake();
 }
 
 void LoopSlot::selectSoundFont(const SoundFontDefinition& soundfont) {

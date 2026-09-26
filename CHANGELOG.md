@@ -74,6 +74,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `LoopSlot::recordingCompleted` takes only the take timing. The slot's
+  `MidiTakeRecorder` finishes the group-owned `PendingTake`, selects the
+  locked program after the `TakePlayer` commits the take, and discards the
+  take once playback starts; `LoopSlotGroup::completeRecording` only forwards
+  to the slot. The FluidSynth calls on the slot channel and their order are
+  unchanged.
 - `LoopSlot::recordNote` transposes a recorded note and passes it to the
   slot's new `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`), which writes
   it into the group-owned `PendingTake`; `LoopSlotGroup::recordNote` only

@@ -136,17 +136,7 @@ void LoopSlotGroup::completeRecording(
     SlotId slot,
     const TakeTiming& timing
 ) {
-    const auto completion_offset = elapsedMilliseconds(
-        timing.recording_started_at,
-        timing.completed_at
-    );
-    impl_->pending_take.finish(completion_offset);
-    impl_->slot(slot).recordingCompleted(
-        impl_->pending_take.events(),
-        impl_->pending_take.contentDuration(),
-        timing
-    );
-    impl_->pending_take.reset();
+    impl_->slot(slot).recordingCompleted(timing);
 }
 
 void LoopSlotGroup::terminateAll() {

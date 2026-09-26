@@ -38,7 +38,7 @@ classDiagram
         +selectionRequested(context) LoopSlotSelectionOutcome
         +cancelRecording()
         +recordNote(kind, message, offset)
-        +recordingCompleted(events, content_duration, timing)
+        +recordingCompleted(timing)
         +selectSoundFont(soundfont)
         +octaveDown()
         +octaveUp()
@@ -91,8 +91,17 @@ classDiagram
     }
 
     class MidiTakeRecorder {
-        +MidiTakeRecorder(pending_take)
+        +MidiTakeRecorder(pending_take, synth_engine, channel)
+        +discardTake()
         +record(kind, message, offset)
+        +finishTake(timing) FinishedTake
+        +selectProgram(soundfont)
+    }
+
+    class FinishedTake {
+        <<struct>>
+        +events
+        +content_duration
     }
 
     class PendingTake {
@@ -126,13 +135,15 @@ classDiagram
     GuideLoopSlot --> LoopSlotGroupOutput : stops dependent slots
     LoopSlot *-- TakePlayer : player_
     LoopSlot *-- MidiTakeRecorder : recorder_
-    MidiTakeRecorder --> PendingTake : records into
+    MidiTakeRecorder --> PendingTake : records into, finishes, resets
+    MidiTakeRecorder ..> FinishedTake : returns
     LoopSlot *-- OctaveTransposer : transposer_
     LoopSlot *-- LoopSlotPlaybackFsm : playback_fsm_
     LoopSlotPlaybackFsm --> LoopSlotPlaybackOutput : calls, bound to player_
     LoopSlotPlaybackOutput <|.. TakePlayer
     LoopSlot --> SynthEngine : selects SoundFont, monitors MIDI
     TakePlayer --> SynthEngine : plays notes, silences channel
+    MidiTakeRecorder --> SynthEngine : selects locked SoundFont
 
     note for TakePlayer "public methods: called only by LoopSlot<br>private overrides: called only by LoopSlotPlaybackFsm"
 ```

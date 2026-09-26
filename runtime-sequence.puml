@@ -255,17 +255,17 @@ App -> Fsm : loopSlotControlPressed(completed_at)
 activate Fsm
 Fsm -> App : completeLoopSlotRecording(slot, timing)
 App -> Group : completeRecording(slot, timing)
-Group -> Group : PendingTake.finish(); synthesize held-note releases
-Group -> Slot : recordingCompleted(immutable events, duration, timing)
+Group -> Slot : recordingCompleted(timing)
+Slot -> Group : MidiTakeRecorder calls PendingTake.finish(); synthesize held-note releases
 Slot -> Slot : makeSchedule()
 Slot -> Player : commitTake(events, schedule)
 Player -> Synth : allNotesOff(channel n + 1)
 Player -> Player : commit immutable PlaybackTake
-Slot -> Synth : select locked SoundFont
+Slot -> Synth : MidiTakeRecorder selects locked SoundFont
 Slot -> Slot : playback_fsm.startRequested()
 Slot -> Player : activatePlayback(); ++playback_generation
 Player -> Worker : notify_all(playback_changed)
-Group -> Group : PendingTake.reset()
+Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
 Fsm -> App : selectCurrentLiveSoundFont(); showLooping(slot)
 App -> Synth : select(current SoundFont, channel 0)
 Fsm -> Fsm : Recording -> Ready
