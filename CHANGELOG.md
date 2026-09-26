@@ -6,6 +6,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added `LoopSlotGroup` tests that pin the calls on a slot channel when a take
+  completes (sustain off and all notes off, then the locked-program select,
+  then the first playback Note On) and the zero-length guide take, which
+  counts as looping and plays nothing until it is stopped and recorded again.
 - Added a Hegel property in which slot selection, recording, completion,
   cancellation, and stops race the playback workers, checking that no Note On
   of a stopped take follows the stop's silencing of its channel.
