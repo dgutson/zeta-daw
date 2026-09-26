@@ -14,13 +14,15 @@ constexpr int first_loop_slot_channel = 1;
 LoopSlot::LoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
-    SynthEngine& synth_engine
+    SynthEngine& synth_engine,
+    PendingTake& pending_take
 )
     : id_(id),
       selection_key_(definition.key),
       channel_(first_loop_slot_channel + static_cast<int>(id)),
       synth_engine_(synth_engine),
       player_(synth_engine, id, channel_),
+      recorder_(pending_take),
       playback_fsm_(player_) {}
 
 LoopSlot::~LoopSlot() {
@@ -91,6 +93,15 @@ void LoopSlot::cancelRecording() {
     player_.invalidateAndSilence();
 }
 
+void LoopSlot::recordNote(
+    RecordedNoteKind kind,
+    const MidiMessage& message,
+    Milliseconds offset
+) {
+    const auto transposed = transpose(message);
+    recorder_.record(kind, transposed, offset);
+}
+
 void LoopSlot::recordingCompleted(
     const std::vector<RecordedLoopEvent>& events,
     Milliseconds content_duration,
@@ -153,8 +164,9 @@ GuideLoopSlot::GuideLoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
     SynthEngine& synth_engine,
+    PendingTake& pending_take,
     LoopSlotGroupOutput& output
-) : LoopSlot(id, definition, synth_engine), output_(output) {}
+) : LoopSlot(id, definition, synth_engine, pending_take), output_(output) {}
 
 LoopSlotSelectionOutcome GuideLoopSlot::onMutedSelection(
     const LoopSlotSelectionContext& context
@@ -178,8 +190,9 @@ LoopPlaybackSchedule GuideLoopSlot::makeSchedule(
 RegularLoopSlot::RegularLoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
-    SynthEngine& synth_engine
-) : LoopSlot(id, definition, synth_engine) {}
+    SynthEngine& synth_engine,
+    PendingTake& pending_take
+) : LoopSlot(id, definition, synth_engine, pending_take) {}
 
 LoopSlotSelectionOutcome RegularLoopSlot::onMutedSelection(
     const LoopSlotSelectionContext& context

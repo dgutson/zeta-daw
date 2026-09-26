@@ -4,6 +4,7 @@
 #include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
+#include "midi_take_recorder.hpp"
 #include "octave_transposer.hpp"
 #include "pending_take.hpp"
 #include "take_player.hpp"
@@ -45,6 +46,11 @@ public:
         const LoopSlotSelectionContext& context
     );
     void cancelRecording();
+    void recordNote(
+        RecordedNoteKind kind,
+        const MidiMessage& message,
+        Milliseconds offset
+    );
     void recordingCompleted(
         const std::vector<RecordedLoopEvent>& events,
         Milliseconds content_duration,
@@ -54,7 +60,6 @@ public:
     void selectSoundFont(const SoundFontDefinition& soundfont);
     void octaveDown();
     void octaveUp();
-    MidiMessage transpose(const MidiMessage& message) const;
     int monitorMidi(const MidiMessage& message);
 
     void deactivate();
@@ -64,7 +69,8 @@ protected:
     LoopSlot(
         SlotId id,
         const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine
+        SynthEngine& synth_engine,
+        PendingTake& pending_take
     );
 
     virtual LoopSlotSelectionOutcome onMutedSelection(
@@ -84,6 +90,7 @@ protected:
 
 private:
     LoopSlotPlaybackState playbackState() const;
+    MidiMessage transpose(const MidiMessage& message) const;
 
     SlotId id_;
     int selection_key_;
@@ -95,6 +102,7 @@ private:
 
     mutable std::mutex command_mutex_;
     TakePlayer player_;
+    MidiTakeRecorder recorder_;
     LoopSlotPlaybackFsm playback_fsm_;
 };
 
@@ -104,6 +112,7 @@ public:
         SlotId id,
         const LoopSlotDefinition& definition,
         SynthEngine& synth_engine,
+        PendingTake& pending_take,
         LoopSlotGroupOutput& output
     );
 
@@ -126,7 +135,8 @@ public:
     RegularLoopSlot(
         SlotId id,
         const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine
+        SynthEngine& synth_engine,
+        PendingTake& pending_take
     );
 
 private:

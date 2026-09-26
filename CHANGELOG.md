@@ -74,6 +74,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `LoopSlot::recordNote` transposes a recorded note and passes it to the
+  slot's new `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`), which writes
+  it into the group-owned `PendingTake`; `LoopSlotGroup::recordNote` only
+  forwards to the slot. Recording behavior is unchanged.
 - `TakePlayer` implements the slot playback FSM's output interface,
   `LoopSlotPlaybackOutput`, so the FSM calls the player directly instead of
   through three forwarding methods in `LoopSlot`. Playback behavior is

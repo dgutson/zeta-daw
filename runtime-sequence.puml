@@ -33,9 +33,10 @@ participant "SynthEngine\n(FluidSynth)" as Synth
 end box
 
 note over App,Worker
-  There is one master LooperFsm and one pending take.
+  There is one master LooperFsm and one pending take, owned by LoopSlotGroup.
   Every configured LoopSlot owns a TakePlayer, which eagerly owns a
-  dedicated sleeping jthread;
+  dedicated sleeping jthread, and a MidiTakeRecorder, which records into
+  the pending take;
   [n] denotes the selected slot or all configured slots, as labeled.
 end note
 
@@ -166,8 +167,9 @@ else project MidiEvent decoded
       opt Recording and message is Note On / Note Off
         Fsm -> App : recordNote(slot, kind, message, offset)
         App -> Group : recordNote(slot, kind, message, offset)
-        Group -> Slot : transpose(message)
-        Group -> Group : PendingTake.record(kind, transposed, offset)
+        Group -> Slot : recordNote(kind, message, offset)
+        Slot -> Slot : transpose with slot-owned octave
+        Slot -> Group : MidiTakeRecorder calls PendingTake.record(kind, transposed, offset)
       end
     end
     Fsm -> Fsm : validate and install returned StateId
@@ -226,7 +228,8 @@ Group -> Slot : monitorMidi(message)
 Slot -> Synth : send(transposed, channel n + 1)
 Fsm -> App : recordNote(slot, NoteOn, message, 0 ms)
 App -> Group : recordNote(...)
-Group -> Group : PendingTake.record(...)
+Group -> Slot : recordNote(...)
+Slot -> Group : MidiTakeRecorder calls PendingTake.record(...)
 Fsm -> Fsm : Armed -> Recording
 deactivate Fsm
 
@@ -241,7 +244,8 @@ loop subsequent Note On / Note Off messages
   Slot -> Synth : send(transposed, channel n + 1)
   Fsm -> App : recordNote(slot, kind, message, elapsed)
   App -> Group : recordNote(...)
-  Group -> Group : PendingTake.record(...)
+  Group -> Slot : recordNote(...)
+  Slot -> Group : MidiTakeRecorder calls PendingTake.record(...)
 end
 
 Controller -> Alsa : configured loop-slot control

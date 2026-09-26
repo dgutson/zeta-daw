@@ -191,6 +191,7 @@ add_executable(
     midi_control_change_mapping.cpp
     midi_event.cpp
     midi_input.cpp
+    midi_take_recorder.cpp
     octave_transposer.cpp
     pending_take.cpp
     soundfont_selector.cpp
@@ -286,6 +287,7 @@ if(BUILD_TESTING)
         midi_control_change_mapping.cpp
         midi_event.cpp
         midi_input.cpp
+        midi_take_recorder.cpp
         octave_transposer.cpp
         pending_take.cpp
         soundfont_selector.cpp

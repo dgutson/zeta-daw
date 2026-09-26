@@ -30,18 +30,18 @@ classDiagram
 
     class LoopSlot {
         <<abstract>>
-        #LoopSlot(id, definition, synth_engine)
+        #LoopSlot(id, definition, synth_engine, pending_take)
         +id() SlotId
         +selectionKey() int
         +channel() int
         +activeSchedule() optional~LoopPlaybackSchedule~
         +selectionRequested(context) LoopSlotSelectionOutcome
         +cancelRecording()
+        +recordNote(kind, message, offset)
         +recordingCompleted(events, content_duration, timing)
         +selectSoundFont(soundfont)
         +octaveDown()
         +octaveUp()
-        +transpose(message) MidiMessage
         +monitorMidi(message) int
         +deactivate()
         +terminationRequested()
@@ -52,14 +52,14 @@ classDiagram
     }
 
     class GuideLoopSlot {
-        +GuideLoopSlot(id, definition, synth_engine, output)
+        +GuideLoopSlot(id, definition, synth_engine, pending_take, output)
         -onMutedSelection(context) LoopSlotSelectionOutcome
         -onLoopingSelection()
         -makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule
     }
 
     class RegularLoopSlot {
-        +RegularLoopSlot(id, definition, synth_engine)
+        +RegularLoopSlot(id, definition, synth_engine, pending_take)
         -onMutedSelection(context) LoopSlotSelectionOutcome
         -onLoopingSelection()
         -makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule
@@ -90,6 +90,11 @@ classDiagram
         -terminatePlayback()
     }
 
+    class MidiTakeRecorder {
+        +MidiTakeRecorder(pending_take)
+        +record(kind, message, offset)
+    }
+
     class PendingTake {
         +PendingTake()
         +reset()
@@ -115,11 +120,13 @@ classDiagram
 
     LoopSlotGroupOutput <|.. LoopSlotGroup
     LoopSlotGroup "1" *-- "1..*" LoopSlot : slots, guide first
-    LoopSlotGroup *-- PendingTake : records into
+    LoopSlotGroup *-- PendingTake : pending_take, outlives the slots
     LoopSlot <|-- GuideLoopSlot
     LoopSlot <|-- RegularLoopSlot
     GuideLoopSlot --> LoopSlotGroupOutput : stops dependent slots
     LoopSlot *-- TakePlayer : player_
+    LoopSlot *-- MidiTakeRecorder : recorder_
+    MidiTakeRecorder --> PendingTake : records into
     LoopSlot *-- OctaveTransposer : transposer_
     LoopSlot *-- LoopSlotPlaybackFsm : playback_fsm_
     LoopSlotPlaybackFsm --> LoopSlotPlaybackOutput : calls, bound to player_
