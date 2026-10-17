@@ -460,6 +460,43 @@ if(BUILD_TESTING)
         PRIVATE GTest::gmock_main PkgConfig::SNDFILE
     )
 
+    # Every production source of zd except main.cpp, with the real FluidSynth.
+    get_target_property(zeta_production_sources zd SOURCES)
+    list(REMOVE_ITEM zeta_production_sources main.cpp)
+    add_executable(
+        audio_render_tests
+        tests/audio_render_test.cpp
+        tests/audio_performance.cpp
+        tests/audio_analysis.cpp
+        tests/fake_midi_input.cpp
+        ${zeta_production_sources}
+    )
+    target_include_directories(
+        audio_render_tests
+        SYSTEM PRIVATE ${pocketfft_SOURCE_DIR}
+    )
+    target_compile_definitions(
+        audio_render_tests
+        PRIVATE
+            ZETA_AUDIO_SOUNDFONT="${ZETA_FLUIDSYNTH_SOURCE_DIR}/sf2/VintageDreamsWaves-v2.sf2"
+            ZETA_AUDIO_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_reference/performance.flac"
+            ZETA_AUDIO_RENDER_DIR="${CMAKE_CURRENT_BINARY_DIR}/audio_render"
+    )
+    target_compile_options(
+        audio_render_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        audio_render_tests
+        PRIVATE
+            GTest::gtest_main
+            zeta_fluidsynth
+            Threads::Threads
+            ${ZETA_YAML_TARGET}
+            libremidi::libremidi
+            PkgConfig::SNDFILE
+    )
+
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
@@ -472,4 +509,6 @@ if(BUILD_TESTING)
     gtest_discover_tests(soundfont_selector_tests)
     gtest_discover_tests(octave_transposer_tests)
     gtest_discover_tests(audio_analysis_tests)
+    # About a minute of real-time playing; the evidence script runs it.
+    gtest_discover_tests(audio_render_tests PROPERTIES LABELS audio)
 endif()

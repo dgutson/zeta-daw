@@ -6,6 +6,13 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the audio reference test, `audio_render_tests` (ctest label `audio`):
+  a one-minute performance played through the real `Application`, slot
+  workers and FluidSynth's file driver, compared with
+  `tests/audio_reference/performance.flac`. `tests/audio_evidence.sh run`
+  plays it 20 times and records the result and a hash of the files it
+  covers in `tests/audio_evidence.json`; the CI job `audio-evidence` checks
+  that file, and CI's test run leaves out the label.
 - Added the audio comparison for the audio reference test and its synthetic
   tests: levels and clicks in 5 ms windows, clipping, spectral peaks from an
   FFT (pinned pocketfft), and the guide's repetition period, read from WAV or

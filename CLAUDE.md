@@ -90,9 +90,15 @@ the full suite as well:
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -LE audio --output-on-failure
 git diff --check
 ```
+
+The full suite leaves out `audio_render_tests` (ctest label `audio`), which
+plays for a minute in real time. After a change to a file that
+`tests/audio_evidence.sh` covers, tell the owner before merge that an
+evidence run (`tests/audio_evidence.sh run`, about 22 minutes on an idle
+desktop) is due.
 
 CTest names each test `Suite.Name`, not by executable, so select tests with a
 regular expression over those names, or run an executable directly:
@@ -145,8 +151,9 @@ Facts that involve several files:
   production source except `main.cpp`, and each unit-test executable compiles
   only its subject and that subject's dependencies, so a new production `.cpp`
   goes into `zd`, `current_behavior_tests`, and any unit-test target that uses
-  it. `zfont` and `zsoundtest` compile `configuration.cpp`, so configuration
-  changes must keep them building too.
+  it. `audio_render_tests` takes `zd`'s sources except `main.cpp` from the
+  `zd` target. `zfont` and `zsoundtest` compile `configuration.cpp`, so
+  configuration changes must keep them building too.
 - Tests replace MIDI input through the constructor
   `Application(ApplicationConfig, std::unique_ptr<MidiInput>)`, using
   `tests/fake_midi_input.*`. They replace FluidSynth at link time instead:

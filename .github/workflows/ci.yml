@@ -27,7 +27,7 @@ jobs:
             pkg-config \
             shellcheck
       - name: Check shell scripts
-        run: shellcheck build.sh
+        run: shellcheck build.sh tests/audio_evidence.sh
       - name: Configure
         run: >-
           cmake -S . -B build
@@ -36,7 +36,19 @@ jobs:
       - name: Build
         run: cmake --build build --parallel 2
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -LE audio --output-on-failure
+
+  audio-evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # A failed check names the covered files changed since the commit
+          # the evidence was recorded on.
+          fetch-depth: 0
+      # jq is preinstalled on GitHub's Ubuntu images.
+      - name: Check the audio evidence
+        run: tests/audio_evidence.sh check
 
   clang-tidy:
     runs-on: ubuntu-24.04

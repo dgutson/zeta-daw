@@ -253,10 +253,10 @@ cmake -S . -B build \
 cmake --build build --parallel
 ```
 
-Run every test, including all Hegel properties:
+Run the full suite, including all Hegel properties:
 
 ```bash
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -LE audio --output-on-failure
 ```
 
 Run only Hegel properties through the project naming convention:
