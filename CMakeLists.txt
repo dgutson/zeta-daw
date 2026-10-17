@@ -268,6 +268,19 @@ if(BUILD_TESTING)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
+    # The FFT of the audio comparison's spectral peaks: header-only, and the
+    # FFT code numpy and scipy use. pocketfft has no releases, so a commit
+    # is pinned.
+    FetchContent_Declare(
+        pocketfft
+        URL
+            https://github.com/mreineck/pocketfft/archive/c90e55b3d529f8efa40ed01a20de22405f45fc65.tar.gz
+        URL_HASH
+            SHA256=2d90016da31a8cc1dd0ac0c89c1f2fb55df8f4ccc3f0386dcfbad09ac6d1c3ba
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(pocketfft)
+
     add_executable(
         current_behavior_tests
         tests/current_behavior_test.cpp
@@ -423,6 +436,30 @@ if(BUILD_TESTING)
         PRIVATE GTest::gtest_main hegel
     )
 
+    add_executable(
+        audio_analysis_tests
+        tests/audio_analysis_test.cpp
+        tests/audio_analysis.cpp
+    )
+    target_include_directories(
+        audio_analysis_tests
+        SYSTEM PRIVATE ${pocketfft_SOURCE_DIR}
+    )
+    # Two 8192-point FFTs per 5 ms of audio run about 15 times faster
+    # optimized, in every build type.
+    set_source_files_properties(
+        tests/audio_analysis.cpp
+        PROPERTIES COMPILE_OPTIONS -O2
+    )
+    target_compile_options(
+        audio_analysis_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        audio_analysis_tests
+        PRIVATE GTest::gmock_main PkgConfig::SNDFILE
+    )
+
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
@@ -434,4 +471,5 @@ if(BUILD_TESTING)
     gtest_discover_tests(midi_tests)
     gtest_discover_tests(soundfont_selector_tests)
     gtest_discover_tests(octave_transposer_tests)
+    gtest_discover_tests(audio_analysis_tests)
 endif()

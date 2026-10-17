@@ -6,6 +6,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the audio comparison for the audio reference test and its synthetic
+  tests: levels and clicks in 5 ms windows, clipping, spectral peaks from an
+  FFT (pinned pocketfft), and the guide's repetition period, read from WAV or
+  FLAC with libsndfile. It reports every failing stretch with its time,
+  length, and measured and allowed values, and writes a per-window CSV.
 - Built the pinned FluidSynth with its file driver, so `audio.driver: file`
   writes `fluidsynth.wav` in the working directory instead of playing. The
   audio tests render through it.

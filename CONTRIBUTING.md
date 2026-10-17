@@ -404,7 +404,9 @@ The current dependency strategy is intentional:
   compatibility handling: CMake 3.x suppresses only that legacy-policy
   diagnostic, while CMake 4.x supplies the minimum supported policy version
   externally. Do not broaden the suppression to Zeta or other dependencies.
-- GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
+- GoogleTest, Hegel and pocketfft are pinned and fetched only for test builds.
+  pocketfft, the FFT that numpy and scipy use, computes the spectra of the
+  audio comparison; it has no releases, so a commit is pinned. Hegel is a
   selective beta pilot for pure property tests and for invariants that must
   hold under every thread interleaving; retain deterministic GoogleTest
   examples and do not treat it as a blanket testing standard. Follow
@@ -513,6 +515,10 @@ The test suites divide responsibilities as follows:
 - `pending_take_tests`: bounded event/held-note accounting, synthesized release,
   trailing-silence trimming, and reset behavior, plus a Hegel command-sequence
   property against an independent capacity model.
+- `audio_analysis_tests`: the audio comparison on synthetic tones with planted
+  faults (dropouts, shifted onsets, a click, clipping, extra, stuck and
+  shifted notes, guide drift), each reported with its kind and time; reading
+  and writing WAV and FLAC.
 - `current_behavior_tests`: guide-first gating, guide cascade, regular-slot
   isolation and replacement, synchronized playback, raw-note consumption,
   clean held-note completion, and shutdown with fake MIDI and FluidSynth

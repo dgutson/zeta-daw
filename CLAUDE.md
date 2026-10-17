@@ -118,8 +118,8 @@ The ThreadSanitizer command is in `CONTRIBUTING.md`.
 
 CMake downloads and statically links a pinned FluidSynth (never the
 distribution's), uses installed libremidi and yaml-cpp or downloads pinned
-copies, and downloads GoogleTest and Hegel for test builds, so the first
-configure needs network access.
+copies, and downloads GoogleTest, Hegel and pocketfft for test builds, so the
+first configure needs network access.
 
 ## Code structure
 
