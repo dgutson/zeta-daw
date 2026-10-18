@@ -4,7 +4,11 @@
 #   tests/audio_evidence.sh run    builds audio_render_tests in build-audio/,
 #                                  plays it 20 times one after another, stops
 #                                  at the first failure and writes
-#                                  tests/audio_evidence.json
+#                                  tests/audio_evidence.json. It prints a
+#                                  line per run, also appended to
+#                                  build-audio/audio_evidence/progress.log,
+#                                  and keeps the build's and each run's
+#                                  output beside that file
 #   tests/audio_evidence.sh check  fails unless that file records a pass on
 #                                  covered files identical to these
 #
@@ -17,6 +21,7 @@ cd "$(dirname "$0")/.."
 
 readonly evidence=tests/audio_evidence.json
 readonly build_dir=build-audio
+readonly results="$PWD/$build_dir/audio_evidence"
 readonly run_count=20
 readonly tolerance_keys='["tau_ms", "level_delta_db", "peak_delta_db", "drift_limit_ms", "take_lateness_limit_ms"]'
 
@@ -92,6 +97,41 @@ run_json() {
     fi
 }
 
+# Prints a progress line and appends it to progress.log, which tail -f can
+# follow when the run was started elsewhere.
+progress() {
+    echo "Audio evidence: $*" | tee -a "$results/progress.log"
+}
+
+# The progress line of run $1, which took $2 seconds, from its values $4;
+# the runs so far took $3 seconds, which dates the end of the rest.
+report_run() {
+    local number=$1 seconds=$2 total=$3 values=$4 result cpu discarded line
+    read -r result cpu discarded < <(
+        jq -r '[.result, .cpu_percent, (.discarded_attempts // 0)] | @tsv' <<< "$values"
+    )
+    line="run $number of $run_count $result in $seconds s, CPU $cpu%"
+    if ((discarded > 0)); then
+        line+=", discarded attempts: $discarded"
+    fi
+    if [[ $result == passed ]] && ((number < run_count)); then
+        line+="; done at about $(date -d "+$(((run_count - number) * total / number)) seconds" +%H:%M)"
+    fi
+    progress "$line"
+}
+
+# The failure messages in run output $1, or its last lines when it has none,
+# as after a crash.
+print_failure() {
+    local first
+    first=$(grep -n -m 1 ': Failure$' "$1" | cut -d : -f 1 || true)
+    if [[ -n $first ]]; then
+        tail -n "+$first" "$1"
+    else
+        tail -n 40 "$1"
+    fi
+}
+
 run() {
     local committed changed
     committed=$(extract HEAD)
@@ -107,19 +147,33 @@ run() {
     commit=$(git rev-parse HEAD)
     date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    cmake -S . -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-    cmake --build "$build_dir" --target audio_render_tests --parallel
-
-    local results="$PWD/$build_dir/audio_evidence"
     rm -rf "$results"
     mkdir -p "$results"
-    local result=passed number before
+    progress "building audio_render_tests in $build_dir/, output in $build_dir/audio_evidence/build.log"
+    if ! {
+        cmake -S . -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON &&
+            cmake --build "$build_dir" --target audio_render_tests --parallel
+    } > "$results/build.log" 2>&1; then
+        tail -n 40 "$results/build.log" >&2
+        progress "the build failed; the end of its output is above" >&2
+        exit 1
+    fi
+
+    progress "playing it $run_count times, about a minute each, from $(date +%H:%M);" \
+        "each run's output goes to $build_dir/audio_evidence/"
+    local result=passed number before started seconds total=0 values
     for ((number = 1; number <= run_count; number++)); do
-        echo "Audio evidence: run $number of $run_count"
         before=$(cpu_ticks)
-        "$build_dir/audio_render_tests" --gtest_output="json:$results/$number.json" || result=failed
-        run_json "$number" "$results/$number.json" "$(cpu_percent "$before" "$(cpu_ticks)")" >> "$results/runs.jsonl"
+        started=$SECONDS
+        "$build_dir/audio_render_tests" --gtest_output="json:$results/$number.json" \
+            > "$results/$number.log" 2>&1 || result=failed
+        seconds=$((SECONDS - started))
+        total=$((total + seconds))
+        values=$(run_json "$number" "$results/$number.json" "$(cpu_percent "$before" "$(cpu_ticks)")")
+        echo "$values" >> "$results/runs.jsonl"
+        report_run "$number" "$seconds" "$total" "$values"
         if [[ $result == failed ]]; then
+            print_failure "$results/$number.log" >&2
             break
         fi
     done
@@ -150,13 +204,13 @@ run() {
             runs: map(with_entries(select(.key | IN($tolerance_keys[]) | not)))
         }' "$results/runs.jsonl" > "$evidence"
 
-    echo
     if [[ $result == passed ]]; then
-        echo "All $run_count runs passed. To commit the evidence:"
+        progress "all $run_count runs passed. To commit the evidence:"
         echo "  git add $evidence && git commit -m 'test: record the audio evidence'"
     else
-        echo "Run $number failed, and $evidence records the failure. The capture and the" \
-            "per-window values of a failed comparison are in $build_dir/audio_render/." >&2
+        progress "run $number failed, and $evidence records the failure. Its output is in" \
+            "$build_dir/audio_evidence/$number.log; the capture and the per-window values" \
+            "of a failed comparison are in $build_dir/audio_render/." >&2
         exit 1
     fi
 }

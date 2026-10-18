@@ -93,6 +93,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `tests/audio_evidence.sh run` prints one line per run, with its result,
+  CPU use and the expected end of the remaining runs, and appends them to
+  `build-audio/audio_evidence/progress.log`. The build's and each run's
+  output go to files in that directory; a failed run's failure messages, or
+  the end of its output after a crash, are printed.
 - Tests that drive `LoopSlotGroup` directly, including the slot-stop
   property, moved from `tests/current_behavior_test.cpp` to
   `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and

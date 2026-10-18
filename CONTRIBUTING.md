@@ -456,7 +456,10 @@ records a pass on covered files identical to the checked-out ones. A pull
 request that changes a covered file therefore needs a new run, on an idle
 desktop (about 22 minutes), as its last step before merge and after updating
 from `main`; commit the file it writes. The run refuses uncommitted changes
-to covered files. `ZETA_RECORD_AUDIO_REFERENCE=1` makes the test write a new
+to covered files. It prints a line per run with the result, CPU use and
+expected end, also appended to `build-audio/audio_evidence/progress.log` for
+`tail -f`, and keeps the build's and each run's output in that directory.
+`ZETA_RECORD_AUDIO_REFERENCE=1` makes the test write a new
 `tests/audio_reference/performance.flac` instead of comparing; re-record only
 in a pull request that states the intended audible change, and the owner
 listens to the new file before merge.
