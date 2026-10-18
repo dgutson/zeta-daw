@@ -2,20 +2,25 @@
 
 #include "configuration.hpp"
 #include "loop_slot_fsm.hpp"
+#include "loop_take_recorder.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
-#include "midi_take_recorder.hpp"
 #include "octave_transposer.hpp"
-#include "pending_take.hpp"
 #include "take_player.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <mutex>
 #include <optional>
 
 namespace zeta {
 
 class SynthEngine;
+
+// Channel 0 is live; loop slot N plays on channel N + 1.
+constexpr int loopSlotChannel(SlotId id) noexcept {
+    return 1 + static_cast<int>(id);
+}
 
 struct LoopSlotSelectionContext {
     const SoundFontDefinition& soundfont;
@@ -65,7 +70,7 @@ protected:
         SlotId id,
         const LoopSlotDefinition& definition,
         SynthEngine& synth_engine,
-        PendingTake& pending_take
+        std::unique_ptr<LoopTakeRecorder> recorder
     );
 
     virtual LoopSlotSelectionOutcome onMutedSelection(
@@ -97,7 +102,7 @@ private:
 
     mutable std::mutex command_mutex_;
     TakePlayer player_;
-    MidiTakeRecorder recorder_;
+    std::unique_ptr<LoopTakeRecorder> recorder_;
     LoopSlotPlaybackFsm playback_fsm_;
 };
 
@@ -107,7 +112,7 @@ public:
         SlotId id,
         const LoopSlotDefinition& definition,
         SynthEngine& synth_engine,
-        PendingTake& pending_take,
+        std::unique_ptr<LoopTakeRecorder> recorder,
         LoopSlotGroupOutput& output
     );
 
@@ -131,7 +136,7 @@ public:
         SlotId id,
         const LoopSlotDefinition& definition,
         SynthEngine& synth_engine,
-        PendingTake& pending_take
+        std::unique_ptr<LoopTakeRecorder> recorder
     );
 
 private:

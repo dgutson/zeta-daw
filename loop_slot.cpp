@@ -3,26 +3,22 @@
 #include "synth_engine.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 namespace zeta {
-namespace {
-
-constexpr int first_loop_slot_channel = 1;
-
-} // namespace
 
 LoopSlot::LoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
     SynthEngine& synth_engine,
-    PendingTake& pending_take
+    std::unique_ptr<LoopTakeRecorder> recorder
 )
     : id_(id),
       selection_key_(definition.key),
-      channel_(first_loop_slot_channel + static_cast<int>(id)),
+      channel_(loopSlotChannel(id)),
       synth_engine_(synth_engine),
       player_(synth_engine, id, channel_),
-      recorder_(pending_take, synth_engine, channel_),
+      recorder_(std::move(recorder)),
       playback_fsm_(player_) {}
 
 LoopSlot::~LoopSlot() {
@@ -77,7 +73,7 @@ LoopSlotSelectionOutcome LoopSlot::arm(
     }
 
     player_.invalidateAndSilence();
-    recorder_.discardTake();
+    recorder_->discardTake();
     soundfont_ = &context.soundfont;
     transposer_ = context.transposer;
     prepared_guide_ = guide;
@@ -92,7 +88,7 @@ void LoopSlot::cancelRecording() {
     }
     prepared_guide_.reset();
     player_.invalidateAndSilence();
-    recorder_.discardTake();
+    recorder_->discardTake();
 }
 
 void LoopSlot::recordNote(
@@ -101,7 +97,7 @@ void LoopSlot::recordNote(
     Milliseconds offset
 ) {
     const auto transposed = transpose(message);
-    recorder_.record(kind, transposed, offset);
+    recorder_->record(kind, transposed, offset);
 }
 
 void LoopSlot::recordingCompleted(const TakeTiming& timing) {
@@ -113,15 +109,15 @@ void LoopSlot::recordingCompleted(const TakeTiming& timing) {
         throw std::logic_error("Cannot complete an unconfigured loop slot");
     }
 
-    const auto take = recorder_.finishTake(timing);
+    const auto take = recorder_->finishTake(timing);
     player_.commitTake(
         take.events,
         makeSchedule(timing, take.content_duration, prepared_guide_)
     );
     prepared_guide_.reset();
-    recorder_.selectProgram(*soundfont_);
+    recorder_->selectProgram(*soundfont_);
     playback_fsm_.startRequested();
-    recorder_.discardTake();
+    recorder_->discardTake();
 }
 
 void LoopSlot::selectSoundFont(const SoundFontDefinition& soundfont) {
@@ -164,9 +160,10 @@ GuideLoopSlot::GuideLoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
     SynthEngine& synth_engine,
-    PendingTake& pending_take,
+    std::unique_ptr<LoopTakeRecorder> recorder,
     LoopSlotGroupOutput& output
-) : LoopSlot(id, definition, synth_engine, pending_take), output_(output) {}
+) : LoopSlot(id, definition, synth_engine, std::move(recorder)),
+    output_(output) {}
 
 LoopSlotSelectionOutcome GuideLoopSlot::onMutedSelection(
     const LoopSlotSelectionContext& context
@@ -191,8 +188,8 @@ RegularLoopSlot::RegularLoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
     SynthEngine& synth_engine,
-    PendingTake& pending_take
-) : LoopSlot(id, definition, synth_engine, pending_take) {}
+    std::unique_ptr<LoopTakeRecorder> recorder
+) : LoopSlot(id, definition, synth_engine, std::move(recorder)) {}
 
 LoopSlotSelectionOutcome RegularLoopSlot::onMutedSelection(
     const LoopSlotSelectionContext& context

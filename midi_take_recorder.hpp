@@ -1,22 +1,14 @@
 #pragma once
 
+#include "loop_take_recorder.hpp"
 #include "looper_fsm.hpp"
 #include "pending_take.hpp"
-
-#include <vector>
 
 namespace zeta {
 
 class SynthEngine;
-struct SoundFontDefinition;
 
-struct FinishedTake {
-    // Refers to the pending take's events, which discardTake and record change.
-    const std::vector<RecordedLoopEvent>& events;
-    Milliseconds content_duration;
-};
-
-class MidiTakeRecorder final {
+class MidiTakeRecorder final : public LoopTakeRecorder {
 public:
     MidiTakeRecorder(
         PendingTake& pending_take,
@@ -24,16 +16,16 @@ public:
         int channel
     ) noexcept;
 
-    void discardTake();
+private:
+    void discardTake() override;
     void record(
         RecordedNoteKind kind,
         const MidiMessage& message,
         Milliseconds offset
-    );
-    FinishedTake finishTake(const TakeTiming& timing);
-    void selectProgram(const SoundFontDefinition& soundfont);
+    ) override;
+    FinishedTake finishTake(const TakeTiming& timing) override;
+    void selectProgram(const SoundFontDefinition& soundfont) override;
 
-private:
     PendingTake& pending_take_;
     SynthEngine& synth_engine_;
     int channel_;

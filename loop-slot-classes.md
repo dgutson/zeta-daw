@@ -30,7 +30,7 @@ classDiagram
 
     class LoopSlot {
         <<abstract>>
-        #LoopSlot(id, definition, synth_engine, pending_take)
+        #LoopSlot(id, definition, synth_engine, recorder)
         +id() SlotId
         +selectionKey() int
         +channel() int
@@ -52,14 +52,14 @@ classDiagram
     }
 
     class GuideLoopSlot {
-        +GuideLoopSlot(id, definition, synth_engine, pending_take, output)
+        +GuideLoopSlot(id, definition, synth_engine, recorder, output)
         -onMutedSelection(context) LoopSlotSelectionOutcome
         -onLoopingSelection()
         -makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule
     }
 
     class RegularLoopSlot {
-        +RegularLoopSlot(id, definition, synth_engine, pending_take)
+        +RegularLoopSlot(id, definition, synth_engine, recorder)
         -onMutedSelection(context) LoopSlotSelectionOutcome
         -onLoopingSelection()
         -makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule
@@ -90,12 +90,20 @@ classDiagram
         -terminatePlayback()
     }
 
+    class LoopTakeRecorder {
+        <<interface>>
+        +discardTake()*
+        +record(kind, message, offset)*
+        +finishTake(timing) FinishedTake*
+        +selectProgram(soundfont)*
+    }
+
     class MidiTakeRecorder {
         +MidiTakeRecorder(pending_take, synth_engine, channel)
-        +discardTake()
-        +record(kind, message, offset)
-        +finishTake(timing) FinishedTake
-        +selectProgram(soundfont)
+        -discardTake()
+        -record(kind, message, offset)
+        -finishTake(timing) FinishedTake
+        -selectProgram(soundfont)
     }
 
     class FinishedTake {
@@ -134,9 +142,11 @@ classDiagram
     LoopSlot <|-- RegularLoopSlot
     GuideLoopSlot --> LoopSlotGroupOutput : stops dependent slots
     LoopSlot *-- TakePlayer : player_
-    LoopSlot *-- MidiTakeRecorder : recorder_
+    LoopSlot *-- LoopTakeRecorder : recorder_
+    LoopTakeRecorder <|.. MidiTakeRecorder
+    LoopSlotGroup ..> MidiTakeRecorder : builds one per slot
     MidiTakeRecorder --> PendingTake : records into, finishes, resets
-    MidiTakeRecorder ..> FinishedTake : returns
+    LoopTakeRecorder ..> FinishedTake : returns
     LoopSlot *-- OctaveTransposer : transposer_
     LoopSlot *-- LoopSlotPlaybackFsm : playback_fsm_
     LoopSlotPlaybackFsm --> LoopSlotPlaybackOutput : calls, bound to player_
@@ -146,4 +156,5 @@ classDiagram
     MidiTakeRecorder --> SynthEngine : selects locked SoundFont
 
     note for TakePlayer "public methods: called only by LoopSlot<br>private overrides: called only by LoopSlotPlaybackFsm"
+    note for MidiTakeRecorder "constructor: called only by LoopSlotGroup<br>private overrides: called only by LoopSlot"
 ```

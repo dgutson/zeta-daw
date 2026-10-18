@@ -47,7 +47,8 @@ activate App
 App -> Synth : construct; eagerly load configured SoundFonts
 App -> Group : construct ordered slots
 loop for each configured slot [n]
-  Group -> Slot : construct(id, key, channel n + 1)
+  Group -> Group : build MidiTakeRecorder[n](pending take, channel n + 1)
+  Group -> Slot : construct(id, key, channel n + 1, recorder)
   Slot -> Player : construct(id, channel n + 1)
   Player -> Worker : start jthread(workerMain(stop_token))
   activate Worker

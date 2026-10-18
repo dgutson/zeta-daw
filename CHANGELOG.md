@@ -79,11 +79,13 @@ All notable changes to Zeta DAW are documented in this file.
   playback worker and MIDI dispatch, and implements the slot playback FSM's
   output interface. `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`)
   records notes into the group-owned `PendingTake`, finishes and discards that
-  take, and selects the locked program when a take completes. `LoopSlotGroup`
-  forwards recording, completion and cancel to the slot. Recording and
-  playback behave as before, including the FluidSynth calls on each slot
-  channel and their order. `loop-slot-classes.md` shows the loop-slot classes
-  as a Mermaid class diagram.
+  take, and selects the locked program when a take completes; the slot calls
+  it only through the `LoopTakeRecorder` interface (`loop_take_recorder.hpp`).
+  `LoopSlotGroup` builds each slot's recorder and forwards recording,
+  completion and cancel to the slot. Recording and playback behave as before,
+  including the FluidSynth calls on each slot channel and their order.
+  `loop-slot-classes.md` shows the loop-slot classes as a Mermaid class
+  diagram.
 - Tests that drive `LoopSlotGroup` directly, including the slot-stop
   property, moved from `tests/current_behavior_test.cpp` to
   `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and

@@ -86,23 +86,28 @@ The main layers and ownership boundaries are:
   every slot command to the group and never accesses an owned slot directly.
 - `loop_slot_group.*` is the aggregate boundary. It owns the ordered slots,
   bounded pending take, raw-key lookup, guide-first invariant, and cross-slot
-  stop behavior. It creates the first slot as the guide and later slots as
-  regular slots, then coordinates them only through the common base interface.
+  stop behavior. It builds each slot's `MidiTakeRecorder` and creates the
+  first slot as the guide and later slots as regular slots, then coordinates
+  the slots only through the common base interface.
 - `loop_slot_fsm.*` owns the dependency-free subordinate playback state
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
   FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
-  one `TakePlayer`, and one `MidiTakeRecorder`. Role commands perform their
-  own behavior; callers do not query role predicates.
+  one `TakePlayer`, and one take recorder, which it calls only through
+  `LoopTakeRecorder`. Role commands perform their own behavior; callers do not
+  query role predicates.
 - `take_player.*` owns one slot's immutable committed MIDI take and its
   playback: the eagerly created worker, the generation counter and condition
   variable that interrupt it, dispatch at absolute deadlines, and silencing of
   the slot channel.
-- `midi_take_recorder.*` records one slot's MIDI notes into the group-owned
-  `PendingTake`, finishes that take when recording completes, discards it when
-  the slot arms, cancels, or completes, and selects the slot's locked program
-  before its playback starts.
+- `loop_take_recorder.hpp` declares `LoopTakeRecorder`, the interface through
+  which a slot records, finishes and discards its take and selects its locked
+  program, and `FinishedTake`, the finished take it returns.
+- `midi_take_recorder.*` implements `LoopTakeRecorder` for MIDI: it records
+  one slot's MIDI notes into the group-owned `PendingTake`, finishes that take
+  when recording completes, discards it when the slot arms, cancels, or
+  completes, and selects the slot's locked program before its playback starts.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.
@@ -208,7 +213,8 @@ role determines whether its selection command also requests the group-wide
 dependent stop. Muted means only not currently playing and never means
 resumable.
 
-Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1.
+Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1
+(`loopSlotChannel` in `loop_slot.hpp`).
 Recorded notes retain velocity and store the key produced by that slot's
 transposer. Once recording starts, the slot's SoundFont and octave are locked.
 Completing or canceling adopts the current selection for live output, while

@@ -1,5 +1,6 @@
 #include "loop_slot_group.hpp"
 
+#include "midi_take_recorder.hpp"
 #include "pending_take.hpp"
 #include "synth_engine.hpp"
 
@@ -38,7 +39,7 @@ struct LoopSlotGroup::Impl {
             guide_slot_id,
             definitions.front(),
             synth_engine,
-            pending_take,
+            makeRecorder(guide_slot_id, synth_engine),
             output
         );
         addSlot(std::move(guide));
@@ -48,10 +49,21 @@ struct LoopSlotGroup::Impl {
                 id,
                 definitions[id],
                 synth_engine,
-                pending_take
+                makeRecorder(id, synth_engine)
             );
             addSlot(std::move(regular));
         }
+    }
+
+    std::unique_ptr<LoopTakeRecorder> makeRecorder(
+        SlotId id,
+        SynthEngine& synth_engine
+    ) {
+        return std::make_unique<MidiTakeRecorder>(
+            pending_take,
+            synth_engine,
+            loopSlotChannel(id)
+        );
     }
 
     void addSlot(std::unique_ptr<LoopSlot> slot) {
