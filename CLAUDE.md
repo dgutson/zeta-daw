@@ -152,13 +152,17 @@ Facts that involve several files:
   only its subject and that subject's dependencies, so a new production `.cpp`
   goes into `zd`, `current_behavior_tests`, and any unit-test target that uses
   it. `audio_render_tests` takes `zd`'s sources except `main.cpp` from the
-  `zd` target. `zfont` and `zsoundtest` compile `configuration.cpp`, so
-  configuration changes must keep them building too.
+  `zd` target, and `zd_with_fakes` takes them except `midi_input.cpp`.
+  `zfont` and `zsoundtest` compile `configuration.cpp`, so configuration
+  changes must keep them building too.
 - Tests replace MIDI input through the constructor
   `Application(ApplicationConfig, std::unique_ptr<MidiInput>)`, using
   `tests/fake_midi_input.*`. They replace FluidSynth at link time instead:
   `current_behavior_tests` compiles the real `synth_engine.cpp` without linking
   FluidSynth, and `tests/fake_fluidsynth.cpp` defines the `fluid_*` functions
-  it calls and records each call for assertions.
+  it calls and records each call for assertions. `zd_with_fakes`, which
+  `current_behavior_tests` runs as a child process to test `main.cpp`,
+  replaces MIDI input at link time too: `tests/zd_with_fakes.cpp` defines
+  `makeMidiInput()`.
 - Hegel is linked only into the test executables that contain properties,
   never into `zd`.

@@ -288,6 +288,7 @@ if(BUILD_TESTING)
         tests/fake_midi_input.cpp
         tests/integration_support.cpp
         tests/loop_slot_group_test.cpp
+        tests/main_signal_test.cpp
         application.cpp
         configuration.cpp
         loop_slot.cpp
@@ -321,6 +322,36 @@ if(BUILD_TESTING)
             hegel
     )
     add_dependencies(current_behavior_tests zeta_fluidsynth_external)
+
+    # zd with the fake MIDI input and the fake FluidSynth, which
+    # current_behavior_tests runs as a child process: zd's sources except
+    # midi_input.cpp, whose makeMidiInput() tests/zd_with_fakes.cpp replaces.
+    get_target_property(zd_with_fakes_sources zd SOURCES)
+    list(REMOVE_ITEM zd_with_fakes_sources midi_input.cpp)
+    add_executable(
+        zd_with_fakes
+        ${zd_with_fakes_sources}
+        tests/fake_fluidsynth.cpp
+        tests/fake_midi_input.cpp
+        tests/zd_with_fakes.cpp
+    )
+    target_include_directories(
+        zd_with_fakes
+        PRIVATE
+            ${ZETA_FLUIDSYNTH_BINARY_DIR}/include
+            ${ZETA_FLUIDSYNTH_SOURCE_DIR}/include
+    )
+    target_compile_options(zd_with_fakes PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(
+        zd_with_fakes
+        PRIVATE Threads::Threads ${ZETA_YAML_TARGET}
+    )
+    add_dependencies(zd_with_fakes zeta_fluidsynth_external)
+    add_dependencies(current_behavior_tests zd_with_fakes)
+    target_compile_definitions(
+        current_behavior_tests
+        PRIVATE ZETA_ZD_WITH_FAKES="$<TARGET_FILE:zd_with_fakes>"
+    )
 
     add_executable(
         configuration_tests
