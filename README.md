@@ -55,10 +55,12 @@ ALSA, PulseAudio, and libsndfile are required system dependencies. CMake
 downloads checksum-verified FluidSynth 2.5.7 and links it statically into
 `zd` and `zfont`; an installed distro FluidSynth is neither required nor used.
 The pinned build supports ALSA and PulseAudio output plus SF2 and SF3
-SoundFonts. CMake first looks for libremidi 5.4.3 and yaml-cpp, then downloads
-pinned copies when they are not available. Test builds also fetch pinned Hegel
-and GoogleTest dependencies. The yaml-cpp fallback supports both the minimum
-CMake 3.22 line and CMake 4.x despite that dependency's older policy metadata.
+SoundFonts. Its `file` driver writes `fluidsynth.wav` in the working directory
+instead of playing; the audio tests use it. CMake first looks for libremidi
+5.4.3 and yaml-cpp, then downloads pinned copies when they are not available.
+Test builds also fetch pinned Hegel, GoogleTest and pocketfft dependencies. The
+yaml-cpp fallback supports both the minimum CMake 3.22 line and CMake 4.x
+despite that dependency's older policy metadata.
 The first build therefore requires network access when fetched dependencies are
 not already cached.
 

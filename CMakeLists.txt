@@ -90,7 +90,7 @@ ExternalProject_Add(
         -DGCEM_INCLUDE_DIR=${zeta_gcem_source_SOURCE_DIR}/include
         -DPROJECT_WC_REVISION=v${ZETA_FLUIDSYNTH_VERSION}
         -Denable-alsa=ON
-        -Denable-aufile=OFF
+        -Denable-aufile=ON
         -Denable-dbus=OFF
         -Denable-jack=OFF
         -Denable-ladspa=OFF
@@ -268,6 +268,19 @@ if(BUILD_TESTING)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
 
+    # The FFT of the audio comparison's spectral peaks: header-only, and the
+    # FFT code numpy and scipy use. pocketfft has no releases, so a commit
+    # is pinned.
+    FetchContent_Declare(
+        pocketfft
+        URL
+            https://github.com/mreineck/pocketfft/archive/c90e55b3d529f8efa40ed01a20de22405f45fc65.tar.gz
+        URL_HASH
+            SHA256=2d90016da31a8cc1dd0ac0c89c1f2fb55df8f4ccc3f0386dcfbad09ac6d1c3ba
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(pocketfft)
+
     add_executable(
         current_behavior_tests
         tests/current_behavior_test.cpp
@@ -423,6 +436,67 @@ if(BUILD_TESTING)
         PRIVATE GTest::gtest_main hegel
     )
 
+    add_executable(
+        audio_analysis_tests
+        tests/audio_analysis_test.cpp
+        tests/audio_analysis.cpp
+    )
+    target_include_directories(
+        audio_analysis_tests
+        SYSTEM PRIVATE ${pocketfft_SOURCE_DIR}
+    )
+    # Two 8192-point FFTs per 5 ms of audio run about 15 times faster
+    # optimized, in every build type.
+    set_source_files_properties(
+        tests/audio_analysis.cpp
+        PROPERTIES COMPILE_OPTIONS -O2
+    )
+    target_compile_options(
+        audio_analysis_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        audio_analysis_tests
+        PRIVATE GTest::gmock_main PkgConfig::SNDFILE
+    )
+
+    # Every production source of zd except main.cpp, with the real FluidSynth.
+    get_target_property(zeta_production_sources zd SOURCES)
+    list(REMOVE_ITEM zeta_production_sources main.cpp)
+    add_executable(
+        audio_render_tests
+        tests/audio_render_test.cpp
+        tests/audio_performance.cpp
+        tests/audio_analysis.cpp
+        tests/fake_midi_input.cpp
+        ${zeta_production_sources}
+    )
+    target_include_directories(
+        audio_render_tests
+        SYSTEM PRIVATE ${pocketfft_SOURCE_DIR}
+    )
+    target_compile_definitions(
+        audio_render_tests
+        PRIVATE
+            ZETA_AUDIO_SOUNDFONT="${ZETA_FLUIDSYNTH_SOURCE_DIR}/sf2/VintageDreamsWaves-v2.sf2"
+            ZETA_AUDIO_REFERENCE="${CMAKE_CURRENT_SOURCE_DIR}/tests/audio_reference/performance.flac"
+            ZETA_AUDIO_RENDER_DIR="${CMAKE_CURRENT_BINARY_DIR}/audio_render"
+    )
+    target_compile_options(
+        audio_render_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        audio_render_tests
+        PRIVATE
+            GTest::gtest_main
+            zeta_fluidsynth
+            Threads::Threads
+            ${ZETA_YAML_TARGET}
+            libremidi::libremidi
+            PkgConfig::SNDFILE
+    )
+
     include(GoogleTest)
     gtest_discover_tests(current_behavior_tests)
     gtest_discover_tests(configuration_tests)
@@ -434,4 +508,7 @@ if(BUILD_TESTING)
     gtest_discover_tests(midi_tests)
     gtest_discover_tests(soundfont_selector_tests)
     gtest_discover_tests(octave_transposer_tests)
+    gtest_discover_tests(audio_analysis_tests)
+    # About a minute of real-time playing; the evidence script runs it.
+    gtest_discover_tests(audio_render_tests PROPERTIES LABELS audio)
 endif()

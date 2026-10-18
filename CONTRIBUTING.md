@@ -394,7 +394,8 @@ The current dependency strategy is intentional:
 - System packages provide the platform-facing ALSA, PulseAudio, and libsndfile
   libraries.
 - CMake downloads checksum-verified FluidSynth 2.5.7, builds its ALSA,
-  PulseAudio, SF2, and SF3 support, and links it statically into Zeta. This
+  PulseAudio, file-output, SF2, and SF3 support, and links it statically into
+  Zeta. The audio tests render through the file driver. This
   keeps the renderer identical on the desktop and Raspberry Pi instead of
   accepting the distro FluidSynth version.
 - CMake first looks for libremidi 5.4.3 and yaml-cpp, then uses pinned
@@ -403,7 +404,9 @@ The current dependency strategy is intentional:
   compatibility handling: CMake 3.x suppresses only that legacy-policy
   diagnostic, while CMake 4.x supplies the minimum supported policy version
   externally. Do not broaden the suppression to Zeta or other dependencies.
-- GoogleTest and Hegel are pinned and fetched only for test builds. Hegel is a
+- GoogleTest, Hegel and pocketfft are pinned and fetched only for test builds.
+  pocketfft, the FFT that numpy and scipy use, computes the spectra of the
+  audio comparison; it has no releases, so a commit is pinned. Hegel is a
   selective beta pilot for pure property tests and for invariants that must
   hold under every thread interleaving; retain deterministic GoogleTest
   examples and do not treat it as a blanket testing standard. Follow
@@ -440,8 +443,23 @@ cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Debug \
     -DBUILD_TESTING=ON
 cmake --build build --parallel
-ctest --test-dir build --output-on-failure
+ctest --test-dir build -LE audio --output-on-failure
 ```
+
+`audio_render_tests` has the ctest label `audio` and is left out of that
+command, because it plays for a minute in real time. Its result is recorded
+in `tests/audio_evidence.json`: `tests/audio_evidence.sh run` plays it 20
+times in `build-audio/` and writes the file, with a hash of the files it
+covers: the root sources, `CMakeLists.txt`, `cmake/`, `tests/audio_*` and
+`tests/fake_midi_input.*`. CI's `audio-evidence` job fails unless the file
+records a pass on covered files identical to the checked-out ones. A pull
+request that changes a covered file therefore needs a new run, on an idle
+desktop (about 22 minutes), as its last step before merge and after updating
+from `main`; commit the file it writes. The run refuses uncommitted changes
+to covered files. `ZETA_RECORD_AUDIO_REFERENCE=1` makes the test write a new
+`tests/audio_reference/performance.flac` instead of comparing; re-record only
+in a pull request that states the intended audible change, and the owner
+listens to the new file before merge.
 
 CI also runs clang-tidy 18 over the main `zd` production sources. The small,
 script-like `zfont.cpp` helper is intentionally excluded. To reproduce that
@@ -512,6 +530,15 @@ The test suites divide responsibilities as follows:
 - `pending_take_tests`: bounded event/held-note accounting, synthesized release,
   trailing-silence trimming, and reset behavior, plus a Hegel command-sequence
   property against an independent capacity model.
+- `audio_analysis_tests`: the audio comparison on synthetic tones with planted
+  faults (dropouts, shifted onsets, a click, clipping, extra, stuck and
+  shifted notes, guide drift), each reported with its kind and time; reading
+  and writing WAV and FLAC.
+- `audio_render_tests` (label `audio`): a one-minute performance played
+  through the real `Application`, slot workers and FluidSynth's file driver,
+  compared with `tests/audio_reference/performance.flac`. The performance
+  plays again, at most 3 attempts, when the harness's own lateness could have
+  changed the guide period.
 - `current_behavior_tests`: guide-first gating, guide cascade, regular-slot
   isolation and replacement, synchronized playback, raw-note consumption,
   clean held-note completion, and shutdown with fake MIDI and FluidSynth
