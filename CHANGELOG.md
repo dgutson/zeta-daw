@@ -6,6 +6,10 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added tests of shutdown by SIGINT and SIGTERM through `main.cpp`:
+  `current_behavior_tests` starts `zd_with_fakes`, `zd` built with the fake
+  MIDI input and fake FluidSynth, sends the signal after its ready line, and
+  expects exit status 0 within 5 seconds.
 - Added the audio reference test, `audio_render_tests` (ctest label `audio`):
   a one-minute performance played through the real `Application`, slot
   workers and FluidSynth's file driver, compared with

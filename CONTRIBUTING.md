@@ -487,8 +487,8 @@ cmake -S . -B build-analyzer \
 cmake --build build-analyzer --parallel
 ```
 
-ThreadSanitizer runs `current_behavior_tests`, the only multithreaded test
-executable; any reported race fails the run:
+ThreadSanitizer runs `current_behavior_tests` and the `zd_with_fakes`
+process it starts; any reported race fails the run:
 
 ```bash
 cmake -S . -B build-tsan \
@@ -545,7 +545,9 @@ The test suites divide responsibilities as follows:
   boundaries, plus a concurrent Hegel property in which shutdown races
   performer MIDI from several threads and loop playback, and a sequential one
   in which slot commands race the playback workers and no stopped take sounds
-  again.
+  again. It also starts `zd_with_fakes`, `main.cpp` and the production
+  sources built with both fakes, as a child process, and checks that SIGINT
+  or SIGTERM after its ready line ends it with status 0.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.
