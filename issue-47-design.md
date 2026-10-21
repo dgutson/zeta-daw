@@ -92,10 +92,10 @@ not an ask-then-act protocol.
   schedule. Otherwise it snapshots that immutable schedule as prepared-take
   metadata and arms through the common mechanism. When selected while Looping,
   it deactivates itself directly.
-- Recording completion is also a command. The group finalizes its pending take
-  and tells the selected slot to complete recording. The derived slot constructs
-  the correct schedule; the common base commits, silences the monitored route,
-  and activates playback.
+- Recording completion is also a command. The group tells the selected slot to
+  complete recording, and the slot's recorder finalizes the group's pending
+  take. The derived slot constructs the correct schedule; the common base
+  commits, silences the monitored route, and activates playback.
 
 The narrow cross-slot output alphabet is:
 

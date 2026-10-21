@@ -62,6 +62,9 @@ The [runtime sequence diagram](runtime-sequence.puml) expands this overview
 with process startup, MIDI port lifecycle and callback routing, FSM output
 calls, recording, per-slot playback workers, and orderly shutdown.
 
+The [loop-slot class diagram](loop-slot-classes.md) shows how the loop-slot
+classes own and call each other.
+
 The main layers and ownership boundaries are:
 
 - `main.cpp` loads configuration, owns process signal handling, constructs the
@@ -89,9 +92,17 @@ The main layers and ownership boundaries are:
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
-  FluidSynth channel, locked SoundFont/octave state, immutable committed take,
-  subordinate playback FSM, synchronization, and eagerly created worker. Role
-  commands perform their own behavior; callers do not query role predicates.
+  FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
+  one `TakePlayer`, and one `MidiTakeRecorder`. Role commands perform their
+  own behavior; callers do not query role predicates.
+- `take_player.*` owns one slot's immutable committed MIDI take and its
+  playback: the eagerly created worker, the generation counter and condition
+  variable that interrupt it, dispatch at absolute deadlines, and silencing of
+  the slot channel.
+- `midi_take_recorder.*` records one slot's MIDI notes into the group-owned
+  `PendingTake`, finishes that take when recording completes, discards it when
+  the slot arms, cancels, or completes, and selects the slot's locked program
+  before its playback starts.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.
@@ -331,9 +342,9 @@ required version is 8.
   so a take can be interrupted without polling, whole-cycle sleeps, or waiting
   for another loop boundary. Repetition deadlines advance from the immutable
   absolute schedule, never from the worker's wake time.
-- `LoopSlotGroup` records into the sole `PendingTake`. Completion gives the
-  selected worker one immutable snapshot; recording and playback never share a
-  mutable event vector.
+- The selected slot's `MidiTakeRecorder` records into the group's sole
+  `PendingTake`. Completion gives the selected worker one immutable snapshot;
+  recording and playback never share a mutable event vector.
 - `PendingTake` preserves the fixed event bound while reserving one closure
   event for every accepted held note. It performs no recording-path allocation.
 - A slot does not hold its command mutex while calling the narrow group output;
