@@ -6,6 +6,25 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added tests of shutdown by SIGINT and SIGTERM through `main.cpp`:
+  `current_behavior_tests` starts `zd_with_fakes`, `zd` built with the fake
+  MIDI input and fake FluidSynth, sends the signal after its ready line, and
+  expects exit status 0 within 5 seconds.
+- Added the audio reference test, `audio_render_tests` (ctest label `audio`):
+  a one-minute performance played through the real `Application`, slot
+  workers and FluidSynth's file driver, compared with
+  `tests/audio_reference/performance.flac`. `tests/audio_evidence.sh run`
+  plays it 20 times and records the result and a hash of the files it
+  covers in `tests/audio_evidence.json`; the CI job `audio-evidence` checks
+  that file, and CI's test run leaves out the label.
+- Added the audio comparison for the audio reference test and its synthetic
+  tests: levels and clicks in 5 ms windows, clipping, spectral peaks from an
+  FFT (pinned pocketfft), and the guide's repetition period, read from WAV or
+  FLAC with libsndfile. It reports every failing stretch with its time,
+  length, and measured and allowed values, and writes a per-window CSV.
+- Built the pinned FluidSynth with its file driver, so `audio.driver: file`
+  writes `fluidsynth.wav` in the working directory instead of playing. The
+  audio tests render through it.
 - Added `LoopSlotGroup` tests that pin the calls on a slot channel when a take
   completes (sustain off and all notes off, then the locked-program select,
   then the first playback Note On) and the zero-length guide take, which
@@ -84,6 +103,11 @@ All notable changes to Zeta DAW are documented in this file.
   playback behave as before, including the FluidSynth calls on each slot
   channel and their order. `loop-slot-classes.md` shows the loop-slot classes
   as a Mermaid class diagram.
+- `tests/audio_evidence.sh run` prints one line per run, with its result,
+  CPU use and the expected end of the remaining runs, and appends them to
+  `build-audio/audio_evidence/progress.log`. The build's and each run's
+  output go to files in that directory; a failed run's failure messages, or
+  the end of its output after a crash, are printed.
 - Tests that drive `LoopSlotGroup` directly, including the slot-stop
   property, moved from `tests/current_behavior_test.cpp` to
   `tests/loop_slot_group_test.cpp` under `LoopSlotGroupTest` and

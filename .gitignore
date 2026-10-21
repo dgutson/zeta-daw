@@ -2,5 +2,6 @@
 /build-debug/
 /build-analyzer/
 /build-tsan/
+/build-audio/
 /.hegel/
 /.serena/
