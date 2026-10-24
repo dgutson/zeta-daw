@@ -1,17 +1,9 @@
 #include "midi_take_recorder.hpp"
 
-#include "synth_engine.hpp"
-
 namespace zeta {
 
-MidiTakeRecorder::MidiTakeRecorder(
-    PendingTake& pending_take,
-    SynthEngine& synth_engine,
-    int channel
-) noexcept
-    : pending_take_(pending_take),
-      synth_engine_(synth_engine),
-      channel_(channel) {}
+MidiTakeRecorder::MidiTakeRecorder(PendingTake& pending_take) noexcept
+    : pending_take_(pending_take) {}
 
 void MidiTakeRecorder::discardTake() {
     pending_take_.reset();
@@ -35,10 +27,6 @@ FinishedTake MidiTakeRecorder::finishTake(const TakeTiming& timing) {
         .events = pending_take_.events(),
         .content_duration = pending_take_.contentDuration(),
     };
-}
-
-void MidiTakeRecorder::selectProgram(const SoundFontDefinition& soundfont) {
-    synth_engine_.select(soundfont, channel_);
 }
 
 } // namespace zeta

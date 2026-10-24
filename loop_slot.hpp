@@ -4,9 +4,7 @@
 #include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
-#include "midi_take_recorder.hpp"
 #include "octave_transposer.hpp"
-#include "pending_take.hpp"
 #include "take_player.hpp"
 
 #include <cstddef>
@@ -45,12 +43,6 @@ public:
         const LoopSlotSelectionContext& context
     );
     void cancelRecording();
-    void recordNote(
-        RecordedNoteKind kind,
-        const MidiMessage& message,
-        Milliseconds offset
-    );
-    void recordingCompleted(const TakeTiming& timing);
 
     void selectSoundFont(const SoundFontDefinition& soundfont);
     void octaveDown();
@@ -64,8 +56,7 @@ protected:
     LoopSlot(
         SlotId id,
         const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine,
-        PendingTake& pending_take
+        SynthEngine& synth_engine
     );
 
     virtual LoopSlotSelectionOutcome onMutedSelection(
@@ -82,10 +73,12 @@ protected:
         const LoopSlotSelectionContext& context,
         std::optional<LoopPlaybackSchedule> guide
     );
+    MidiMessage transpose(const MidiMessage& message) const;
+    // Commits the take and starts it with the slot's locked program.
+    void completeTake(const TakeTiming& timing, FinishedTake take);
 
 private:
     LoopSlotPlaybackState playbackState() const;
-    MidiMessage transpose(const MidiMessage& message) const;
 
     SlotId id_;
     int selection_key_;
@@ -97,53 +90,7 @@ private:
 
     mutable std::mutex command_mutex_;
     TakePlayer player_;
-    MidiTakeRecorder recorder_;
     LoopSlotPlaybackFsm playback_fsm_;
-};
-
-class GuideLoopSlot final : public LoopSlot {
-public:
-    GuideLoopSlot(
-        SlotId id,
-        const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine,
-        PendingTake& pending_take,
-        LoopSlotGroupOutput& output
-    );
-
-private:
-    LoopSlotSelectionOutcome onMutedSelection(
-        const LoopSlotSelectionContext& context
-    ) override;
-    void onLoopingSelection() override;
-    LoopPlaybackSchedule makeSchedule(
-        const TakeTiming& timing,
-        Milliseconds content_duration,
-        const std::optional<LoopPlaybackSchedule>& guide
-    ) const override;
-
-    LoopSlotGroupOutput& output_;
-};
-
-class RegularLoopSlot final : public LoopSlot {
-public:
-    RegularLoopSlot(
-        SlotId id,
-        const LoopSlotDefinition& definition,
-        SynthEngine& synth_engine,
-        PendingTake& pending_take
-    );
-
-private:
-    LoopSlotSelectionOutcome onMutedSelection(
-        const LoopSlotSelectionContext& context
-    ) override;
-    void onLoopingSelection() override;
-    LoopPlaybackSchedule makeSchedule(
-        const TakeTiming& timing,
-        Milliseconds content_duration,
-        const std::optional<LoopPlaybackSchedule>& guide
-    ) const override;
 };
 
 } // namespace zeta

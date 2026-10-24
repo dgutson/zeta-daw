@@ -46,7 +46,7 @@ public:
     MOCK_METHOD(void, cancelLoopSlotRecording, (SlotId), (override));
     MOCK_METHOD(
         void,
-        completeLoopSlotRecording,
+        completeMidiTake,
         (SlotId, const TakeTiming&),
         (override)
     );
@@ -165,7 +165,7 @@ TEST(LooperFsmTest, LoopSlotSelectionCommandConsumesRawNoteAndArmsSlot) {
         ),
         0
     );
-    EXPECT_EQ(harness.fsm.stateId(), StateId::Armed);
+    EXPECT_EQ(harness.fsm.stateId(), StateId::ArmedMidi);
 }
 
 TEST(LooperFsmTest, NonArmingSelectionOutcomeReturnsToReady) {
@@ -270,7 +270,7 @@ TEST(LooperFsmTest, SoundFontSelectorsConsumeNotesOnStateSpecificRoutes) {
         ),
         29
     );
-    EXPECT_EQ(armed.fsm.stateId(), StateId::ArmedSelectingSoundFont);
+    EXPECT_EQ(armed.fsm.stateId(), StateId::ArmedMidiSelectingSoundFont);
     EXPECT_CALL(
         armed.output,
         selectLoopSlotSoundFontByNote(selected_slot, 71)
@@ -283,7 +283,7 @@ TEST(LooperFsmTest, SoundFontSelectorsConsumeNotesOnStateSpecificRoutes) {
         ),
         0
     );
-    EXPECT_EQ(armed.fsm.stateId(), StateId::Armed);
+    EXPECT_EQ(armed.fsm.stateId(), StateId::ArmedMidi);
 }
 
 TEST(LooperFsmTest, SelectorControlsSwitchOrCancelExplicitStates) {
@@ -302,7 +302,7 @@ TEST(LooperFsmTest, SelectorControlsSwitchOrCancelExplicitStates) {
 
     harness.selectMutedSlot();
     harness.fsm.soundFontByNotePressed();
-    EXPECT_EQ(harness.fsm.soundFontByNotePressed(), StateId::Armed);
+    EXPECT_EQ(harness.fsm.soundFontByNotePressed(), StateId::ArmedMidi);
 }
 
 TEST(LooperFsmTest, FirstPositiveNoteStartsAtOffsetZeroOnSelectedSlot) {
@@ -322,7 +322,7 @@ TEST(LooperFsmTest, FirstPositiveNoteStartsAtOffsetZeroOnSelectedSlot) {
         ),
         25
     );
-    EXPECT_EQ(harness.fsm.stateId(), StateId::Armed);
+    EXPECT_EQ(harness.fsm.stateId(), StateId::ArmedMidi);
 
     EXPECT_CALL(
         harness.output,
@@ -340,7 +340,7 @@ TEST(LooperFsmTest, FirstPositiveNoteStartsAtOffsetZeroOnSelectedSlot) {
         ),
         27
     );
-    EXPECT_EQ(harness.fsm.stateId(), StateId::Recording);
+    EXPECT_EQ(harness.fsm.stateId(), StateId::RecordingMidi);
 }
 
 TEST(LooperFsmTest, ArmedControlCancelsPendingTakeWithoutSlotNote) {
@@ -369,7 +369,7 @@ TEST(LooperFsmTest, LoopSlotControlCompletesAndStartsSelectedSlot) {
     InSequence sequence;
     EXPECT_CALL(
         harness.output,
-        completeLoopSlotRecording(
+        completeMidiTake(
             selected_slot,
             testing::Truly([](const TakeTiming& timing) {
                 return timing.recording_started_at == start_time
@@ -411,7 +411,7 @@ TEST(LooperFsmTest, RecordingStoresNotesAtClampedElapsedOffsets) {
         noteOn(60, 0),
         start_time - 1ms
     );
-    EXPECT_EQ(harness.fsm.stateId(), StateId::Recording);
+    EXPECT_EQ(harness.fsm.stateId(), StateId::RecordingMidi);
 }
 
 TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
@@ -442,10 +442,10 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
     Harness armed;
     armed.selectMutedSlot();
     EXPECT_CALL(armed.output, selectNextLoopSlotSoundFont(selected_slot));
-    EXPECT_EQ(armed.fsm.nextSoundFontPressed(), StateId::Armed);
+    EXPECT_EQ(armed.fsm.nextSoundFontPressed(), StateId::ArmedMidi);
     EXPECT_CALL(armed.output, octaveDownLive());
     EXPECT_CALL(armed.output, octaveDownLoopSlot(selected_slot));
-    EXPECT_EQ(armed.fsm.octaveDownPressed(), StateId::Armed);
+    EXPECT_EQ(armed.fsm.octaveDownPressed(), StateId::ArmedMidi);
 
     Harness armed_selecting;
     armed_selecting.selectMutedSlot();
@@ -455,7 +455,7 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
         armed_selecting.output,
         octaveUpLoopSlot(selected_slot)
     );
-    EXPECT_EQ(armed_selecting.fsm.octaveUpPressed(), StateId::Armed);
+    EXPECT_EQ(armed_selecting.fsm.octaveUpPressed(), StateId::ArmedMidi);
 
     Harness armed_selecting_next;
     armed_selecting_next.selectMutedSlot();
@@ -466,15 +466,15 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
     );
     EXPECT_EQ(
         armed_selecting_next.fsm.nextSoundFontPressed(),
-        StateId::Armed
+        StateId::ArmedMidi
     );
 
     Harness recording;
     recording.startRecording();
-    EXPECT_EQ(recording.fsm.nextSoundFontPressed(), StateId::Recording);
-    EXPECT_EQ(recording.fsm.soundFontByNotePressed(), StateId::Recording);
-    EXPECT_EQ(recording.fsm.octaveDownPressed(), StateId::Recording);
-    EXPECT_EQ(recording.fsm.octaveUpPressed(), StateId::Recording);
+    EXPECT_EQ(recording.fsm.nextSoundFontPressed(), StateId::RecordingMidi);
+    EXPECT_EQ(recording.fsm.soundFontByNotePressed(), StateId::RecordingMidi);
+    EXPECT_EQ(recording.fsm.octaveDownPressed(), StateId::RecordingMidi);
+    EXPECT_EQ(recording.fsm.octaveUpPressed(), StateId::RecordingMidi);
 }
 
 TEST(LooperFsmTest, ShutdownTerminatesSlotsThenSilencesFromEveryLiveState) {
@@ -482,21 +482,21 @@ TEST(LooperFsmTest, ShutdownTerminatesSlotsThenSilencesFromEveryLiveState) {
         StateId::Ready,
         StateId::ReadySelectingLoopSlot,
         StateId::ReadySelectingSoundFont,
-        StateId::Armed,
-        StateId::ArmedSelectingSoundFont,
-        StateId::Recording,
+        StateId::ArmedMidi,
+        StateId::ArmedMidiSelectingSoundFont,
+        StateId::RecordingMidi,
     }) {
         Harness harness;
         if (target == StateId::ReadySelectingLoopSlot) {
             harness.fsm.loopSlotControlPressed(start_time);
         } else if (target == StateId::ReadySelectingSoundFont) {
             harness.fsm.soundFontByNotePressed();
-        } else if (target == StateId::Armed) {
+        } else if (target == StateId::ArmedMidi) {
             harness.selectMutedSlot();
-        } else if (target == StateId::ArmedSelectingSoundFont) {
+        } else if (target == StateId::ArmedMidiSelectingSoundFont) {
             harness.selectMutedSlot();
             harness.fsm.soundFontByNotePressed();
-        } else if (target == StateId::Recording) {
+        } else if (target == StateId::RecordingMidi) {
             harness.startRecording();
         }
         ASSERT_EQ(harness.fsm.stateId(), target);

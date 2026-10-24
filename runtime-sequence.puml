@@ -23,7 +23,7 @@ end box
 box "Project domain" #F4FFF1
 participant "LooperFsm +\ncurrent LooperState" as Fsm
 participant LoopSlotGroup as Group
-participant "LoopSlot[n] +\nplayback FSM" as Slot
+participant "MidiLoopSlot[n] +\nplayback FSM" as Slot
 participant "TakePlayer[n]" as Player
 participant "worker_[n]\nworkerMain()" as Worker
 end box
@@ -34,9 +34,9 @@ end box
 
 note over App,Worker
   There is one master LooperFsm and one pending take, owned by LoopSlotGroup.
-  Every configured LoopSlot owns a TakePlayer, which eagerly owns a
-  dedicated sleeping jthread, and a MidiTakeRecorder, which records into
-  the pending take;
+  Every configured slot is a MidiLoopSlot. It owns a TakePlayer, which
+  eagerly owns a dedicated sleeping jthread, and a MidiTakeRecorder, which
+  records into the pending take;
   [n] denotes the selected slot or all configured slots, as labeled.
 end note
 
@@ -157,14 +157,14 @@ else project MidiEvent decoded
       App -> Synth : send(transposed, channel 0)
       Synth --> App : native result
       App --> Fsm : native result
-    else Armed or Recording: selected-slot route
+    else ArmedMidi or RecordingMidi: selected-slot route
       Fsm -> App : monitorLoopSlotMidi(slot, message)
       App -> Group : monitorMidi(slot, message)
       Group -> Slot : monitorMidi(message)
       Slot -> Slot : transpose with slot-owned octave
       Slot -> Synth : send(transposed, channel n + 1)
       Synth --> Fsm : native result
-      opt Recording and message is Note On / Note Off
+      opt RecordingMidi and message is Note On / Note Off
         Fsm -> App : recordNote(slot, kind, message, offset)
         App -> Group : recordNote(slot, kind, message, offset)
         Group -> Slot : recordNote(kind, message, offset)
@@ -201,14 +201,13 @@ Group -> Slot : selectionRequested(context)
 alt slot is Muted and its role permits arming
   Slot -> Player : invalidateAndSilence(): discard take; ++playback_generation
   Player -> Synth : allNotesOff(channel n + 1)
-  Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
   Slot -> Slot : snapshot SoundFont/octave
   Slot -> Synth : select SoundFont
   Slot --> Group : Armed
   Group --> App : {slot id, Armed}
   App --> Fsm : selection result
   Fsm -> App : showRecordingArmed(slot)
-  Fsm -> Fsm : ReadySelectingLoopSlot -> Armed
+  Fsm -> Fsm : ReadySelectingLoopSlot -> ArmedMidi
 else regular slot requires a looping guide, or key is unavailable
   Slot --> Group : GuideRequired / Unavailable
   Group --> App : selection result
@@ -230,7 +229,7 @@ Fsm -> App : recordNote(slot, NoteOn, message, 0 ms)
 App -> Group : recordNote(...)
 Group -> Slot : recordNote(...)
 Slot -> Group : MidiTakeRecorder calls PendingTake.record(...)
-Fsm -> Fsm : Armed -> Recording
+Fsm -> Fsm : ArmedMidi -> RecordingMidi
 deactivate Fsm
 
 loop subsequent Note On / Note Off messages
@@ -253,22 +252,23 @@ Alsa -> MidiInput : callback(event)
 MidiInput -> App : handleMidiEvent(event)
 App -> Fsm : loopSlotControlPressed(completed_at)
 activate Fsm
-Fsm -> App : completeLoopSlotRecording(slot, timing)
-App -> Group : completeRecording(slot, timing)
-Group -> Slot : recordingCompleted(timing)
+Fsm -> App : completeMidiTake(slot, timing)
+App -> Group : completeMidiTake(slot, timing)
+Group -> Slot : complete(timing)
 Slot -> Group : MidiTakeRecorder calls PendingTake.finish(); synthesize held-note releases
-Slot -> Slot : makeSchedule()
+Slot -> Slot : copy the finished events into a FinishedTake
+Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
+Slot -> Slot : completeTake(timing, take); makeSchedule()
 Slot -> Player : commitTake(events, schedule)
 Player -> Synth : allNotesOff(channel n + 1)
 Player -> Player : commit immutable PlaybackTake
-Slot -> Synth : MidiTakeRecorder selects locked SoundFont
+Slot -> Synth : select locked SoundFont
 Slot -> Slot : playback_fsm.startRequested()
 Slot -> Player : activatePlayback(); ++playback_generation
 Player -> Worker : notify_all(playback_changed)
-Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
 Fsm -> App : selectCurrentLiveSoundFont(); showLooping(slot)
 App -> Synth : select(current SoundFont, channel 0)
-Fsm -> Fsm : Recording -> Ready
+Fsm -> Fsm : RecordingMidi -> Ready
 deactivate Fsm
 
 == Dedicated TakePlayer[n] workerMain loops ==

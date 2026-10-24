@@ -94,7 +94,7 @@ public:
             data_.selected_recording_slot = selection.id;
             output_.showRecordingArmed(selection.id);
             return {
-                .next_state = StateId::Armed,
+                .next_state = StateId::ArmedMidi,
                 .native_result = midi_ok,
             };
         }
@@ -134,7 +134,7 @@ public:
     }
 };
 
-class ArmedState : public ActiveState {
+class ArmedMidiState : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
@@ -149,23 +149,23 @@ public:
 
     StateId nextSoundFontPressed() const override {
         output_.selectNextLoopSlotSoundFont(selectedRecordingSlot());
-        return StateId::Armed;
+        return StateId::ArmedMidi;
     }
 
     StateId soundFontByNotePressed() const override {
-        return StateId::ArmedSelectingSoundFont;
+        return StateId::ArmedMidiSelectingSoundFont;
     }
 
     StateId octaveDownPressed() const override {
         output_.octaveDownLive();
         output_.octaveDownLoopSlot(selectedRecordingSlot());
-        return StateId::Armed;
+        return StateId::ArmedMidi;
     }
 
     StateId octaveUpPressed() const override {
         output_.octaveUpLive();
         output_.octaveUpLoopSlot(selectedRecordingSlot());
-        return StateId::Armed;
+        return StateId::ArmedMidi;
     }
 
     MidiHandlingResult midiMessage(
@@ -185,24 +185,24 @@ public:
                 Milliseconds::zero()
             );
             return {
-                .next_state = StateId::Recording,
+                .next_state = StateId::RecordingMidi,
                 .native_result = result,
             };
         }
 
         return {
-            .next_state = StateId::Armed,
+            .next_state = StateId::ArmedMidi,
             .native_result = result,
         };
     }
 };
 
-class ArmedSelectingSoundFontState final : public ArmedState {
+class ArmedMidiSelectingSoundFontState final : public ArmedMidiState {
 public:
-    using ArmedState::ArmedState;
+    using ArmedMidiState::ArmedMidiState;
 
     StateId soundFontByNotePressed() const override {
-        return StateId::Armed;
+        return StateId::ArmedMidi;
     }
 
     MidiHandlingResult midiMessage(
@@ -214,25 +214,25 @@ public:
         if (type == MidiMessageType::NoteOn && message.velocity > 0) {
             output_.selectLoopSlotSoundFontByNote(slot, message.key);
             return {
-                .next_state = StateId::Armed,
+                .next_state = StateId::ArmedMidi,
                 .native_result = midi_ok,
             };
         }
 
         return {
-            .next_state = StateId::ArmedSelectingSoundFont,
+            .next_state = StateId::ArmedMidiSelectingSoundFont,
             .native_result = output_.monitorLoopSlotMidi(slot, message),
         };
     }
 };
 
-class RecordingState final : public ActiveState {
+class RecordingMidiState final : public ActiveState {
 public:
     using ActiveState::ActiveState;
 
     StateId loopSlotControlPressed(TimePoint now) const override {
         const SlotId slot = selectedRecordingSlot();
-        output_.completeLoopSlotRecording(slot, TakeTiming{
+        output_.completeMidiTake(slot, TakeTiming{
             .recording_started_at = data_.recording_started_at,
             .completed_at = now,
         });
@@ -243,19 +243,19 @@ public:
     }
 
     StateId nextSoundFontPressed() const override {
-        return StateId::Recording;
+        return StateId::RecordingMidi;
     }
 
     StateId soundFontByNotePressed() const override {
-        return StateId::Recording;
+        return StateId::RecordingMidi;
     }
 
     StateId octaveDownPressed() const override {
-        return StateId::Recording;
+        return StateId::RecordingMidi;
     }
 
     StateId octaveUpPressed() const override {
-        return StateId::Recording;
+        return StateId::RecordingMidi;
     }
 
     MidiHandlingResult midiMessage(
@@ -285,7 +285,7 @@ public:
         }
 
         return {
-            .next_state = StateId::Recording,
+            .next_state = StateId::RecordingMidi,
             .native_result = result,
         };
     }
@@ -352,12 +352,12 @@ LooperStateRegistry::LooperStateRegistry(LooperOutput& output) {
         std::make_unique<ReadySelectingLoopSlotState>(output, data_);
     states_[stateIndex(StateId::ReadySelectingSoundFont)] =
         std::make_unique<ReadySelectingSoundFontState>(output, data_);
-    states_[stateIndex(StateId::Armed)] =
-        std::make_unique<ArmedState>(output, data_);
-    states_[stateIndex(StateId::ArmedSelectingSoundFont)] =
-        std::make_unique<ArmedSelectingSoundFontState>(output, data_);
-    states_[stateIndex(StateId::Recording)] =
-        std::make_unique<RecordingState>(output, data_);
+    states_[stateIndex(StateId::ArmedMidi)] =
+        std::make_unique<ArmedMidiState>(output, data_);
+    states_[stateIndex(StateId::ArmedMidiSelectingSoundFont)] =
+        std::make_unique<ArmedMidiSelectingSoundFontState>(output, data_);
+    states_[stateIndex(StateId::RecordingMidi)] =
+        std::make_unique<RecordingMidiState>(output, data_);
     states_[stateIndex(StateId::Stopped)] =
         std::make_unique<StoppedState>(output, data_);
 }

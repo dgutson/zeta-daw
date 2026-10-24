@@ -24,9 +24,9 @@ master: {
   ready: "Ready\nlive routing; zero or more slots may loop"
   ready_selecting_slot: "ReadySelectingLoopSlot\nwaiting for raw slot key"
   ready_selecting_soundfont: "ReadySelectingSoundFont\nwaiting for raw SoundFont key"
-  armed: "Armed\none selected recording SlotId"
-  armed_selecting_soundfont: "ArmedSelectingSoundFont\npending-slot SoundFont selector"
-  recording: "Recording\none pending mutable take"
+  armed: "ArmedMidi\none selected recording SlotId"
+  armed_selecting_soundfont: "ArmedMidiSelectingSoundFont\npending-slot SoundFont selector"
+  recording: "RecordingMidi\none pending mutable take"
   stopped: "Stopped\nterminal"
 
   ready -> ready_selecting_slot: "loopSlotControlPressed()"
@@ -41,8 +41,8 @@ master: {
   armed -> recording: "first positive NoteOn\n/ monitor selected slot; record at 0ms"
   armed -> armed_selecting_soundfont: "soundFontByNotePressed()"
   armed_selecting_soundfont -> armed: "raw NoteOn or selector cancel\n/ pending selection note consumed"
-  armed -> ready: "loopSlotControlPressed()\n/ cancel and discard pending take"
-  armed_selecting_soundfont -> ready: "loopSlotControlPressed()\n/ cancel and discard pending take"
+  armed -> ready: "loopSlotControlPressed()\n/ cancel; no note recorded yet"
+  armed_selecting_soundfont -> ready: "loopSlotControlPressed()\n/ cancel; no note recorded yet"
 
   recording -> recording: "MIDI\n/ monitor selected slot; timestamp notes"
   recording -> ready: "loopSlotControlPressed()\n/ commit snapshot; start selected slot"

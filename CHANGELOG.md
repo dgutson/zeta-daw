@@ -93,6 +93,16 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `MidiLoopSlot` (`midi_loop_slot.{hpp,cpp}`) is the loop slot that records
+  MIDI notes: it owns the slot's `MidiTakeRecorder` and is the base of
+  `GuideLoopSlot` and `RegularLoopSlot`. `LoopSlot` keeps what every slot
+  shares; it commits the finished take it is given and selects the locked
+  program, which the recorder no longer does. The master states `Armed`,
+  `ArmedSelectingSoundFont` and `Recording` are renamed `ArmedMidi`,
+  `ArmedMidiSelectingSoundFont` and `RecordingMidi`, and the output
+  `completeLoopSlotRecording` is renamed `completeMidiTake`. The group's
+  pending take is discarded when a take completes instead of when a slot arms
+  or cancels. Recording and playback behave as before.
 - Each loop slot's take is handled by two classes the slot owns.
   `TakePlayer` (`take_player.{hpp,cpp}`) holds the committed take, the
   playback worker and MIDI dispatch, and implements the slot playback FSM's

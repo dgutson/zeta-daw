@@ -66,7 +66,7 @@ void completeDirectGuide(
         recordedNote(MidiMessageType::NoteOff, direct_guide_key),
         0ms
     );
-    slots.completeRecording(guide.id, TakeTiming{
+    slots.completeMidiTake(guide.id, TakeTiming{
         .recording_started_at = first_cycle_at - period,
         .completed_at = first_cycle_at,
     });
@@ -148,7 +148,7 @@ TEST_F(LoopSlotGroupTest, LateDependentDispatchKeepsNextGuideDeadline) {
     ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(guide.id, RecordedNoteKind::NoteOn, note_on, 0ms);
     slots.recordNote(guide.id, RecordedNoteKind::NoteOff, note_off, 0ms);
-    slots.completeRecording(guide.id, TakeTiming{
+    slots.completeMidiTake(guide.id, TakeTiming{
         .recording_started_at = guide_first_cycle_at - guide_period,
         .completed_at = guide_first_cycle_at,
     });
@@ -161,7 +161,7 @@ TEST_F(LoopSlotGroupTest, LateDependentDispatchKeepsNextGuideDeadline) {
     ASSERT_EQ(dependent.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(dependent.id, RecordedNoteKind::NoteOn, note_on, 0ms);
     slots.recordNote(dependent.id, RecordedNoteKind::NoteOff, note_off, 0ms);
-    slots.completeRecording(dependent.id, TakeTiming{
+    slots.completeMidiTake(dependent.id, TakeTiming{
         .recording_started_at = guide_first_cycle_at - guide_period,
         .completed_at = guide_first_cycle_at,
     });
@@ -225,7 +225,7 @@ TEST_F(
     );
     const auto silence_count = controlChangeCount(second_slot_channel, 123);
 
-    slots.completeRecording(regular.id, TakeTiming{
+    slots.completeMidiTake(regular.id, TakeTiming{
         .recording_started_at = recording_started_at,
         .completed_at = completed_at,
     });
@@ -281,7 +281,7 @@ TEST_F(LoopSlotGroupTest, RegularWaitsWhenCurrentRepetitionEventsArePast) {
         100ms
     );
 
-    slots.completeRecording(regular.id, TakeTiming{
+    slots.completeMidiTake(regular.id, TakeTiming{
         .recording_started_at = recording_started_at,
         .completed_at = completed_at,
     });
@@ -320,7 +320,7 @@ TEST_F(
 
     constexpr auto guide_period = 400ms;
     const auto completed_at = LooperClock::now();
-    slots.completeRecording(guide.id, TakeTiming{
+    slots.completeMidiTake(guide.id, TakeTiming{
         .recording_started_at = completed_at - guide_period,
         .completed_at = completed_at,
     });
@@ -618,7 +618,7 @@ private:
         );
         const auto completed_at = LooperClock::now();
 
-        slots_.completeRecording(*slot, TakeTiming{
+        slots_.completeMidiTake(*slot, TakeTiming{
             .recording_started_at =
                 completed_at - (state.recorded_until + completion_delay),
             .completed_at = completed_at,
