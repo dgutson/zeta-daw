@@ -6,4 +6,6 @@ Checks: >
   performance-*,
   portability-*
 WarningsAsErrors: '*'
-HeaderFilterRegex: '^(?!.*[/\\]build[/\\]).*[/\\]zeta-daw[/\\].*'
+# The .hpp files directly in a directory whose name starts with zeta-daw: the
+# repository root. clang-tidy's regular expressions have no lookahead.
+HeaderFilterRegex: '[/\\]zeta-daw[^/\\]*[/\\][^/\\]+\.hpp$'
