@@ -15,6 +15,14 @@ schema_version: 8
 loop_slots:
   - C2
   - D2
+  # An audio slot records the audio input instead of the keyboard. The first
+  # slot is the guide and stays MIDI.
+  # - { key: E2, type: audio }
+
+# Required when a loop slot has type audio, and rejected otherwise.
+# audio_input:
+#   device: plughw:CARD=Device,DEV=0  # Use the card ID from `arecord -L`.
+#   period_size: 256
 
 # The SE49 fader uses its DAW integration port while MMC mode is active. Treat
 # its channel-16 CC20 event as standard Channel Volume CC7. Omit this optional

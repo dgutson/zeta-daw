@@ -87,22 +87,26 @@ The main layers and ownership boundaries are:
 - `loop_slot_group.*` is the aggregate boundary. It owns the ordered slots,
   bounded pending take, raw-key lookup, guide-first invariant, and cross-slot
   stop behavior. It creates the first slot as the guide and later slots as
-  regular slots, then coordinates them only through the common base interface.
+  regular slots, then coordinates them only through the `MidiLoopSlot`
+  interface they share.
 - `loop_slot_fsm.*` owns the dependency-free subordinate playback state
   machine and its start, mute, and termination command semantics.
-- `loop_slot.*` defines the common slot mechanism and its final guide and
-  regular role implementations. Every slot encapsulates its identity, key,
-  FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
-  one `TakePlayer`, and one `MidiTakeRecorder`. Role commands perform their
-  own behavior; callers do not query role predicates.
+- `loop_slot.*` defines the common slot mechanism. Every slot encapsulates its
+  identity, key, FluidSynth channel, locked SoundFont/octave state,
+  subordinate playback FSM, and one `TakePlayer`, and selects its locked
+  program before a completed take starts playing.
+- `midi_loop_slot.*` defines the slot that records MIDI notes through one
+  `MidiTakeRecorder`, and its final guide and regular role implementations.
+  Role commands perform their own behavior; callers do not query role
+  predicates.
 - `take_player.*` owns one slot's immutable committed MIDI take and its
   playback: the eagerly created worker, the generation counter and condition
   variable that interrupt it, dispatch at absolute deadlines, and silencing of
   the slot channel.
 - `midi_take_recorder.*` records one slot's MIDI notes into the group-owned
-  `PendingTake`, finishes that take when recording completes, discards it when
-  the slot arms, cancels, or completes, and selects the slot's locked program
-  before its playback starts.
+  `PendingTake`, then finishes and discards that take when recording
+  completes. Canceling discards nothing, because the master FSM cancels only
+  before the first note.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.
@@ -166,8 +170,8 @@ rewrite inside a feature or cleanup ticket.
 ## Current state semantics
 
 The master states are `Ready`, `ReadySelectingLoopSlot`,
-`ReadySelectingSoundFont`, `Armed`, `ArmedSelectingSoundFont`, `Recording`, and
-`Stopped`.
+`ReadySelectingSoundFont`, `ArmedMidi`, `ArmedMidiSelectingSoundFont`,
+`RecordingMidi`, and `Stopped`.
 
 - `Ready`: MIDI is monitored on live channel 0. The loop-slot control enters
   `ReadySelectingLoopSlot`; Next, direct SoundFont selection, and octave
@@ -175,29 +179,29 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
 - `ReadySelectingLoopSlot`: the next positive-velocity Note On is matched by
   raw key and consumed regardless of incoming channel. Selecting the Muted
   guide clears its old take, snapshots the live SoundFont/octave into it,
-  installs its `SlotId` as the sole recording slot, and enters `Armed`. A Muted
-  regular slot does the same only while the guide is Looping; otherwise the
-  selection is rejected and the master returns to `Ready`. Selecting a Looping
-  regular slot stops only itself. Selecting the Looping guide stops and
+  installs its `SlotId` as the sole recording slot, and enters `ArmedMidi`. A
+  Muted regular slot does the same only while the guide is Looping; otherwise
+  the selection is rejected and the master returns to `Ready`. Selecting a
+  Looping regular slot stops only itself. Selecting the Looping guide stops and
   discards every regular slot before stopping itself. An unmapped note is
   consumed and returns to `Ready`; pressing the selector again cancels.
-- `Armed`: MIDI is monitored on the selected slot's channel. The first
-  positive-velocity Note On enters `Recording` and is stored at offset zero.
-  SoundFont and octave changes may update this pending route. The loop-slot
-  control alone cancels and clears it; slot selection is unavailable.
-- `Recording`: Note On and Note Off events are timestamped into the one pending
-  take. SoundFont and octave controls are inert. The loop-slot control alone
-  finalizes the bounded take, tells that slot to construct and activate its
-  schedule, clears the master's selected `SlotId`, and returns to `Ready`.
+- `ArmedMidi`: MIDI is monitored on the selected slot's channel. The first
+  positive-velocity Note On enters `RecordingMidi` and is stored at offset
+  zero. SoundFont and octave changes may update this pending route. The
+  loop-slot control alone cancels and clears it; slot selection is unavailable.
+- `RecordingMidi`: Note On and Note Off events are timestamped into the one
+  pending take. SoundFont and octave controls are inert. The loop-slot control
+  alone finalizes the bounded take, tells that slot to construct and activate
+  its schedule, clears the master's selected `SlotId`, and returns to `Ready`.
   Completing a regular take leaves the guide and its peers running.
 - `Stopped`: all performer stimuli are inert. Process shutdown terminates every
   slot worker and silences every configured channel before entering it.
 
-`ReadySelectingSoundFont` and `ArmedSelectingSoundFont` preserve the existing
-one-shot raw-note SoundFont workflow on the live and selected-slot routes.
-Selection notes are consumed; an unmapped note changes nothing; pressing the
-selector again cancels. Other MIDI retains the selector state, while another
-configured action performs its ordinary behavior and exits it. Recording
+`ReadySelectingSoundFont` and `ArmedMidiSelectingSoundFont` preserve the
+existing one-shot raw-note SoundFont workflow on the live and selected-slot
+routes. Selection notes are consumed; an unmapped note changes nothing; pressing
+the selector again cancels. Other MIDI retains the selector state, while another
+configured action performs its ordinary behavior and exits it. `RecordingMidi`
 ignores the SoundFont selector.
 
 Each `LoopSlot` owns a subordinate `Muted`, `Looping`, or `Terminated` playback
@@ -240,8 +244,8 @@ from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
 Arming snapshots the current live transposition into the selected slot.
-Changes while Armed update both the live and pending route; later live changes
-do not affect any already looping slot.
+Changes while `ArmedMidi` update both the live and pending route; later live
+changes do not affect any already looping slot.
 Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.
@@ -308,6 +312,11 @@ required version is 8.
   must be unique and must not reuse any configured Note action.
   They may overlap SoundFont-selection keys because the selector controls
   disambiguate those one-shot gestures.
+- A `loop_slots` entry may instead be a mapping with that note name as `key`
+  and an optional `type`, `midi` (the default, as for a scalar entry) or
+  `audio`. The guide must be MIDI. `audio_input` is required exactly when a
+  slot is audio: a non-empty ALSA capture `device` and an optional
+  `period_size` from 64 through 8192 frames, default 256.
 - Each `soundfonts` entry has an optional controller note-name `key`. Names use
   the SE49-documented octave convention, where MIDI 60 is `C3`, across the
   one-digit MIDI domain `C0` through `G8` (MIDI 24 through 127). Keys are

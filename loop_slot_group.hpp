@@ -31,7 +31,7 @@ public:
         const OctaveTransposer& transposer
     );
     void cancelRecording(SlotId slot);
-    void completeRecording(SlotId slot, const TakeTiming& timing);
+    void completeMidiTake(SlotId slot, const TakeTiming& timing);
     void terminateAll();
 
     void selectSoundFont(

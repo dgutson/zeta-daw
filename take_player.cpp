@@ -33,11 +33,11 @@ std::optional<LoopPlaybackSchedule> TakePlayer::schedule() const {
 }
 
 void TakePlayer::commitTake(
-    const std::vector<RecordedLoopEvent>& events,
+    std::vector<RecordedLoopEvent> events,
     const LoopPlaybackSchedule& schedule
 ) {
     auto take = std::make_shared<PlaybackTake>(PlaybackTake{
-        .events = events,
+        .events = std::move(events),
         .schedule = schedule,
     });
 

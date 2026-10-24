@@ -347,6 +347,83 @@ AudioConfig parseAudioConfig(const YAML::Node& node) {
     return config;
 }
 
+AudioInputConfig parseAudioInputConfig(const YAML::Node& node) {
+    const std::string location{"audio_input"};
+    rejectUnknownKeys(node, location, {"device", "period_size"});
+
+    AudioInputConfig config{
+        .device = nonEmptyString(node, "device", location),
+    };
+    if (node["period_size"]) {
+        config.period_size = boundedInt(
+            node,
+            "period_size",
+            location,
+            minimum_audio_period_size,
+            maximum_audio_period_size
+        );
+    }
+    return config;
+}
+
+LoopSlotMedium parseLoopSlotMedium(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    const auto type = required<std::string>(node, "type", location);
+    if (type == "midi") {
+        return LoopSlotMedium::Midi;
+    }
+    if (type == "audio") {
+        return LoopSlotMedium::Audio;
+    }
+    fail(location + ".type", "expected 'midi' or 'audio'");
+}
+
+// A scalar entry is the key of a MIDI slot; a mapping holds the key and an
+// optional type.
+LoopSlotDefinition parseLoopSlot(
+    const YAML::Node& node,
+    const std::string& location
+) {
+    if (!node.IsMap()) {
+        return {.key = parseControllerKeyName(node, location)};
+    }
+
+    rejectUnknownKeys(node, location, {"key", "type"});
+    LoopSlotDefinition slot{.key = parseControllerKey(node, location)};
+    if (node["type"]) {
+        slot.medium = parseLoopSlotMedium(node, location);
+    }
+    return slot;
+}
+
+// The guide is a MIDI slot, and audio_input is configured exactly when a slot
+// is audio.
+void rejectInvalidLoopSlotMedia(const ApplicationConfig& config) {
+    bool has_audio_slot = false;
+    for (std::size_t index = 0; index < config.loop_slots.size(); ++index) {
+        if (config.loop_slots[index].medium != LoopSlotMedium::Audio) {
+            continue;
+        }
+        const std::string location =
+            "loop_slots[" + std::to_string(index) + "].type";
+        if (index == 0) {
+            fail(
+                location,
+                "the first loop slot is the guide and must be 'midi'"
+            );
+        }
+        if (!config.audio_input) {
+            fail(location, "'audio' requires audio_input");
+        }
+        has_audio_slot = true;
+    }
+    if (config.audio_input && !has_audio_slot) {
+        fail("audio_input", "requires a loop slot with type 'audio'");
+    }
+}
+
 std::vector<MidiControlChangeMapping> parseMidiControlChangeMappings(
     const YAML::Node& mappings
 ) {
@@ -477,6 +554,7 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     rejectUnknownKeys(root, "configuration", {
         "schema_version",
         "audio",
+        "audio_input",
         "midi_control_change_mappings",
         "loop_slots",
         "soundfonts",
@@ -500,6 +578,9 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     if (root["audio"]) {
         config.audio = parseAudioConfig(root["audio"]);
     }
+    if (root["audio_input"]) {
+        config.audio_input = parseAudioInputConfig(root["audio_input"]);
+    }
     const auto midi_control_change_mappings =
         root["midi_control_change_mappings"];
     if (midi_control_change_mappings) {
@@ -518,12 +599,13 @@ ApplicationConfig loadConfiguration(const std::filesystem::path& path) {
     for (std::size_t index = 0; index < loop_slots.size(); ++index) {
         const std::string location =
             "loop_slots[" + std::to_string(index) + "]";
-        const int key = parseControllerKeyName(loop_slots[index], location);
-        if (!loop_slot_keys.insert(key).second) {
+        const auto slot = parseLoopSlot(loop_slots[index], location);
+        if (!loop_slot_keys.insert(slot.key).second) {
             fail(location, "duplicate loop-slot selection key");
         }
-        config.loop_slots.push_back({.key = key});
+        config.loop_slots.push_back(slot);
     }
+    rejectInvalidLoopSlotMedia(config);
 
     const auto soundfonts = root["soundfonts"];
     requireSequence(soundfonts, "soundfonts");
