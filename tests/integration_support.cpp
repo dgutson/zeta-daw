@@ -20,6 +20,7 @@ using zeta::SoundFontDefinition;
 ApplicationConfig testConfig() {
     return {
         .audio = {},
+        .audio_input = std::nullopt,
         .loop_slots = {
             LoopSlotDefinition{.key = first_slot_key},
             LoopSlotDefinition{.key = second_slot_key},

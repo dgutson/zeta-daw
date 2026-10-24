@@ -17,6 +17,7 @@ namespace {
 namespace gs = hegel::generators;
 
 using zeta::ConfigurationError;
+using zeta::LoopSlotMedium;
 using zeta::MidiControlBinding;
 using zeta::MidiMessage;
 using zeta::MidiMessageType;
@@ -111,6 +112,26 @@ std::string configWithAllMmcCommands(
         << commands[3] << " }\n"
         << "  octave_up: { type: machine_control, command: "
         << commands[4] << " }\n";
+    return config.str();
+}
+
+std::string configWithLoopSlots(
+    std::string_view audio_input,
+    std::string_view loop_slots
+) {
+    std::ostringstream config;
+    config
+        << "schema_version: 8\n"
+        << audio_input
+        << "loop_slots:\n"
+        << loop_slots
+        << "soundfonts:\n"
+        << "  - { id: piano, file: piano.sf2, bank: 0, preset: 0 }\n"
+        << "controls:\n"
+        << "  loop_slot_by_note: { type: machine_control, command: rewind }\n"
+        << "  next_soundfont: { type: machine_control, command: stop }\n"
+        << "  octave_down: { type: machine_control, command: play }\n"
+        << "  octave_up: { type: machine_control, command: record_strobe }\n";
     return config.str();
 }
 
@@ -422,13 +443,15 @@ TEST(ConfigurationTest, RequiresOrderedNonEmptyLoopSlots) {
     EXPECT_THROW(zeta::loadConfiguration(empty.path()), ConfigurationError);
 }
 
-TEST(ConfigurationTest, RejectsInvalidDuplicateAndNonscalarLoopSlotKeys) {
+TEST(ConfigurationTest, RejectsInvalidAndDuplicateLoopSlotKeys) {
     constexpr std::array invalid_slot_catalogs{
         std::string_view{"loop_slots:\n  - H3\n"},
+        std::string_view{"loop_slots:\n  - { key: H3 }\n"},
+        std::string_view{"loop_slots:\n  - [C3]\n"},
         std::string_view{
             "loop_slots:\n  - C3\n  - C3\n"
         },
-        std::string_view{"loop_slots:\n  - { key: C3 }\n"},
+        std::string_view{"loop_slots:\n  - C3\n  - { key: C3 }\n"},
         std::string_view{"loop_slots:\n  - { key: C3, typo: true }\n"},
     };
     const std::string valid_slots = "loop_slots:\n  - F8\n";
@@ -485,6 +508,157 @@ controls:
 )yaml"};
 
     EXPECT_THROW(zeta::loadConfiguration(source.path()), ConfigurationError);
+}
+
+TEST(ConfigurationTest, ParsesLoopSlotEntriesAsMidiByDefault) {
+    TemporaryConfig source{configWithLoopSlots(
+        "",
+        "  - C2\n"
+        "  - { key: D2 }\n"
+        "  - { key: E2, type: midi }\n"
+    )};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    EXPECT_FALSE(config.audio_input);
+    ASSERT_EQ(config.loop_slots.size(), 3U);
+    EXPECT_EQ(config.loop_slots[0].key, 48);
+    EXPECT_EQ(config.loop_slots[1].key, 50);
+    EXPECT_EQ(config.loop_slots[2].key, 52);
+    for (const auto& slot : config.loop_slots) {
+        EXPECT_EQ(slot.medium, LoopSlotMedium::Midi);
+    }
+}
+
+TEST(ConfigurationTest, ParsesAudioSlotsAndAudioInput) {
+    TemporaryConfig source{configWithLoopSlots(
+        "audio_input:\n"
+        "  device: plughw:CARD=Device,DEV=0\n"
+        "  period_size: 512\n",
+        "  - C2\n"
+        "  - { key: D2, type: audio }\n"
+        "  - E2\n"
+        "  - { key: F2, type: audio }\n"
+    )};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    ASSERT_TRUE(config.audio_input);
+    EXPECT_EQ(config.audio_input->device, "plughw:CARD=Device,DEV=0");
+    EXPECT_EQ(config.audio_input->period_size, 512);
+    ASSERT_EQ(config.loop_slots.size(), 4U);
+    EXPECT_EQ(config.loop_slots[0].medium, LoopSlotMedium::Midi);
+    EXPECT_EQ(config.loop_slots[1].key, 50);
+    EXPECT_EQ(config.loop_slots[1].medium, LoopSlotMedium::Audio);
+    EXPECT_EQ(config.loop_slots[2].medium, LoopSlotMedium::Midi);
+    EXPECT_EQ(config.loop_slots[3].key, 53);
+    EXPECT_EQ(config.loop_slots[3].medium, LoopSlotMedium::Audio);
+}
+
+TEST(ConfigurationTest, UsesDefaultAudioInputPeriodSize) {
+    TemporaryConfig source{configWithLoopSlots(
+        "audio_input: { device: 'hw:1' }\n",
+        "  - C2\n  - { key: D2, type: audio }\n"
+    )};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    ASSERT_TRUE(config.audio_input);
+    EXPECT_EQ(config.audio_input->device, "hw:1");
+    EXPECT_EQ(config.audio_input->period_size, 256);
+}
+
+TEST(ConfigurationTest, RejectsInvalidLoopSlotTypesAndAudioInput) {
+    struct Rejection {
+        std::string_view audio_input;
+        std::string_view loop_slots;
+        std::string_view message;
+    };
+    constexpr std::string_view input{"audio_input: { device: 'hw:1' }\n"};
+    constexpr std::string_view slots{"  - C2\n  - { key: D2, type: audio }\n"};
+    constexpr std::array rejections{
+        Rejection{
+            input,
+            "  - { key: C2, type: audio }\n  - D2\n",
+            "loop_slots[0].type: the first loop slot is the guide and must "
+            "be 'midi'",
+        },
+        Rejection{
+            "",
+            slots,
+            "loop_slots[1].type: 'audio' requires audio_input",
+        },
+        Rejection{
+            input,
+            "  - C2\n  - { key: D2 }\n",
+            "audio_input: requires a loop slot with type 'audio'",
+        },
+        Rejection{
+            input,
+            "  - C2\n  - { key: D2, type: voice }\n",
+            "loop_slots[1].type: expected 'midi' or 'audio'",
+        },
+        Rejection{
+            input,
+            "  - C2\n  - { key: D2, type: audio, typo: true }\n",
+            "loop_slots[1]: unknown field 'typo'",
+        },
+        Rejection{
+            input,
+            "  - C2\n  - { type: audio }\n",
+            "loop_slots[1].key: expected a controller key name from C0 "
+            "through G8",
+        },
+        Rejection{
+            "",
+            "  - C2\n  - { key: C2 }\n",
+            "loop_slots[1]: duplicate loop-slot selection key",
+        },
+        Rejection{
+            "audio_input: []\n",
+            slots,
+            "audio_input: expected a mapping",
+        },
+        Rejection{
+            "audio_input: { device: 'hw:1', typo: true }\n",
+            slots,
+            "audio_input: unknown field 'typo'",
+        },
+        Rejection{
+            "audio_input: { period_size: 256 }\n",
+            slots,
+            "audio_input: missing required field 'device'",
+        },
+        Rejection{
+            "audio_input: { device: '' }\n",
+            slots,
+            "audio_input.device: must not be empty",
+        },
+        Rejection{
+            "audio_input: { device: 'hw:1', period_size: 63 }\n",
+            slots,
+            "audio_input.period_size: expected a value from 64 to 8192",
+        },
+        Rejection{
+            "audio_input: { device: 'hw:1', period_size: 8193 }\n",
+            slots,
+            "audio_input.period_size: expected a value from 64 to 8192",
+        },
+    };
+
+    for (const auto& rejection : rejections) {
+        TemporaryConfig source{configWithLoopSlots(
+            rejection.audio_input,
+            rejection.loop_slots
+        )};
+        SCOPED_TRACE(rejection.message);
+        try {
+            zeta::loadConfiguration(source.path());
+            ADD_FAILURE() << "Expected the configuration to be rejected";
+        } catch (const ConfigurationError& error) {
+            EXPECT_EQ(std::string_view{error.what()}, rejection.message);
+        }
+    }
 }
 
 TEST(ConfigurationTest, AcceptsEitherOrBothSoundFontSelectionControls) {

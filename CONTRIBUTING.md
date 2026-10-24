@@ -312,6 +312,11 @@ required version is 8.
   must be unique and must not reuse any configured Note action.
   They may overlap SoundFont-selection keys because the selector controls
   disambiguate those one-shot gestures.
+- A `loop_slots` entry may instead be a mapping with that note name as `key`
+  and an optional `type`, `midi` (the default, as for a scalar entry) or
+  `audio`. The guide must be MIDI. `audio_input` is required exactly when a
+  slot is audio: a non-empty ALSA capture `device` and an optional
+  `period_size` from 64 through 8192 frames, default 256.
 - Each `soundfonts` entry has an optional controller note-name `key`. Names use
   the SE49-documented octave convention, where MIDI 60 is `C3`, across the
   one-digit MIDI domain `C0` through `G8` (MIDI 24 through 127). Keys are
