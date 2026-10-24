@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstdint>
+
 namespace zeta {
 
-enum class LoopSlotPlaybackState {
+enum class LoopSlotPlaybackState : std::uint8_t {
     Muted,
     Looping,
     Terminated,
