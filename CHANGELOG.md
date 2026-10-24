@@ -106,6 +106,8 @@ All notable changes to Zeta DAW are documented in this file.
   `current_behavior_tests`.
 - Git ignores the `.serena/` directory that the Serena coding tool creates in
   the repository.
+- Git ignores the `.cache/` directory in which clangd, the C++ language
+  server that Serena runs, keeps its index.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
