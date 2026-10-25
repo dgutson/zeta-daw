@@ -3,5 +3,6 @@
 /build-analyzer/
 /build-tsan/
 /build-audio/
+/.cache/
 /.hegel/
 /.serena/
