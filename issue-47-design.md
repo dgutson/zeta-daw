@@ -47,7 +47,9 @@ LoopSlotGroup : LoopSlotGroupOutput
   +-- RegularLoopSlot : LoopSlot ...
 
 LoopSlot
-  | one identity, channel, route, immutable take, playback FSM, worker
+  | one identity, channel, route, playback FSM
+  +-- TakePlayer: immutable take, worker
+  +-- MidiTakeRecorder: recording into the pending take
   v
 SynthEngine
 ```
@@ -64,9 +66,11 @@ class pointer or stable index, then obtains its active schedule only through a
 common `LoopSlot` operation.
 
 `LoopSlot` retains every slot-local mechanism currently owned by the concrete
-class. Only genuine role decisions are virtual. Monitoring, transposition,
-activation, deactivation, termination, and worker dispatch remain common
-nonvirtual behavior.
+class. Its `TakePlayer` holds the immutable take, the worker and its dispatch,
+and its `MidiTakeRecorder` records into the group's pending take. Only genuine
+role decisions are virtual. Monitoring, transposition, activation,
+deactivation, termination, and worker dispatch remain common nonvirtual
+behavior.
 
 ## Command-oriented slot behavior
 
