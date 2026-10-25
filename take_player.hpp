@@ -18,6 +18,12 @@ namespace zeta {
 
 class SynthEngine;
 
+// A take ready to commit: the events to play and how long its content lasts.
+struct FinishedTake {
+    std::vector<RecordedLoopEvent> events;
+    Milliseconds content_duration{};
+};
+
 class TakePlayer final : public LoopSlotPlaybackOutput {
 public:
     TakePlayer(
@@ -31,7 +37,7 @@ public:
 
     std::optional<LoopPlaybackSchedule> schedule() const;
     void commitTake(
-        const std::vector<RecordedLoopEvent>& events,
+        std::vector<RecordedLoopEvent> events,
         const LoopPlaybackSchedule& schedule
     );
     void invalidateAndSilence();
