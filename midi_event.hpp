@@ -6,7 +6,7 @@
 
 namespace zeta {
 
-enum class MidiMessageType : int {
+enum class MidiMessageType : std::int16_t {
     Other = -1,
     NoteOff = 0x80,
     NoteOn = 0x90,
