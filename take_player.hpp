@@ -21,7 +21,7 @@ class SynthEngine;
 // A take ready to commit: the events to play and how long its content lasts.
 struct FinishedTake {
     std::vector<RecordedLoopEvent> events;
-    Milliseconds content_duration;
+    Milliseconds content_duration{};
 };
 
 class TakePlayer final : public LoopSlotPlaybackOutput {
