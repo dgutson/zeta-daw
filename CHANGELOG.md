@@ -116,6 +116,8 @@ All notable changes to Zeta DAW are documented in this file.
   `current_behavior_tests`.
 - Git ignores the `.serena/` directory that the Serena coding tool creates in
   the repository.
+- Git ignores the `.cache/` directory in which clangd, the C++ language
+  server that Serena runs, keeps its index.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
@@ -209,6 +211,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Fixed
 
+- clang-tidy checks the `.hpp` files in the repository root. Its header
+  filter used a lookahead, which clang-tidy's regular expressions do not
+  support, and so matched no file. The enums in those headers declare the
+  underlying type that `performance-enum-size` asks for: `std::uint8_t`, and
+  `std::int16_t` for `MidiMessageType`.
 - Eliminated cumulative phase drift between independently recorded slots by
   deriving every regular playback deadline from the guide's immutable absolute
   schedule instead of completion time or the previous worker wake-up.

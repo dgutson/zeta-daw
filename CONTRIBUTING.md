@@ -490,6 +490,9 @@ run-clang-tidy-18 \
     "$(pwd)/(?!zfont\.cpp$)[^/]+\.cpp$"
 ```
 
+The header filter in `.clang-tidy` checks the root `.hpp` files only when the
+checkout's directory name starts with `zeta-daw`, as it does in CI.
+
 GCC's analyzer is limited to the production target so fetched dependencies are
 not analyzed. Run it in a separate build directory:
 
