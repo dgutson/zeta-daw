@@ -2,10 +2,11 @@
 # Evidence that the audio test passed on the files it depends on.
 #
 #   tests/audio_evidence.sh run    builds audio_render_tests in build-audio/,
-#                                  plays it 20 times one after another, stops
-#                                  at the first failure and writes
-#                                  tests/audio_evidence.json. It prints a
-#                                  line per run, also appended to
+#                                  plays it 20 times one after another while
+#                                  holding the desktop's screen-saver
+#                                  inhibit, stops at the first failure and
+#                                  writes tests/audio_evidence.json. It
+#                                  prints a line per run, also appended to
 #                                  build-audio/audio_evidence/progress.log,
 #                                  and keeps the build's and each run's
 #                                  output beside that file
@@ -152,12 +153,21 @@ run() {
     progress "building audio_render_tests in $build_dir/, output in $build_dir/audio_evidence/build.log"
     if ! {
         cmake -S . -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON &&
-            cmake --build "$build_dir" --target audio_render_tests --parallel
+            cmake --build "$build_dir" --target audio_render_tests hold_screen_unlocked --parallel
     } > "$results/build.log" 2>&1; then
         tail -n 40 "$results/build.log" >&2
         progress "the build failed; the end of its output is above" >&2
         exit 1
     fi
+
+    # The helper holds the screen-saver inhibit, as zd does, until its
+    # standard input closes when this script ends, and prints one line.
+    local screen_lock_line
+    coproc screen_lock { exec "$build_dir/hold_screen_unlocked" 2>&1; }
+    if ! read -r screen_lock_line <&"${screen_lock[0]}"; then
+        screen_lock_line="hold_screen_unlocked printed nothing; the screen may lock"
+    fi
+    progress "$screen_lock_line"
 
     progress "playing it $run_count times, about a minute each, from $(date +%H:%M);" \
         "each run's output goes to $build_dir/audio_evidence/"

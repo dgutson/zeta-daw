@@ -23,6 +23,7 @@ find_package(OpenMP REQUIRED COMPONENTS C)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PULSEAUDIO REQUIRED IMPORTED_TARGET libpulse-simple)
 pkg_check_modules(SNDFILE REQUIRED IMPORTED_TARGET sndfile)
+pkg_check_modules(SYSTEMD REQUIRED IMPORTED_TARGET libsystemd)
 find_package(Threads REQUIRED)
 
 include(FetchContent)
@@ -193,6 +194,7 @@ add_executable(
     midi_input.cpp
     octave_transposer.cpp
     pending_take.cpp
+    screen_lock_inhibitor.cpp
     soundfont_selector.cpp
     synth_engine.cpp
 )
@@ -200,6 +202,7 @@ target_link_libraries(
     zd
     PRIVATE
         zeta_fluidsynth
+        PkgConfig::SYSTEMD
         Threads::Threads
         ${ZETA_YAML_TARGET}
         libremidi::libremidi
@@ -286,6 +289,7 @@ if(BUILD_TESTING)
         tests/current_behavior_test.cpp
         tests/fake_fluidsynth.cpp
         tests/fake_midi_input.cpp
+        tests/fake_screen_saver.cpp
         tests/integration_support.cpp
         tests/loop_slot_group_test.cpp
         tests/main_signal_test.cpp
@@ -301,6 +305,7 @@ if(BUILD_TESTING)
         midi_input.cpp
         octave_transposer.cpp
         pending_take.cpp
+        screen_lock_inhibitor.cpp
         soundfont_selector.cpp
         synth_engine.cpp
     )
@@ -316,6 +321,7 @@ if(BUILD_TESTING)
         current_behavior_tests
         PRIVATE
             GTest::gmock_main
+            PkgConfig::SYSTEMD
             Threads::Threads
             ${ZETA_YAML_TARGET}
             libremidi::libremidi
@@ -344,7 +350,7 @@ if(BUILD_TESTING)
     target_compile_options(zd_with_fakes PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(
         zd_with_fakes
-        PRIVATE Threads::Threads ${ZETA_YAML_TARGET}
+        PRIVATE PkgConfig::SYSTEMD Threads::Threads ${ZETA_YAML_TARGET}
     )
     add_dependencies(zd_with_fakes zeta_fluidsynth_external)
     add_dependencies(current_behavior_tests zd_with_fakes)
@@ -468,6 +474,33 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        screen_lock_inhibitor_tests
+        tests/screen_lock_inhibitor_test.cpp
+        tests/fake_screen_saver.cpp
+        screen_lock_inhibitor.cpp
+    )
+    target_compile_options(
+        screen_lock_inhibitor_tests
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(
+        screen_lock_inhibitor_tests
+        PRIVATE GTest::gtest_main PkgConfig::SYSTEMD Threads::Threads
+    )
+
+    # Holds the screen-saver inhibit while tests/audio_evidence.sh plays.
+    add_executable(
+        hold_screen_unlocked
+        tests/hold_screen_unlocked.cpp
+        screen_lock_inhibitor.cpp
+    )
+    target_compile_options(
+        hold_screen_unlocked
+        PRIVATE -Wall -Wextra -Wpedantic
+    )
+    target_link_libraries(hold_screen_unlocked PRIVATE PkgConfig::SYSTEMD)
+
+    add_executable(
         audio_analysis_tests
         tests/audio_analysis_test.cpp
         tests/audio_analysis.cpp
@@ -522,6 +555,7 @@ if(BUILD_TESTING)
         PRIVATE
             GTest::gtest_main
             zeta_fluidsynth
+            PkgConfig::SYSTEMD
             Threads::Threads
             ${ZETA_YAML_TARGET}
             libremidi::libremidi
@@ -539,6 +573,7 @@ if(BUILD_TESTING)
     gtest_discover_tests(midi_tests)
     gtest_discover_tests(soundfont_selector_tests)
     gtest_discover_tests(octave_transposer_tests)
+    gtest_discover_tests(screen_lock_inhibitor_tests)
     gtest_discover_tests(audio_analysis_tests)
     # About a minute of real-time playing; the evidence script runs it.
     gtest_discover_tests(audio_render_tests PROPERTIES LABELS audio)

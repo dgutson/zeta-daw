@@ -31,7 +31,7 @@ only through Ctrl-C, SIGTERM, or another process shutdown signal.
 - A C++20-capable C++ compiler; GCC is the currently CI-tested toolchain
 - CMake 3.22 or newer
 - pkg-config
-- ALSA, PulseAudio, and libsndfile development files
+- ALSA, PulseAudio, libsndfile, and libsystemd development files
 - FluidSynth 2.5.7 fetched by CMake; libremidi 5.4.3 and yaml-cpp installed or
   fetched by CMake
 - An ALSA-compatible audio output and MIDI controller
@@ -48,12 +48,15 @@ sudo apt install \
     libasound2-dev \
     libpulse-dev \
     libsndfile1-dev \
+    libsystemd-dev \
     libyaml-cpp-dev
 ```
 
-ALSA, PulseAudio, and libsndfile are required system dependencies. CMake
-downloads checksum-verified FluidSynth 2.5.7 and links it statically into
-`zd` and `zfont`; an installed distro FluidSynth is neither required nor used.
+ALSA, PulseAudio, libsndfile, and libsystemd are required system
+dependencies; zd uses libsystemd's D-Bus library to keep the desktop's screen
+unlocked. CMake downloads checksum-verified FluidSynth 2.5.7 and links it
+statically into `zd` and `zfont`; an installed distro FluidSynth is neither
+required nor used.
 The pinned build supports ALSA and PulseAudio output plus SF2 and SF3
 SoundFonts. Its `file` driver writes `fluidsynth.wav` in the working directory
 instead of playing; the audio tests use it. CMake first looks for libremidi
@@ -638,6 +641,14 @@ configuration path:
 Press Ctrl-C to shut down gracefully. SIGTERM is handled the same way.
 
 With no argument, Zeta reads `/etc/zeta-daw/zeta.yaml`.
+
+While zd runs, the desktop does not lock the screen, although only the MIDI
+controller is played: zd holds the freedesktop screen-saver inhibit, which
+XFCE, GNOME, and KDE provide, and the desktop locks as usual again once zd
+stops. zd prints `[screen lock] held: the desktop will not lock the screen` at
+startup. On a desktop without that service it prints `[screen lock] not held:`
+and the reason, and runs as usual; as the Raspberry Pi service below, it
+prints `[screen lock] not held: no desktop session bus`.
 
 ## Starting automatically on Raspberry Pi
 

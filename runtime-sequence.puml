@@ -12,6 +12,7 @@ actor "SIGINT / SIGTERM" as Signal
 
 box "Process lifecycle" #F4F4F4
 participant "main + signal waiter" as Main
+participant "ScreenLockInhibitor\n(sd-bus)" as Inhibitor
 participant Application as App
 end box
 
@@ -39,6 +40,7 @@ end note
 
 == Startup ==
 
+Main -> Inhibitor : construct: Inhibit("zd", "Live performance")\non the desktop's session bus, or print why not
 Main -> App : Application(config)
 activate App
 App -> Synth : construct; eagerly load configured SoundFonts
@@ -354,5 +356,6 @@ App -> MidiInput : stop()
 MidiInput -> Alsa : close inputs and observer
 App -> Fsm : shutdownRequested() (idempotent in Stopped)
 deactivate App
+Main -> Inhibitor : destroy: UnInhibit(cookie), close the connection
 
 @enduml
