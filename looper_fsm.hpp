@@ -75,8 +75,8 @@ public:
     virtual void selectLiveSoundFontByNote(int key) = 0;
     virtual void selectLoopSlotSoundFontByNote(SlotId slot, int key) = 0;
 
-    virtual void octaveDownLive() = 0;
-    virtual void octaveUpLive() = 0;
+    virtual void octaveDown() = 0;
+    virtual void octaveUp() = 0;
 
     virtual void recordNote(
         SlotId slot,

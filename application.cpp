@@ -23,7 +23,7 @@ constexpr int expression_controller = 11;
 struct Application::Impl {
     SynthEngine synth_engine;
     SoundFontSelector soundfont_selector;
-    OctaveTransposer live_transposer;
+    OctaveTransposer transposer;
     LoopSlotGroup loop_slots;
 
     std::mutex lifecycle_mutex;
@@ -187,7 +187,7 @@ void Application::handleMidiEvent(MidiEvent event) noexcept {
 }
 
 int Application::monitorLiveMidi(const MidiMessage& message) {
-    const auto transposed = impl_->live_transposer.transpose(message);
+    const auto transposed = impl_->transposer.transpose(message);
     const int result = impl_->synth_engine.send(transposed, live_channel);
 
     #ifdef ZETA_MIDI_TRACE
@@ -206,7 +206,7 @@ int Application::monitorLoopSlotMidi(
     SlotId slot,
     const MidiMessage& message
 ) {
-    const auto transposed = impl_->live_transposer.transpose(message);
+    const auto transposed = impl_->transposer.transpose(message);
     const int result = impl_->loop_slots.monitorMidi(slot, transposed);
 
     #ifdef ZETA_MIDI_TRACE
@@ -269,12 +269,12 @@ void Application::selectLoopSlotSoundFontByNote(SlotId slot, int key) {
     }
 }
 
-void Application::octaveDownLive() {
-    impl_->live_transposer.octaveDown();
+void Application::octaveDown() {
+    impl_->transposer.octaveDown();
 }
 
-void Application::octaveUpLive() {
-    impl_->live_transposer.octaveUp();
+void Application::octaveUp() {
+    impl_->transposer.octaveUp();
 }
 
 void Application::recordNote(
@@ -286,7 +286,7 @@ void Application::recordNote(
     impl_->loop_slots.recordNote(
         slot,
         kind,
-        impl_->live_transposer.transpose(message),
+        impl_->transposer.transpose(message),
         offset
     );
 }

@@ -153,20 +153,20 @@ else project MidiEvent decoded
     Fsm -> Fsm : lock; current LooperState handles message
     alt Ready: live route
       Fsm -> App : monitorLiveMidi(message)
-      App -> App : live_transposer.transpose(message)
+      App -> App : transposer.transpose(message)
       App -> Synth : send(transposed, channel 0)
       Synth --> App : native result
       App --> Fsm : native result
     else Armed or Recording: selected-slot route
       Fsm -> App : monitorLoopSlotMidi(slot, message)
-      App -> App : live_transposer.transpose(message)
+      App -> App : transposer.transpose(message)
       App -> Group : monitorMidi(slot, transposed)
       Group -> Slot : monitorMidi(transposed)
       Slot -> Synth : send(transposed, channel n + 1)
       Synth --> Fsm : native result
       opt Recording and message is Note On / Note Off
         Fsm -> App : recordNote(slot, kind, message, offset)
-        App -> App : live_transposer.transpose(message)
+        App -> App : transposer.transpose(message)
         App -> Group : recordNote(slot, kind, transposed, offset)
         Group -> Slot : recordNote(kind, transposed, offset)
         Slot -> Group : MidiTakeRecorder calls PendingTake.record(kind, transposed, offset)
@@ -223,7 +223,7 @@ MidiInput -> App : handleMidiEvent(event)
 App -> Fsm : midiMessage(NoteOn, message, received_at)
 activate Fsm
 Fsm -> App : monitorLoopSlotMidi(slot, message)
-App -> App : live_transposer.transpose(message)
+App -> App : transposer.transpose(message)
 App -> Group : monitorMidi(slot, transposed)
 Group -> Slot : monitorMidi(transposed)
 Slot -> Synth : send(transposed, channel n + 1)
@@ -240,7 +240,7 @@ loop subsequent Note On / Note Off messages
   MidiInput -> App : handleMidiEvent(event)
   App -> Fsm : midiMessage(type, message, received_at)
   Fsm -> App : monitorLoopSlotMidi(slot, message)
-  App -> App : live_transposer.transpose(message)
+  App -> App : transposer.transpose(message)
   App -> Group : monitorMidi(slot, transposed)
   Group -> Slot : monitorMidi(transposed)
   Slot -> Synth : send(transposed, channel n + 1)

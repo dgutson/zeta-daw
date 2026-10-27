@@ -568,7 +568,7 @@ TEST_F(CurrentBehaviorTest, CancelingReplacementLeavesNoResumableTake) {
     ASSERT_EQ(pressLoopSlotControl(), 0);
 }
 
-TEST_F(CurrentBehaviorTest, SoundFontAndOctaveSnapshotsAreIndependentPerSlot) {
+TEST_F(CurrentBehaviorTest, SlotKeepsItsSoundFontAndRecordsTransposedKeys) {
     Application application{testConfig(), fake_midi_input::makeInput()};
 
     ASSERT_EQ(pressNextSoundFontControl(), 0);
