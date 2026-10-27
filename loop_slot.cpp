@@ -100,8 +100,7 @@ void LoopSlot::recordNote(
     const MidiMessage& message,
     Milliseconds offset
 ) {
-    const auto transposed = transpose(message);
-    recorder_.record(kind, transposed, offset);
+    recorder_.record(kind, message, offset);
 }
 
 void LoopSlot::recordingCompleted(const TakeTiming& timing) {
@@ -146,8 +145,7 @@ MidiMessage LoopSlot::transpose(const MidiMessage& message) const {
 }
 
 int LoopSlot::monitorMidi(const MidiMessage& message) {
-    const auto transposed = transpose(message);
-    return synth_engine_.send(transposed, channel_);
+    return synth_engine_.send(message, channel_);
 }
 
 void LoopSlot::deactivate() {

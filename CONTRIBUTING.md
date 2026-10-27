@@ -209,8 +209,8 @@ dependent stop. Muted means only not currently playing and never means
 resumable.
 
 Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1.
-Recorded notes retain velocity and store the key produced by that slot's
-transposer. Once recording starts, the slot's SoundFont and octave are locked.
+Recorded notes retain velocity and store the transposed key. Once recording
+starts, the slot's SoundFont and the octave are locked.
 Completing or canceling adopts the current selection for live output, while
 already looping slots retain their own locked selection.
 

@@ -206,7 +206,8 @@ int Application::monitorLoopSlotMidi(
     SlotId slot,
     const MidiMessage& message
 ) {
-    const int result = impl_->loop_slots.monitorMidi(slot, message);
+    const auto transposed = impl_->live_transposer.transpose(message);
+    const int result = impl_->loop_slots.monitorMidi(slot, transposed);
 
     #ifdef ZETA_MIDI_TRACE
     std::osyncstream{std::cerr}
@@ -291,7 +292,12 @@ void Application::recordNote(
     const MidiMessage& message,
     Milliseconds offset
 ) {
-    impl_->loop_slots.recordNote(slot, kind, message, offset);
+    impl_->loop_slots.recordNote(
+        slot,
+        kind,
+        impl_->live_transposer.transpose(message),
+        offset
+    );
 }
 
 void Application::showRecordingArmed(SlotId slot) {
