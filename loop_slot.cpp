@@ -79,7 +79,6 @@ LoopSlotSelectionOutcome LoopSlot::arm(
     player_.invalidateAndSilence();
     recorder_.discardTake();
     soundfont_ = &context.soundfont;
-    transposer_ = context.transposer;
     prepared_guide_ = guide;
     synth_engine_.select(context.soundfont, channel_);
     return LoopSlotSelectionOutcome::Armed;
@@ -127,21 +126,6 @@ void LoopSlot::selectSoundFont(const SoundFontDefinition& soundfont) {
     std::lock_guard lock(command_mutex_);
     soundfont_ = &soundfont;
     synth_engine_.select(soundfont, channel_);
-}
-
-void LoopSlot::octaveDown() {
-    std::lock_guard lock(command_mutex_);
-    transposer_.octaveDown();
-}
-
-void LoopSlot::octaveUp() {
-    std::lock_guard lock(command_mutex_);
-    transposer_.octaveUp();
-}
-
-MidiMessage LoopSlot::transpose(const MidiMessage& message) const {
-    std::lock_guard lock(command_mutex_);
-    return transposer_.transpose(message);
 }
 
 int LoopSlot::monitorMidi(const MidiMessage& message) {

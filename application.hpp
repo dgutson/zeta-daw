@@ -55,8 +55,6 @@ private:
 
     void octaveDownLive() override;
     void octaveUpLive() override;
-    void octaveDownLoopSlot(SlotId slot) override;
-    void octaveUpLoopSlot(SlotId slot) override;
 
     void recordNote(
         SlotId slot,

@@ -77,8 +77,6 @@ public:
 
     virtual void octaveDownLive() = 0;
     virtual void octaveUpLive() = 0;
-    virtual void octaveDownLoopSlot(SlotId slot) = 0;
-    virtual void octaveUpLoopSlot(SlotId slot) = 0;
 
     virtual void recordNote(
         SlotId slot,

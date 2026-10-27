@@ -92,7 +92,7 @@ The main layers and ownership boundaries are:
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
-  FluidSynth channel, locked SoundFont/octave state, subordinate playback FSM,
+  FluidSynth channel, locked SoundFont, subordinate playback FSM,
   one `TakePlayer`, and one `MidiTakeRecorder`. Role commands perform their
   own behavior; callers do not query role predicates.
 - `take_player.*` owns one slot's immutable committed MIDI take and its
@@ -108,9 +108,9 @@ The main layers and ownership boundaries are:
   arithmetic independent of workers, MIDI, and FluidSynth.
 - `pending_take.*` owns bounded in-progress events and accepted held-note state,
   including release synthesis and musical-content duration at completion.
-- `octave_transposer.*` owns octave bounds and arithmetic transposition for one
-  MIDI route. `Application` owns the live instance and each `LoopSlot` owns its
-  independent recorded route.
+- `octave_transposer.*` owns octave bounds and arithmetic transposition.
+  `Application` owns the one instance and transposes each note before it is
+  monitored or recorded, so loop slots receive notes already transposed.
 - `soundfont_selector.*` owns the ordered SoundFont selection, its current
   entry, and the bounded physical-key lookup shared by sequential and direct
   selection. It has no synthesizer or MIDI-channel responsibility.
@@ -174,7 +174,7 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
   controls affect the live route.
 - `ReadySelectingLoopSlot`: the next positive-velocity Note On is matched by
   raw key and consumed regardless of incoming channel. Selecting the Muted
-  guide clears its old take, snapshots the live SoundFont/octave into it,
+  guide clears its old take, snapshots the live SoundFont into it,
   installs its `SlotId` as the sole recording slot, and enters `Armed`. A Muted
   regular slot does the same only while the guide is Looping; otherwise the
   selection is rejected and the master returns to `Ready`. Selecting a Looping
@@ -239,9 +239,9 @@ Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
-Arming snapshots the current live transposition into the selected slot.
-Changes while Armed update both the live and pending route; later live changes
-do not affect any already looping slot.
+One transposition applies to every note the performer plays, live or into the
+armed slot, so changes while Armed apply to both; later changes do not affect
+any already looping slot.
 Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.

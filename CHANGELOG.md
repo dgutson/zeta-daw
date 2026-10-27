@@ -94,9 +94,9 @@ All notable changes to Zeta DAW are documented in this file.
 ### Changed
 
 - `Application` transposes each note once, before it is monitored or
-  recorded. Octave controls behave as before: while a slot is armed they
-  change the octave of the notes it records, and a looping slot keeps the
-  pitch it was recorded at.
+  recorded, and loop slots keep no octave of their own. Octave controls
+  behave as before: while a slot is armed they change the octave of the
+  notes it records, and a looping slot keeps the pitch it was recorded at.
 
 - Each loop slot's take is handled by two classes the slot owns.
   `TakePlayer` (`take_player.{hpp,cpp}`) holds the committed take, the

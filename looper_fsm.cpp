@@ -158,13 +158,11 @@ public:
 
     StateId octaveDownPressed() const override {
         output_.octaveDownLive();
-        output_.octaveDownLoopSlot(selectedRecordingSlot());
         return StateId::Armed;
     }
 
     StateId octaveUpPressed() const override {
         output_.octaveUpLive();
-        output_.octaveUpLoopSlot(selectedRecordingSlot());
         return StateId::Armed;
     }
 

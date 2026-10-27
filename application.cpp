@@ -225,8 +225,7 @@ int Application::monitorLoopSlotMidi(
 LoopSlotSelectionResult Application::requestLoopSlotSelection(int key) {
     return impl_->loop_slots.requestSelection(
         key,
-        impl_->soundfont_selector.current(),
-        impl_->live_transposer
+        impl_->soundfont_selector.current()
     );
 }
 
@@ -276,14 +275,6 @@ void Application::octaveDownLive() {
 
 void Application::octaveUpLive() {
     impl_->live_transposer.octaveUp();
-}
-
-void Application::octaveDownLoopSlot(SlotId slot) {
-    impl_->loop_slots.octaveDown(slot);
-}
-
-void Application::octaveUpLoopSlot(SlotId slot) {
-    impl_->loop_slots.octaveUp(slot);
 }
 
 void Application::recordNote(

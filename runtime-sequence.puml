@@ -196,13 +196,13 @@ MidiInput -> App : handleMidiEvent(event)
 App -> Fsm : midiMessage(NoteOn, message, now)
 activate Fsm
 Fsm -> App : requestLoopSlotSelection(raw key)
-App -> Group : requestSelection(key, current SoundFont, live transposer)
+App -> Group : requestSelection(key, current SoundFont)
 Group -> Slot : selectionRequested(context)
 alt slot is Muted and its role permits arming
   Slot -> Player : invalidateAndSilence(): discard take; ++playback_generation
   Player -> Synth : allNotesOff(channel n + 1)
   Slot -> Group : MidiTakeRecorder calls PendingTake.reset()
-  Slot -> Slot : snapshot SoundFont/octave
+  Slot -> Slot : snapshot SoundFont
   Slot -> Synth : select SoundFont
   Slot --> Group : Armed
   Group --> App : {slot id, Armed}

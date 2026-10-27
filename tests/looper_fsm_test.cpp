@@ -63,8 +63,6 @@ public:
     );
     MOCK_METHOD(void, octaveDownLive, (), (override));
     MOCK_METHOD(void, octaveUpLive, (), (override));
-    MOCK_METHOD(void, octaveDownLoopSlot, (SlotId), (override));
-    MOCK_METHOD(void, octaveUpLoopSlot, (SlotId), (override));
     MOCK_METHOD(
         void,
         recordNote,
@@ -444,17 +442,12 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
     EXPECT_CALL(armed.output, selectNextLoopSlotSoundFont(selected_slot));
     EXPECT_EQ(armed.fsm.nextSoundFontPressed(), StateId::Armed);
     EXPECT_CALL(armed.output, octaveDownLive());
-    EXPECT_CALL(armed.output, octaveDownLoopSlot(selected_slot));
     EXPECT_EQ(armed.fsm.octaveDownPressed(), StateId::Armed);
 
     Harness armed_selecting;
     armed_selecting.selectMutedSlot();
     armed_selecting.fsm.soundFontByNotePressed();
     EXPECT_CALL(armed_selecting.output, octaveUpLive());
-    EXPECT_CALL(
-        armed_selecting.output,
-        octaveUpLoopSlot(selected_slot)
-    );
     EXPECT_EQ(armed_selecting.fsm.octaveUpPressed(), StateId::Armed);
 
     Harness armed_selecting_next;
