@@ -61,10 +61,8 @@ public:
         (SlotId, int),
         (override)
     );
-    MOCK_METHOD(void, octaveDownLive, (), (override));
-    MOCK_METHOD(void, octaveUpLive, (), (override));
-    MOCK_METHOD(void, octaveDownLoopSlot, (SlotId), (override));
-    MOCK_METHOD(void, octaveUpLoopSlot, (SlotId), (override));
+    MOCK_METHOD(void, octaveDown, (), (override));
+    MOCK_METHOD(void, octaveUp, (), (override));
     MOCK_METHOD(
         void,
         recordNote,
@@ -414,16 +412,16 @@ TEST(LooperFsmTest, RecordingStoresNotesAtClampedElapsedOffsets) {
     EXPECT_EQ(harness.fsm.stateId(), StateId::Recording);
 }
 
-TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
+TEST(LooperFsmTest, OnlySoundFontControlsUseStateSpecificOwners) {
     Harness ready;
     EXPECT_CALL(ready.output, selectNextLiveSoundFont());
     EXPECT_EQ(ready.fsm.nextSoundFontPressed(), StateId::Ready);
-    EXPECT_CALL(ready.output, octaveDownLive());
+    EXPECT_CALL(ready.output, octaveDown());
     EXPECT_EQ(ready.fsm.octaveDownPressed(), StateId::Ready);
 
     Harness selecting;
     selecting.fsm.loopSlotControlPressed(start_time);
-    EXPECT_CALL(selecting.output, octaveUpLive());
+    EXPECT_CALL(selecting.output, octaveUp());
     EXPECT_EQ(selecting.fsm.octaveUpPressed(), StateId::Ready);
 
     Harness selecting_next;
@@ -433,7 +431,7 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
 
     Harness ready_soundfont_selecting;
     ready_soundfont_selecting.fsm.soundFontByNotePressed();
-    EXPECT_CALL(ready_soundfont_selecting.output, octaveUpLive());
+    EXPECT_CALL(ready_soundfont_selecting.output, octaveUp());
     EXPECT_EQ(
         ready_soundfont_selecting.fsm.octaveUpPressed(),
         StateId::Ready
@@ -443,18 +441,13 @@ TEST(LooperFsmTest, SoundFontAndOctaveControlsUseStateSpecificOwners) {
     armed.selectMutedSlot();
     EXPECT_CALL(armed.output, selectNextLoopSlotSoundFont(selected_slot));
     EXPECT_EQ(armed.fsm.nextSoundFontPressed(), StateId::Armed);
-    EXPECT_CALL(armed.output, octaveDownLive());
-    EXPECT_CALL(armed.output, octaveDownLoopSlot(selected_slot));
+    EXPECT_CALL(armed.output, octaveDown());
     EXPECT_EQ(armed.fsm.octaveDownPressed(), StateId::Armed);
 
     Harness armed_selecting;
     armed_selecting.selectMutedSlot();
     armed_selecting.fsm.soundFontByNotePressed();
-    EXPECT_CALL(armed_selecting.output, octaveUpLive());
-    EXPECT_CALL(
-        armed_selecting.output,
-        octaveUpLoopSlot(selected_slot)
-    );
+    EXPECT_CALL(armed_selecting.output, octaveUp());
     EXPECT_EQ(armed_selecting.fsm.octaveUpPressed(), StateId::Armed);
 
     Harness armed_selecting_next;

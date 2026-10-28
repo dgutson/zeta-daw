@@ -68,7 +68,7 @@ common `LoopSlot` operation.
 `LoopSlot` retains every slot-local mechanism currently owned by the concrete
 class. Its `TakePlayer` holds the immutable take, the worker and its dispatch,
 and its `MidiTakeRecorder` records into the group's pending take. Only genuine
-role decisions are virtual. Monitoring, transposition, activation,
+role decisions are virtual. Monitoring, activation,
 deactivation, termination, and worker dispatch remain common nonvirtual
 behavior.
 

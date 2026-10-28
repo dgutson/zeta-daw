@@ -97,8 +97,7 @@ int LoopSlotGroup::monitorMidi(
 
 LoopSlotSelectionResult LoopSlotGroup::requestSelection(
     int key,
-    const SoundFontDefinition& soundfont,
-    const OctaveTransposer& transposer
+    const SoundFontDefinition& soundfont
 ) {
     const auto id = impl_->slots_by_key.at(static_cast<std::size_t>(key));
     if (!id) {
@@ -108,7 +107,6 @@ LoopSlotSelectionResult LoopSlotGroup::requestSelection(
 
     const LoopSlotSelectionContext context{
         .soundfont = soundfont,
-        .transposer = transposer,
         .guide_schedule = impl_->guide().activeSchedule(),
     };
     const auto outcome = impl_->slot(id.value()).selectionRequested(context);
@@ -148,14 +146,6 @@ void LoopSlotGroup::selectSoundFont(
     const SoundFontDefinition& soundfont
 ) {
     impl_->slot(slot).selectSoundFont(soundfont);
-}
-
-void LoopSlotGroup::octaveDown(SlotId slot) {
-    impl_->slot(slot).octaveDown();
-}
-
-void LoopSlotGroup::octaveUp(SlotId slot) {
-    impl_->slot(slot).octaveUp();
 }
 
 void LoopSlotGroup::recordNote(
