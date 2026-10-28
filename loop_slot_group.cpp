@@ -19,9 +19,10 @@ constexpr SlotId guide_slot_id = 0;
 } // namespace
 
 struct LoopSlotGroup::Impl {
+    // Declared first so it outlives the slots, whose recorders refer to it.
+    PendingTake pending_take;
     std::vector<std::unique_ptr<LoopSlot>> slots;
     std::array<std::optional<SlotId>, midi_key_count> slots_by_key{};
-    PendingTake pending_take;
 
     Impl(
         const std::vector<LoopSlotDefinition>& definitions,
@@ -37,6 +38,7 @@ struct LoopSlotGroup::Impl {
             guide_slot_id,
             definitions.front(),
             synth_engine,
+            pending_take,
             output
         );
         addSlot(std::move(guide));
@@ -45,7 +47,8 @@ struct LoopSlotGroup::Impl {
             auto regular = std::make_unique<RegularLoopSlot>(
                 id,
                 definitions[id],
-                synth_engine
+                synth_engine,
+                pending_take
             );
             addSlot(std::move(regular));
         }
@@ -109,9 +112,7 @@ LoopSlotSelectionResult LoopSlotGroup::requestSelection(
         .guide_schedule = impl_->guide().activeSchedule(),
     };
     const auto outcome = impl_->slot(id.value()).selectionRequested(context);
-    if (outcome == LoopSlotSelectionOutcome::Armed) {
-        impl_->pending_take.reset();
-    } else if (outcome == LoopSlotSelectionOutcome::GuideRequired) {
+    if (outcome == LoopSlotSelectionOutcome::GuideRequired) {
         std::cerr << "Loop slot " << id.value() + 1
                   << " requires the guide to be looping.\n";
     } else if (outcome == LoopSlotSelectionOutcome::Stopped) {
@@ -126,24 +127,13 @@ LoopSlotSelectionResult LoopSlotGroup::requestSelection(
 
 void LoopSlotGroup::cancelRecording(SlotId slot) {
     impl_->slot(slot).cancelRecording();
-    impl_->pending_take.reset();
 }
 
 void LoopSlotGroup::completeRecording(
     SlotId slot,
     const TakeTiming& timing
 ) {
-    const auto completion_offset = elapsedMilliseconds(
-        timing.recording_started_at,
-        timing.completed_at
-    );
-    impl_->pending_take.finish(completion_offset);
-    impl_->slot(slot).recordingCompleted(
-        impl_->pending_take.events(),
-        impl_->pending_take.contentDuration(),
-        timing
-    );
-    impl_->pending_take.reset();
+    impl_->slot(slot).recordingCompleted(timing);
 }
 
 void LoopSlotGroup::terminateAll() {
@@ -174,8 +164,7 @@ void LoopSlotGroup::recordNote(
     const MidiMessage& message,
     Milliseconds offset
 ) {
-    const auto transposed = impl_->slot(slot).transpose(message);
-    impl_->pending_take.record(kind, transposed, offset);
+    impl_->slot(slot).recordNote(kind, message, offset);
 }
 
 void LoopSlotGroup::stopDependentSlots() {
