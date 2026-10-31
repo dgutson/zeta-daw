@@ -31,7 +31,6 @@ using zeta::LooperClock;
 using zeta::Milliseconds;
 using zeta::MidiMessage;
 using zeta::MidiMessageType;
-using zeta::OctaveTransposer;
 using zeta::RecordedNoteKind;
 using zeta::SlotId;
 using zeta::SoundFontDefinition;
@@ -44,14 +43,12 @@ constexpr int direct_guide_key = 72;
 void completeDirectGuide(
     LoopSlotGroup& slots,
     const SoundFontDefinition& soundfont,
-    const OctaveTransposer& transposer,
     TimePoint first_cycle_at,
     Milliseconds period
 ) {
     const auto guide = slots.requestSelection(
         first_slot_key,
-        soundfont,
-        transposer
+        soundfont
     );
     ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(
@@ -123,7 +120,6 @@ TEST_F(LoopSlotGroupTest, LateDependentDispatchKeepsNextGuideDeadline) {
     auto config = testConfig();
     SynthEngine synth_engine{config};
     LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
     const auto& soundfont = config.soundfonts.front();
     const MidiMessage note_on{
         .raw_type = raw(MidiMessageType::NoteOn),
@@ -142,8 +138,7 @@ TEST_F(LoopSlotGroupTest, LateDependentDispatchKeepsNextGuideDeadline) {
 
     const auto guide = slots.requestSelection(
         first_slot_key,
-        soundfont,
-        transposer
+        soundfont
     );
     ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(guide.id, RecordedNoteKind::NoteOn, note_on, 0ms);
@@ -155,8 +150,7 @@ TEST_F(LoopSlotGroupTest, LateDependentDispatchKeepsNextGuideDeadline) {
 
     const auto dependent = slots.requestSelection(
         second_slot_key,
-        soundfont,
-        transposer
+        soundfont
     );
     ASSERT_EQ(dependent.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(dependent.id, RecordedNoteKind::NoteOn, note_on, 0ms);
@@ -177,7 +171,6 @@ TEST_F(
     auto config = testConfig();
     SynthEngine synth_engine{config};
     LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
     const auto& soundfont = config.soundfonts.front();
 
     constexpr auto guide_period = 400ms;
@@ -188,15 +181,13 @@ TEST_F(
     completeDirectGuide(
         slots,
         soundfont,
-        transposer,
         completed_at - guide_period / 2,
         guide_period
     );
 
     const auto regular = slots.requestSelection(
         second_slot_key,
-        soundfont,
-        transposer
+        soundfont
     );
     ASSERT_EQ(regular.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(
@@ -246,7 +237,6 @@ TEST_F(LoopSlotGroupTest, RegularWaitsWhenCurrentRepetitionEventsArePast) {
     auto config = testConfig();
     SynthEngine synth_engine{config};
     LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
     const auto& soundfont = config.soundfonts.front();
 
     constexpr auto guide_period = 400ms;
@@ -257,15 +247,13 @@ TEST_F(LoopSlotGroupTest, RegularWaitsWhenCurrentRepetitionEventsArePast) {
     completeDirectGuide(
         slots,
         soundfont,
-        transposer,
         completed_at - guide_period / 2,
         guide_period
     );
 
     const auto regular = slots.requestSelection(
         second_slot_key,
-        soundfont,
-        transposer
+        soundfont
     );
     ASSERT_EQ(regular.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(
@@ -302,12 +290,10 @@ TEST_F(
     auto config = testConfig();
     SynthEngine synth_engine{config};
     LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
 
     const auto guide = slots.requestSelection(
         first_slot_key,
-        config.soundfonts.front(),
-        transposer
+        config.soundfonts.front()
     );
     ASSERT_EQ(guide.outcome, LoopSlotSelectionOutcome::Armed);
     slots.recordNote(
@@ -344,13 +330,11 @@ TEST_F(LoopSlotGroupTest, ZeroLengthGuideTakeLoopsSilentlyUntilStopped) {
     auto config = testConfig();
     SynthEngine synth_engine{config};
     LoopSlotGroup slots{config.loop_slots, synth_engine};
-    OctaveTransposer transposer;
     const auto& soundfont = config.soundfonts.front();
 
     completeDirectGuide(
         slots,
         soundfont,
-        transposer,
         LooperClock::now(),
         Milliseconds::zero()
     );
@@ -364,11 +348,11 @@ TEST_F(LoopSlotGroupTest, ZeroLengthGuideTakeLoopsSilentlyUntilStopped) {
         silence_wait
     ));
     EXPECT_EQ(
-        slots.requestSelection(second_slot_key, soundfont, transposer).outcome,
+        slots.requestSelection(second_slot_key, soundfont).outcome,
         LoopSlotSelectionOutcome::GuideRequired
     );
     EXPECT_EQ(
-        slots.requestSelection(first_slot_key, soundfont, transposer).outcome,
+        slots.requestSelection(first_slot_key, soundfont).outcome,
         LoopSlotSelectionOutcome::Stopped
     );
 
@@ -376,7 +360,6 @@ TEST_F(LoopSlotGroupTest, ZeroLengthGuideTakeLoopsSilentlyUntilStopped) {
     completeDirectGuide(
         slots,
         soundfont,
-        transposer,
         LooperClock::now(),
         guide_period
     );
@@ -684,8 +667,7 @@ private:
     LoopSlotSelectionOutcome select(SlotId slot) {
         return slots_.requestSelection(
             config_.loop_slots[slot].key,
-            config_.soundfonts.front(),
-            transposer_
+            config_.soundfonts.front()
         ).outcome;
     }
 
@@ -724,7 +706,6 @@ private:
     ApplicationConfig config_;
     SynthEngine synth_engine_;
     LoopSlotGroup slots_;
-    OctaveTransposer transposer_;
     std::vector<StoppedTake> stopped_takes_;
 };
 

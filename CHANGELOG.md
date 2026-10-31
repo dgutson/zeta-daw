@@ -93,6 +93,21 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `Application` transposes each note once, before it is monitored or
+  recorded, and loop slots keep no octave of their own. Octave controls
+  behave as before: while a slot is armed they change the octave of the
+  notes it records, and a looping slot keeps the pitch it was recorded at.
+
+- Each loop slot's take is handled by two classes the slot owns.
+  `TakePlayer` (`take_player.{hpp,cpp}`) holds the committed take, the
+  playback worker and MIDI dispatch, and implements the slot playback FSM's
+  output interface. `MidiTakeRecorder` (`midi_take_recorder.{hpp,cpp}`)
+  records notes into the group-owned `PendingTake`, finishes and discards that
+  take, and selects the locked program when a take completes. `LoopSlotGroup`
+  forwards recording, completion and cancel to the slot. Recording and
+  playback behave as before, including the FluidSynth calls on each slot
+  channel and their order. `loop-slot-classes.md` shows the loop-slot classes
+  as a Mermaid class diagram.
 - `tests/audio_evidence.sh run` prints one line per run, with its result,
   CPU use and the expected end of the remaining runs, and appends them to
   `build-audio/audio_evidence/progress.log`. The build's and each run's

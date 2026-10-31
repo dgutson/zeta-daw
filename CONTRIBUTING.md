@@ -62,6 +62,9 @@ The [runtime sequence diagram](runtime-sequence.puml) expands this overview
 with process startup, MIDI port lifecycle and callback routing, FSM output
 calls, recording, per-slot playback workers, and orderly shutdown.
 
+The [loop-slot class diagram](loop-slot-classes.md) shows how the loop-slot
+classes own and call each other.
+
 The main layers and ownership boundaries are:
 
 - `main.cpp` loads configuration, owns process signal handling, constructs the
@@ -89,17 +92,25 @@ The main layers and ownership boundaries are:
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism and its final guide and
   regular role implementations. Every slot encapsulates its identity, key,
-  FluidSynth channel, locked SoundFont/octave state, immutable committed take,
-  subordinate playback FSM, synchronization, and eagerly created worker. Role
-  commands perform their own behavior; callers do not query role predicates.
+  FluidSynth channel, locked SoundFont, subordinate playback FSM,
+  one `TakePlayer`, and one `MidiTakeRecorder`. Role commands perform their
+  own behavior; callers do not query role predicates.
+- `take_player.*` owns one slot's immutable committed MIDI take and its
+  playback: the eagerly created worker, the generation counter and condition
+  variable that interrupt it, dispatch at absolute deadlines, and silencing of
+  the slot channel.
+- `midi_take_recorder.*` records one slot's MIDI notes into the group-owned
+  `PendingTake`, finishes that take when recording completes, discards it when
+  the slot arms, cancels, or completes, and selects the slot's locked program
+  before its playback starts.
 - `loop_timing.*` constructs immutable guide and regular playback schedules,
   including the one-time regular first-cycle join point, as pure domain
   arithmetic independent of workers, MIDI, and FluidSynth.
 - `pending_take.*` owns bounded in-progress events and accepted held-note state,
   including release synthesis and musical-content duration at completion.
-- `octave_transposer.*` owns octave bounds and arithmetic transposition for one
-  MIDI route. `Application` owns the live instance and each `LoopSlot` owns its
-  independent recorded route.
+- `octave_transposer.*` owns octave bounds and arithmetic transposition.
+  `Application` owns the one instance and transposes each note before it is
+  monitored or recorded, so loop slots receive notes already transposed.
 - `soundfont_selector.*` owns the ordered SoundFont selection, its current
   entry, and the bounded physical-key lookup shared by sequential and direct
   selection. It has no synthesizer or MIDI-channel responsibility.
@@ -163,7 +174,7 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
   controls affect the live route.
 - `ReadySelectingLoopSlot`: the next positive-velocity Note On is matched by
   raw key and consumed regardless of incoming channel. Selecting the Muted
-  guide clears its old take, snapshots the live SoundFont/octave into it,
+  guide clears its old take, snapshots the live SoundFont into it,
   installs its `SlotId` as the sole recording slot, and enters `Armed`. A Muted
   regular slot does the same only while the guide is Looping; otherwise the
   selection is rejected and the master returns to `Ready`. Selecting a Looping
@@ -198,8 +209,8 @@ dependent stop. Muted means only not currently playing and never means
 resumable.
 
 Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1.
-Recorded notes retain velocity and store the key produced by that slot's
-transposer. Once recording starts, the slot's SoundFont and octave are locked.
+Recorded notes retain velocity and store the transposed key. Once recording
+starts, the slot's SoundFont and the octave are locked.
 Completing or canceling adopts the current selection for live output, while
 already looping slots retain their own locked selection.
 
@@ -228,9 +239,9 @@ Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
-Arming snapshots the current live transposition into the selected slot.
-Changes while Armed update both the live and pending route; later live changes
-do not affect any already looping slot.
+One transposition applies to every note the performer plays, live or into the
+armed slot, so changes while Armed apply to both; later changes do not affect
+any already looping slot.
 Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.
@@ -331,9 +342,9 @@ required version is 8.
   so a take can be interrupted without polling, whole-cycle sleeps, or waiting
   for another loop boundary. Repetition deadlines advance from the immutable
   absolute schedule, never from the worker's wake time.
-- `LoopSlotGroup` records into the sole `PendingTake`. Completion gives the
-  selected worker one immutable snapshot; recording and playback never share a
-  mutable event vector.
+- The selected slot's `MidiTakeRecorder` records into the group's sole
+  `PendingTake`. Completion gives the selected worker one immutable snapshot;
+  recording and playback never share a mutable event vector.
 - `PendingTake` preserves the fixed event bound while reserving one closure
   event for every accepted held note. It performs no recording-path allocation.
 - A slot does not hold its command mutex while calling the narrow group output;
