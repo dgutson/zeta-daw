@@ -53,10 +53,8 @@ private:
     void selectLiveSoundFontByNote(int key) override;
     void selectLoopSlotSoundFontByNote(SlotId slot, int key) override;
 
-    void octaveDownLive() override;
-    void octaveUpLive() override;
-    void octaveDownLoopSlot(SlotId slot) override;
-    void octaveUpLoopSlot(SlotId slot) override;
+    void octaveDown() override;
+    void octaveUp() override;
 
     void recordNote(
         SlotId slot,

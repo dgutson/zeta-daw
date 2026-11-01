@@ -47,7 +47,9 @@ LoopSlotGroup : LoopSlotGroupOutput
   +-- RegularLoopSlot : LoopSlot ...
 
 LoopSlot
-  | one identity, channel, route, immutable take, playback FSM, worker
+  | one identity, channel, route, playback FSM
+  +-- TakePlayer: immutable take, worker
+  +-- MidiTakeRecorder: recording into the pending take
   v
 SynthEngine
 ```
@@ -64,9 +66,11 @@ class pointer or stable index, then obtains its active schedule only through a
 common `LoopSlot` operation.
 
 `LoopSlot` retains every slot-local mechanism currently owned by the concrete
-class. Only genuine role decisions are virtual. Monitoring, transposition,
-activation, deactivation, termination, and worker dispatch remain common
-nonvirtual behavior.
+class. Its `TakePlayer` holds the immutable take, the worker and its dispatch,
+and its `MidiTakeRecorder` records into the group's pending take. Only genuine
+role decisions are virtual. Monitoring, activation,
+deactivation, termination, and worker dispatch remain common nonvirtual
+behavior.
 
 ## Command-oriented slot behavior
 
@@ -92,10 +96,10 @@ not an ask-then-act protocol.
   schedule. Otherwise it snapshots that immutable schedule as prepared-take
   metadata and arms through the common mechanism. When selected while Looping,
   it deactivates itself directly.
-- Recording completion is also a command. The group finalizes its pending take
-  and tells the selected slot to complete recording. The derived slot constructs
-  the correct schedule; the common base commits, silences the monitored route,
-  and activates playback.
+- Recording completion is also a command. The group tells the selected slot to
+  complete recording, and the slot's recorder finalizes the group's pending
+  take. The derived slot constructs the correct schedule; the common base
+  commits, silences the monitored route, and activates playback.
 
 The narrow cross-slot output alphabet is:
 

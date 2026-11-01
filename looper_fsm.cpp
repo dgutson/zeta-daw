@@ -48,12 +48,12 @@ public:
     }
 
     StateId octaveDownPressed() const override {
-        output_.octaveDownLive();
+        output_.octaveDown();
         return StateId::Ready;
     }
 
     StateId octaveUpPressed() const override {
-        output_.octaveUpLive();
+        output_.octaveUp();
         return StateId::Ready;
     }
 
@@ -157,14 +157,12 @@ public:
     }
 
     StateId octaveDownPressed() const override {
-        output_.octaveDownLive();
-        output_.octaveDownLoopSlot(selectedRecordingSlot());
+        output_.octaveDown();
         return StateId::Armed;
     }
 
     StateId octaveUpPressed() const override {
-        output_.octaveUpLive();
-        output_.octaveUpLoopSlot(selectedRecordingSlot());
+        output_.octaveUp();
         return StateId::Armed;
     }
 
