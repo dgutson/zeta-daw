@@ -1,5 +1,6 @@
 #include "application.hpp"
 #include "configuration.hpp"
+#include "midi_input.hpp"
 #include "screen_lock_inhibitor.hpp"
 
 #include <exception>
@@ -43,7 +44,7 @@ int main(int argc, char** argv) {
         // silenced every note.
         const zeta::ScreenLockInhibitor screen_lock{std::cerr};
 
-        zeta::Application app{std::move(config)};
+        zeta::Application app{std::move(config), zeta::makeMidiInput()};
         std::jthread signal_waiter([&app, shutdown_signals](
             const std::stop_token& stop
         ) {

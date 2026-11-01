@@ -77,9 +77,6 @@ struct Application::Impl {
     }
 };
 
-Application::Application(ApplicationConfig config)
-    : Application(std::move(config), makeMidiInput()) {}
-
 Application::Application(
     ApplicationConfig config,
     std::unique_ptr<MidiInput> midi_input
