@@ -1,3 +1,4 @@
+#include "../midi_decoder.hpp"
 #include "../midi_event.hpp"
 
 #include <gtest/gtest.h>

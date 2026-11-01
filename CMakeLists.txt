@@ -191,6 +191,7 @@ add_executable(
     looper_fsm.cpp
     midi_control_binding.cpp
     midi_control_change_mapping.cpp
+    midi_decoder.cpp
     midi_event.cpp
     midi_input.cpp
     midi_take_recorder.cpp
@@ -305,6 +306,7 @@ if(BUILD_TESTING)
         looper_fsm.cpp
         midi_control_binding.cpp
         midi_control_change_mapping.cpp
+        midi_decoder.cpp
         midi_event.cpp
         midi_input.cpp
         midi_take_recorder.cpp
@@ -446,6 +448,7 @@ if(BUILD_TESTING)
     add_executable(
         midi_tests
         tests/midi_event_test.cpp
+        midi_decoder.cpp
         midi_event.cpp
     )
     target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)

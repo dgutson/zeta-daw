@@ -1,5 +1,7 @@
 #include "midi_input.hpp"
 
+#include "midi_decoder.hpp"
+
 #include <libremidi/libremidi.hpp>
 
 #include <algorithm>
