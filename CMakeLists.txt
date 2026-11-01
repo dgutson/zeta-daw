@@ -189,6 +189,7 @@ add_executable(
     loop_slot_group.cpp
     loop_timing.cpp
     looper_fsm.cpp
+    midi_control_binding.cpp
     midi_control_change_mapping.cpp
     midi_event.cpp
     midi_input.cpp
@@ -227,7 +228,7 @@ if(ZETA_MIDI_TRACE)
     target_compile_definitions(zd PRIVATE ZETA_MIDI_TRACE)
 endif()
 
-add_executable(zfont zfont.cpp configuration.cpp)
+add_executable(zfont zfont.cpp configuration.cpp midi_control_binding.cpp)
 target_link_libraries(
     zfont
     PRIVATE
@@ -236,7 +237,7 @@ target_link_libraries(
 )
 target_compile_options(zfont PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(zsoundtest sound_test.cpp configuration.cpp)
+add_executable(zsoundtest sound_test.cpp configuration.cpp midi_control_binding.cpp)
 target_link_libraries(
     zsoundtest
     PRIVATE
@@ -302,6 +303,7 @@ if(BUILD_TESTING)
         loop_slot_group.cpp
         loop_timing.cpp
         looper_fsm.cpp
+        midi_control_binding.cpp
         midi_control_change_mapping.cpp
         midi_event.cpp
         midi_input.cpp
@@ -367,6 +369,7 @@ if(BUILD_TESTING)
         configuration_tests
         tests/configuration_test.cpp
         configuration.cpp
+        midi_control_binding.cpp
     )
     target_compile_options(configuration_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(
