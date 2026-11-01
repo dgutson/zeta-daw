@@ -123,6 +123,13 @@ schema_version: 8
 loop_slots:
   - C2
   - D2
+  # An optional audio slot, described under "Audio slots" below.
+  # - { key: E2, type: audio }
+
+# Required when a loop slot has type audio, and rejected otherwise.
+# audio_input:
+#   device: plughw:CARD=Device,DEV=0
+#   period_size: 256
 
 midi_control_change_mappings:
   - source_port: "SE49 MIDI2"
@@ -275,10 +282,12 @@ loop count, and service limits intended for performance.
 ### Loop slots
 
 `loop_slots` is an ordered, non-empty catalog of physical note names using the
-same convention described below for direct SoundFont selection. The first
-entry is the guide and every later entry is a regular slot. Catalog order
-defines the stable loop-slot identity; live output uses FluidSynth channel 0
-and loop slots use independent channels starting at 1.
+same convention described below for direct SoundFont selection. A note name
+makes a MIDI slot, which records the notes played; the mapping form described
+under "Audio slots" below can also make an audio slot. The first entry is the
+guide and every later entry is a regular slot. Catalog order defines the
+stable loop-slot identity; live output uses FluidSynth channel 0 and loop
+slots use independent channels starting at 1.
 
 Press `controls.loop_slot_by_note`, then a slot key. Selection uses the raw key
 before Zeta octave transposition and ignores incoming MIDI channel. The note is
@@ -305,6 +314,42 @@ the Looping guide stops and discards every regular slot first, then the guide;
 a replacement guide establishes a new timeline. Slots remain unquantized
 within the guide cycle: synchronization preserves the musician's recorded
 phase rather than snapping notes to a beat grid.
+
+### Audio slots
+
+An audio slot is selected, armed, completed and stopped like a MIDI slot, but
+it records the audio input from the first note played after arming until the
+completion control. A `loop_slots` entry may be a mapping with the note name
+as `key` and an optional `type`: `midi`, the default, or `audio`. The guide,
+the first entry, must be MIDI.
+
+```yaml
+loop_slots:
+  - C2
+  - { key: D2, type: audio }
+
+audio_input:
+  device: plughw:CARD=Device,DEV=0
+  period_size: 256
+```
+
+`audio_input` is required when a slot is audio and rejected otherwise:
+
+- `device`: a non-empty ALSA capture PCM device string
+- `period_size`: optional frames per capture read from `64` through `8192`;
+  the default is `256`
+
+List capture cards and PCM device names:
+
+```bash
+arecord -l
+arecord -L
+```
+
+As for the output device, prefer the named `plughw:CARD=Device,DEV=0` form
+with the card ID that `arecord -L` reports. `plughw` converts the card's
+format and rate to the 16-bit mono stream at FluidSynth's sample rate that
+Zeta records; `hw` succeeds only when the card supports that stream exactly.
 
 ### SoundFonts
 

@@ -22,9 +22,9 @@ enum class StateId : std::uint8_t {
     Ready,
     ReadySelectingLoopSlot,
     ReadySelectingSoundFont,
-    Armed,
-    ArmedSelectingSoundFont,
-    Recording,
+    ArmedMidi,
+    ArmedMidiSelectingSoundFont,
+    RecordingMidi,
     Stopped,
     Count,
 };
@@ -63,7 +63,7 @@ public:
 
     virtual LoopSlotSelectionResult requestLoopSlotSelection(int key) = 0;
     virtual void cancelLoopSlotRecording(SlotId slot) = 0;
-    virtual void completeLoopSlotRecording(
+    virtual void completeMidiTake(
         SlotId slot,
         const TakeTiming& timing
     ) = 0;

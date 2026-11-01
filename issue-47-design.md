@@ -9,9 +9,9 @@ take rule, or the dedicated worker owned by each slot.
 
 The ordinal first configured slot is the guide. Every later slot is regular and
 depends on the active guide. Concrete role assignment happens once while the
-slot group is constructed. Runtime coordination uses the common `LoopSlot`
-interface; it must not use subtype tests, `dynamic_cast`, or guide-specific
-accessors.
+slot group is constructed. Runtime coordination uses the common
+`MidiLoopSlot` interface; it must not use subtype tests, `dynamic_cast`, or
+guide-specific accessors.
 
 ## User-visible contract
 
@@ -43,13 +43,16 @@ Application
   v
 LoopSlotGroup : LoopSlotGroupOutput
   | ordered aggregate, raw-key lookup, guide invariant, pending take
-  +-- GuideLoopSlot : LoopSlot
-  +-- RegularLoopSlot : LoopSlot ...
+  +-- GuideLoopSlot : MidiLoopSlot
+  +-- RegularLoopSlot : MidiLoopSlot ...
+
+MidiLoopSlot : LoopSlot
+  | MIDI note recording into the group's pending take
+  +-- MidiTakeRecorder
 
 LoopSlot
   | one identity, channel, route, playback FSM
   +-- TakePlayer: immutable take, worker
-  +-- MidiTakeRecorder: recording into the pending take
   v
 SynthEngine
 ```
@@ -65,12 +68,11 @@ creates `GuideLoopSlot` for the first configured definition and
 class pointer or stable index, then obtains its active schedule only through a
 common `LoopSlot` operation.
 
-`LoopSlot` retains every slot-local mechanism currently owned by the concrete
-class. Its `TakePlayer` holds the immutable take, the worker and its dispatch,
-and its `MidiTakeRecorder` records into the group's pending take. Only genuine
-role decisions are virtual. Monitoring, activation,
-deactivation, termination, and worker dispatch remain common nonvirtual
-behavior.
+`LoopSlot` retains every slot-local mechanism except recording, which
+`MidiLoopSlot` adds through its `MidiTakeRecorder`. Its `TakePlayer` holds the
+immutable take, the worker and its dispatch. Only genuine role decisions are
+virtual. Monitoring, activation, deactivation, termination, and worker dispatch
+remain common nonvirtual behavior.
 
 ## Command-oriented slot behavior
 
@@ -97,9 +99,10 @@ not an ask-then-act protocol.
   metadata and arms through the common mechanism. When selected while Looping,
   it deactivates itself directly.
 - Recording completion is also a command. The group tells the selected slot to
-  complete recording, and the slot's recorder finalizes the group's pending
-  take. The derived slot constructs the correct schedule; the common base
-  commits, silences the monitored route, and activates playback.
+  complete its MIDI take, and the slot's recorder finalizes and then discards
+  the group's pending take. The derived slot constructs the correct schedule;
+  the common base commits, silences the monitored route, and activates
+  playback.
 
 The narrow cross-slot output alphabet is:
 

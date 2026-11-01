@@ -41,7 +41,7 @@ private:
 
     LoopSlotSelectionResult requestLoopSlotSelection(int key) override;
     void cancelLoopSlotRecording(SlotId slot) override;
-    void completeLoopSlotRecording(
+    void completeMidiTake(
         SlotId slot,
         const TakeTiming& timing
     ) override;

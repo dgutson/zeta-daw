@@ -233,11 +233,11 @@ void Application::cancelLoopSlotRecording(SlotId slot) {
     impl_->loop_slots.cancelRecording(slot);
 }
 
-void Application::completeLoopSlotRecording(
+void Application::completeMidiTake(
     SlotId slot,
     const TakeTiming& timing
 ) {
-    impl_->loop_slots.completeRecording(slot, timing);
+    impl_->loop_slots.completeMidiTake(slot, timing);
 }
 
 void Application::terminateLoopSlots() {

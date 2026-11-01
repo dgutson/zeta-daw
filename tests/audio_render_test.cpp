@@ -86,6 +86,7 @@ zeta::ApplicationConfig renderConfig() {
     const std::filesystem::path soundfont = ZETA_AUDIO_SOUNDFONT;
     zeta::ApplicationConfig config{
         .audio = {},
+        .audio_input = std::nullopt,
         .loop_slots = {{.key = audio_performance::guide_slot_key}, {.key = audio_performance::regular_slot_key}},
         .soundfonts = {
             // FM Electric Bass and Oink Grind.

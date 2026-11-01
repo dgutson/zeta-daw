@@ -1,5 +1,6 @@
 #pragma once
 
+#include "loop_slot_medium.hpp"
 #include "midi_control_change_mapping.hpp"
 #include "midi_event.hpp"
 
@@ -41,6 +42,7 @@ struct SoundFontDefinition {
 
 struct LoopSlotDefinition {
     int key{};
+    LoopSlotMedium medium{LoopSlotMedium::Midi};
 };
 
 struct AudioConfig {
@@ -53,8 +55,16 @@ struct AudioConfig {
     std::optional<int> periods;
 };
 
+struct AudioInputConfig {
+    static constexpr int default_period_size = 256;
+
+    std::string device;
+    int period_size{default_period_size};
+};
+
 struct ApplicationConfig {
     AudioConfig audio;
+    std::optional<AudioInputConfig> audio_input;
     std::vector<LoopSlotDefinition> loop_slots;
     std::vector<SoundFontDefinition> soundfonts;
     std::vector<MidiControlChangeMapping> midi_control_change_mappings;

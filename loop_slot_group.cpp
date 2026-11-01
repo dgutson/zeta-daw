@@ -1,5 +1,6 @@
 #include "loop_slot_group.hpp"
 
+#include "midi_loop_slot.hpp"
 #include "pending_take.hpp"
 #include "synth_engine.hpp"
 
@@ -21,7 +22,7 @@ constexpr SlotId guide_slot_id = 0;
 struct LoopSlotGroup::Impl {
     // Declared first so it outlives the slots, whose recorders refer to it.
     PendingTake pending_take;
-    std::vector<std::unique_ptr<LoopSlot>> slots;
+    std::vector<std::unique_ptr<MidiLoopSlot>> slots;
     std::array<std::optional<SlotId>, midi_key_count> slots_by_key{};
 
     Impl(
@@ -54,16 +55,16 @@ struct LoopSlotGroup::Impl {
         }
     }
 
-    void addSlot(std::unique_ptr<LoopSlot> slot) {
+    void addSlot(std::unique_ptr<MidiLoopSlot> slot) {
         slots_by_key[static_cast<std::size_t>(slot->selectionKey())] = slot->id();
         slots.push_back(std::move(slot));
     }
 
-    LoopSlot& slot(SlotId id) {
+    MidiLoopSlot& slot(SlotId id) {
         return *slots.at(id);
     }
 
-    const LoopSlot& slot(SlotId id) const {
+    const MidiLoopSlot& slot(SlotId id) const {
         return *slots.at(id);
     }
 
@@ -127,11 +128,11 @@ void LoopSlotGroup::cancelRecording(SlotId slot) {
     impl_->slot(slot).cancelRecording();
 }
 
-void LoopSlotGroup::completeRecording(
+void LoopSlotGroup::completeMidiTake(
     SlotId slot,
     const TakeTiming& timing
 ) {
-    impl_->slot(slot).recordingCompleted(timing);
+    impl_->slot(slot).complete(timing);
 }
 
 void LoopSlotGroup::terminateAll() {

@@ -14,7 +14,7 @@ classDiagram
         +monitorMidi(slot, message) int
         +requestSelection(key, soundfont) LoopSlotSelectionResult
         +cancelRecording(slot)
-        +completeRecording(slot, timing)
+        +completeMidiTake(slot, timing)
         +terminateAll()
         +selectSoundFont(slot, soundfont)
         +recordNote(slot, kind, message, offset)
@@ -28,15 +28,13 @@ classDiagram
 
     class LoopSlot {
         <<abstract>>
-        #LoopSlot(id, definition, synth_engine, pending_take)
+        #LoopSlot(id, definition, synth_engine)
         +id() SlotId
         +selectionKey() int
         +channel() int
         +activeSchedule() optional~LoopPlaybackSchedule~
         +selectionRequested(context) LoopSlotSelectionOutcome
         +cancelRecording()
-        +recordNote(kind, message, offset)
-        +recordingCompleted(timing)
         +selectSoundFont(soundfont)
         +monitorMidi(message) int
         +deactivate()
@@ -45,6 +43,14 @@ classDiagram
         #onLoopingSelection()*
         #makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule*
         #arm(context, guide) LoopSlotSelectionOutcome
+        #completeTake(timing, take)
+    }
+
+    class MidiLoopSlot {
+        <<abstract>>
+        #MidiLoopSlot(id, definition, synth_engine, pending_take)
+        +recordNote(kind, message, offset)
+        +complete(timing)
     }
 
     class GuideLoopSlot {
@@ -87,11 +93,10 @@ classDiagram
     }
 
     class MidiTakeRecorder {
-        +MidiTakeRecorder(pending_take, synth_engine, channel)
+        +MidiTakeRecorder(pending_take)
         +discardTake()
         +record(kind, message, offset)
         +finishTake(timing) FinishedTake
-        +selectProgram(soundfont)
     }
 
     class FinishedTake {
@@ -118,13 +123,14 @@ classDiagram
     }
 
     LoopSlotGroupOutput <|.. LoopSlotGroup
-    LoopSlotGroup "1" *-- "1..*" LoopSlot : slots, guide first
+    LoopSlotGroup "1" *-- "1..*" MidiLoopSlot : slots, guide first
     LoopSlotGroup *-- PendingTake : pending_take, outlives the slots
-    LoopSlot <|-- GuideLoopSlot
-    LoopSlot <|-- RegularLoopSlot
+    LoopSlot <|-- MidiLoopSlot
+    MidiLoopSlot <|-- GuideLoopSlot
+    MidiLoopSlot <|-- RegularLoopSlot
     GuideLoopSlot --> LoopSlotGroupOutput : stops dependent slots
     LoopSlot *-- TakePlayer : player_
-    LoopSlot *-- MidiTakeRecorder : recorder_
+    MidiLoopSlot *-- MidiTakeRecorder : recorder_
     MidiTakeRecorder --> PendingTake : records into, finishes, resets
     MidiTakeRecorder ..> FinishedTake : returns
     LoopSlot *-- LoopSlotPlaybackFsm : playback_fsm_
@@ -132,7 +138,6 @@ classDiagram
     LoopSlotPlaybackOutput <|.. TakePlayer
     LoopSlot --> SynthEngine : selects SoundFont, monitors MIDI
     TakePlayer --> SynthEngine : plays notes, silences channel
-    MidiTakeRecorder --> SynthEngine : selects locked SoundFont
 
     note for TakePlayer "public methods: called only by LoopSlot<br>private overrides: called only by LoopSlotPlaybackFsm"
 ```

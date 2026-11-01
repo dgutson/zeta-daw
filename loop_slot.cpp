@@ -3,6 +3,7 @@
 #include "synth_engine.hpp"
 
 #include <stdexcept>
+#include <utility>
 
 namespace zeta {
 namespace {
@@ -14,15 +15,13 @@ constexpr int first_loop_slot_channel = 1;
 LoopSlot::LoopSlot(
     SlotId id,
     const LoopSlotDefinition& definition,
-    SynthEngine& synth_engine,
-    PendingTake& pending_take
+    SynthEngine& synth_engine
 )
     : id_(id),
       selection_key_(definition.key),
       channel_(first_loop_slot_channel + static_cast<int>(id)),
       synth_engine_(synth_engine),
       player_(synth_engine, id, channel_),
-      recorder_(pending_take, synth_engine, channel_),
       playback_fsm_(player_) {}
 
 LoopSlot::~LoopSlot() {
@@ -77,7 +76,6 @@ LoopSlotSelectionOutcome LoopSlot::arm(
     }
 
     player_.invalidateAndSilence();
-    recorder_.discardTake();
     soundfont_ = &context.soundfont;
     prepared_guide_ = guide;
     synth_engine_.select(context.soundfont, channel_);
@@ -91,18 +89,9 @@ void LoopSlot::cancelRecording() {
     }
     prepared_guide_.reset();
     player_.invalidateAndSilence();
-    recorder_.discardTake();
 }
 
-void LoopSlot::recordNote(
-    RecordedNoteKind kind,
-    const MidiMessage& message,
-    Milliseconds offset
-) {
-    recorder_.record(kind, message, offset);
-}
-
-void LoopSlot::recordingCompleted(const TakeTiming& timing) {
+void LoopSlot::completeTake(const TakeTiming& timing, FinishedTake take) {
     std::lock_guard command_lock(command_mutex_);
     if (playback_fsm_.state() != LoopSlotPlaybackState::Muted) {
         throw std::logic_error("Only a muted loop slot can complete recording");
@@ -111,15 +100,13 @@ void LoopSlot::recordingCompleted(const TakeTiming& timing) {
         throw std::logic_error("Cannot complete an unconfigured loop slot");
     }
 
-    const auto take = recorder_.finishTake(timing);
     player_.commitTake(
-        take.events,
+        std::move(take.events),
         makeSchedule(timing, take.content_duration, prepared_guide_)
     );
     prepared_guide_.reset();
-    recorder_.selectProgram(*soundfont_);
+    synth_engine_.select(*soundfont_, channel_);
     playback_fsm_.startRequested();
-    recorder_.discardTake();
 }
 
 void LoopSlot::selectSoundFont(const SoundFontDefinition& soundfont) {
@@ -140,68 +127,6 @@ void LoopSlot::deactivate() {
 void LoopSlot::terminationRequested() {
     std::lock_guard lock(command_mutex_);
     playback_fsm_.terminationRequested();
-}
-
-GuideLoopSlot::GuideLoopSlot(
-    SlotId id,
-    const LoopSlotDefinition& definition,
-    SynthEngine& synth_engine,
-    PendingTake& pending_take,
-    LoopSlotGroupOutput& output
-) : LoopSlot(id, definition, synth_engine, pending_take), output_(output) {}
-
-LoopSlotSelectionOutcome GuideLoopSlot::onMutedSelection(
-    const LoopSlotSelectionContext& context
-) {
-    return arm(context, std::nullopt);
-}
-
-void GuideLoopSlot::onLoopingSelection() {
-    output_.stopDependentSlots();
-    deactivate();
-}
-
-LoopPlaybackSchedule GuideLoopSlot::makeSchedule(
-    const TakeTiming& timing,
-    Milliseconds,
-    const std::optional<LoopPlaybackSchedule>&
-) const {
-    return LoopPlaybackSchedule::forGuide(timing);
-}
-
-RegularLoopSlot::RegularLoopSlot(
-    SlotId id,
-    const LoopSlotDefinition& definition,
-    SynthEngine& synth_engine,
-    PendingTake& pending_take
-) : LoopSlot(id, definition, synth_engine, pending_take) {}
-
-LoopSlotSelectionOutcome RegularLoopSlot::onMutedSelection(
-    const LoopSlotSelectionContext& context
-) {
-    if (!context.guide_schedule) {
-        return LoopSlotSelectionOutcome::GuideRequired;
-    }
-    return arm(context, context.guide_schedule);
-}
-
-void RegularLoopSlot::onLoopingSelection() {
-    deactivate();
-}
-
-LoopPlaybackSchedule RegularLoopSlot::makeSchedule(
-    const TakeTiming& timing,
-    Milliseconds content_duration,
-    const std::optional<LoopPlaybackSchedule>& guide
-) const {
-    if (!guide) {
-        throw std::logic_error("Regular slot recording has no guide schedule");
-    }
-    return LoopPlaybackSchedule::forRegular(
-        timing,
-        content_duration,
-        guide.value()
-    );
 }
 
 } // namespace zeta

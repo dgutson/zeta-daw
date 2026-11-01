@@ -6,6 +6,12 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added audio loop slots to the configuration. A `loop_slots` entry may be a
+  mapping with the note name as `key` and an optional `type`, `midi` (the
+  default) or `audio`; the first slot must be MIDI. The `audio_input` section,
+  required exactly when a slot is audio, names the ALSA capture device and an
+  optional period size from 64 through 8192 frames (default 256). Scalar
+  entries keep their meaning, so the schema version stays 8.
 - Added tests of shutdown by SIGINT and SIGTERM through `main.cpp`:
   `current_behavior_tests` starts `zd_with_fakes`, `zd` built with the fake
   MIDI input and fake FluidSynth, sends the signal after its ready line, and
@@ -92,6 +98,17 @@ All notable changes to Zeta DAW are documented in this file.
   octaves up.
 
 ### Changed
+
+- `MidiLoopSlot` (`midi_loop_slot.{hpp,cpp}`) is the loop slot that records
+  MIDI notes: it owns the slot's `MidiTakeRecorder` and is the base of
+  `GuideLoopSlot` and `RegularLoopSlot`. `LoopSlot` keeps what every slot
+  shares; it commits the finished take it is given and selects the locked
+  program, which the recorder no longer does. The master states `Armed`,
+  `ArmedSelectingSoundFont` and `Recording` are renamed `ArmedMidi`,
+  `ArmedMidiSelectingSoundFont` and `RecordingMidi`, and the output
+  `completeLoopSlotRecording` is renamed `completeMidiTake`. The group's
+  pending take is discarded when a take completes instead of when a slot arms
+  or cancels. Recording and playback behave as before.
 
 - `Application` transposes each note once, before it is monitored or
   recorded, and loop slots keep no octave of their own. Octave controls
