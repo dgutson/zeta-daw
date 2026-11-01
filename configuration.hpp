@@ -5,6 +5,7 @@
 #include "midi_event.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -13,7 +14,7 @@
 
 namespace zeta {
 
-enum class MidiControlType {
+enum class MidiControlType : std::uint8_t {
     Note,
     ControlChange,
     ProgramChange,

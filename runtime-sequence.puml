@@ -153,22 +153,22 @@ else project MidiEvent decoded
     Fsm -> Fsm : lock; current LooperState handles message
     alt Ready: live route
       Fsm -> App : monitorLiveMidi(message)
-      App -> App : live_transposer.transpose(message)
+      App -> App : transposer.transpose(message)
       App -> Synth : send(transposed, channel 0)
       Synth --> App : native result
       App --> Fsm : native result
     else ArmedMidi or RecordingMidi: selected-slot route
       Fsm -> App : monitorLoopSlotMidi(slot, message)
-      App -> Group : monitorMidi(slot, message)
-      Group -> Slot : monitorMidi(message)
-      Slot -> Slot : transpose with slot-owned octave
+      App -> App : transposer.transpose(message)
+      App -> Group : monitorMidi(slot, transposed)
+      Group -> Slot : monitorMidi(transposed)
       Slot -> Synth : send(transposed, channel n + 1)
       Synth --> Fsm : native result
       opt RecordingMidi and message is Note On / Note Off
         Fsm -> App : recordNote(slot, kind, message, offset)
-        App -> Group : recordNote(slot, kind, message, offset)
-        Group -> Slot : recordNote(kind, message, offset)
-        Slot -> Slot : transpose with slot-owned octave
+        App -> App : transposer.transpose(message)
+        App -> Group : recordNote(slot, kind, transposed, offset)
+        Group -> Slot : recordNote(kind, transposed, offset)
         Slot -> Group : MidiTakeRecorder calls PendingTake.record(kind, transposed, offset)
       end
     end
@@ -196,12 +196,12 @@ MidiInput -> App : handleMidiEvent(event)
 App -> Fsm : midiMessage(NoteOn, message, now)
 activate Fsm
 Fsm -> App : requestLoopSlotSelection(raw key)
-App -> Group : requestSelection(key, current SoundFont, live transposer)
+App -> Group : requestSelection(key, current SoundFont)
 Group -> Slot : selectionRequested(context)
 alt slot is Muted and its role permits arming
   Slot -> Player : invalidateAndSilence(): discard take; ++playback_generation
   Player -> Synth : allNotesOff(channel n + 1)
-  Slot -> Slot : snapshot SoundFont/octave
+  Slot -> Slot : snapshot SoundFont
   Slot -> Synth : select SoundFont
   Slot --> Group : Armed
   Group --> App : {slot id, Armed}
@@ -222,8 +222,9 @@ MidiInput -> App : handleMidiEvent(event)
 App -> Fsm : midiMessage(NoteOn, message, received_at)
 activate Fsm
 Fsm -> App : monitorLoopSlotMidi(slot, message)
-App -> Group : monitorMidi(slot, message)
-Group -> Slot : monitorMidi(message)
+App -> App : transposer.transpose(message)
+App -> Group : monitorMidi(slot, transposed)
+Group -> Slot : monitorMidi(transposed)
 Slot -> Synth : send(transposed, channel n + 1)
 Fsm -> App : recordNote(slot, NoteOn, message, 0 ms)
 App -> Group : recordNote(...)
@@ -238,8 +239,9 @@ loop subsequent Note On / Note Off messages
   MidiInput -> App : handleMidiEvent(event)
   App -> Fsm : midiMessage(type, message, received_at)
   Fsm -> App : monitorLoopSlotMidi(slot, message)
-  App -> Group : monitorMidi(slot, message)
-  Group -> Slot : monitorMidi(message)
+  App -> App : transposer.transpose(message)
+  App -> Group : monitorMidi(slot, transposed)
+  Group -> Slot : monitorMidi(transposed)
   Slot -> Synth : send(transposed, channel n + 1)
   Fsm -> App : recordNote(slot, kind, message, elapsed)
   App -> Group : recordNote(...)

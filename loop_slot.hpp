@@ -4,7 +4,6 @@
 #include "loop_slot_fsm.hpp"
 #include "loop_timing.hpp"
 #include "looper_fsm.hpp"
-#include "octave_transposer.hpp"
 #include "take_player.hpp"
 
 #include <cstddef>
@@ -17,7 +16,6 @@ class SynthEngine;
 
 struct LoopSlotSelectionContext {
     const SoundFontDefinition& soundfont;
-    const OctaveTransposer& transposer;
     std::optional<LoopPlaybackSchedule> guide_schedule;
 };
 
@@ -45,8 +43,6 @@ public:
     void cancelRecording();
 
     void selectSoundFont(const SoundFontDefinition& soundfont);
-    void octaveDown();
-    void octaveUp();
     int monitorMidi(const MidiMessage& message);
 
     void deactivate();
@@ -73,7 +69,6 @@ protected:
         const LoopSlotSelectionContext& context,
         std::optional<LoopPlaybackSchedule> guide
     );
-    MidiMessage transpose(const MidiMessage& message) const;
     // Commits the take and starts it with the slot's locked program.
     void completeTake(const TakeTiming& timing, FinishedTake take);
 
@@ -85,7 +80,6 @@ private:
     int channel_;
     SynthEngine& synth_engine_;
     const SoundFontDefinition* soundfont_{};
-    OctaveTransposer transposer_;
     std::optional<LoopPlaybackSchedule> prepared_guide_;
 
     mutable std::mutex command_mutex_;

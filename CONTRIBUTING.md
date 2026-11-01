@@ -92,9 +92,9 @@ The main layers and ownership boundaries are:
 - `loop_slot_fsm.*` owns the dependency-free subordinate playback state
   machine and its start, mute, and termination command semantics.
 - `loop_slot.*` defines the common slot mechanism. Every slot encapsulates its
-  identity, key, FluidSynth channel, locked SoundFont/octave state,
-  subordinate playback FSM, and one `TakePlayer`, and selects its locked
-  program before a completed take starts playing.
+  identity, key, FluidSynth channel, locked SoundFont, subordinate playback
+  FSM, and one `TakePlayer`, and selects its locked program before a completed
+  take starts playing.
 - `midi_loop_slot.*` defines the slot that records MIDI notes through one
   `MidiTakeRecorder`, and its final guide and regular role implementations.
   Role commands perform their own behavior; callers do not query role
@@ -112,9 +112,9 @@ The main layers and ownership boundaries are:
   arithmetic independent of workers, MIDI, and FluidSynth.
 - `pending_take.*` owns bounded in-progress events and accepted held-note state,
   including release synthesis and musical-content duration at completion.
-- `octave_transposer.*` owns octave bounds and arithmetic transposition for one
-  MIDI route. `Application` owns the live instance and each `LoopSlot` owns its
-  independent recorded route.
+- `octave_transposer.*` owns octave bounds and arithmetic transposition.
+  `Application` owns the one instance and transposes each note before it is
+  monitored or recorded, so loop slots receive notes already transposed.
 - `soundfont_selector.*` owns the ordered SoundFont selection, its current
   entry, and the bounded physical-key lookup shared by sequential and direct
   selection. It has no synthesizer or MIDI-channel responsibility.
@@ -178,11 +178,11 @@ The master states are `Ready`, `ReadySelectingLoopSlot`,
   controls affect the live route.
 - `ReadySelectingLoopSlot`: the next positive-velocity Note On is matched by
   raw key and consumed regardless of incoming channel. Selecting the Muted
-  guide clears its old take, snapshots the live SoundFont/octave into it,
-  installs its `SlotId` as the sole recording slot, and enters `ArmedMidi`. A
-  Muted regular slot does the same only while the guide is Looping; otherwise
-  the selection is rejected and the master returns to `Ready`. Selecting a
-  Looping regular slot stops only itself. Selecting the Looping guide stops and
+  guide clears its old take, snapshots the live SoundFont into it, installs its
+  `SlotId` as the sole recording slot, and enters `ArmedMidi`. A Muted regular
+  slot does the same only while the guide is Looping; otherwise the selection
+  is rejected and the master returns to `Ready`. Selecting a Looping regular
+  slot stops only itself. Selecting the Looping guide stops and
   discards every regular slot before stopping itself. An unmapped note is
   consumed and returns to `Ready`; pressing the selector again cancels.
 - `ArmedMidi`: MIDI is monitored on the selected slot's channel. The first
@@ -213,8 +213,8 @@ dependent stop. Muted means only not currently playing and never means
 resumable.
 
 Live output uses FluidSynth channel 0; slot catalog index N uses channel N+1.
-Recorded notes retain velocity and store the key produced by that slot's
-transposer. Once recording starts, the slot's SoundFont and octave are locked.
+Recorded notes retain velocity and store the transposed key. Once recording
+starts, the slot's SoundFont and the octave are locked.
 Completing or canceling adopts the current selection for live output, while
 already looping slots retain their own locked selection.
 
@@ -243,9 +243,9 @@ Octave transposition starts at zero, moves in twelve-semitone steps, and clamps
 from three octaves down through four octaves up. The performer changes octaves
 only while no notes are playing. Do not add held-note tracking or behavior for
 octave changes during active notes without changing this contract explicitly.
-Arming snapshots the current live transposition into the selected slot.
-Changes while `ArmedMidi` update both the live and pending route; later live
-changes do not affect any already looping slot.
+One transposition applies to every note the performer plays, live or into the
+armed slot, so changes while `ArmedMidi` apply to both; later changes do not
+affect any already looping slot.
 Key-bearing messages whose shifted key would fall outside MIDI range 0 through
 127 are left unchanged. Recorded keys are transposed before storage, so the
 playback worker does not share octave state and the loop pitch stays locked.
@@ -498,6 +498,9 @@ run-clang-tidy-18 \
     -j 2 \
     "$(pwd)/(?!zfont\.cpp$)[^/]+\.cpp$"
 ```
+
+The header filter in `.clang-tidy` checks the root `.hpp` files only when the
+checkout's directory name starts with `zeta-daw`, as it does in CI.
 
 GCC's analyzer is limited to the production target so fetched dependencies are
 not analyzed. Run it in a separate build directory:

@@ -71,8 +71,8 @@ common `LoopSlot` operation.
 `LoopSlot` retains every slot-local mechanism except recording, which
 `MidiLoopSlot` adds through its `MidiTakeRecorder`. Its `TakePlayer` holds the
 immutable take, the worker and its dispatch. Only genuine role decisions are
-virtual. Monitoring, transposition, activation, deactivation, termination, and
-worker dispatch remain common nonvirtual behavior.
+virtual. Monitoring, activation, deactivation, termination, and worker dispatch
+remain common nonvirtual behavior.
 
 ## Command-oriented slot behavior
 

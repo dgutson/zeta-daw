@@ -112,7 +112,9 @@ std::string nonEmptyString(
     const std::string& location
 ) {
     auto value = required<std::string>(node, key, location);
-    if (value.empty()) {
+    // yaml-cpp converts a null value, such as a key with nothing after it, to
+    // the string "null".
+    if (value.empty() || node[key].IsNull()) {
         fail(location + "." + key, "must not be empty");
     }
     return value;

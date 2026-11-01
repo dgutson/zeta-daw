@@ -27,8 +27,7 @@ public:
 
     LoopSlotSelectionResult requestSelection(
         int key,
-        const SoundFontDefinition& soundfont,
-        const OctaveTransposer& transposer
+        const SoundFontDefinition& soundfont
     );
     void cancelRecording(SlotId slot);
     void completeMidiTake(SlotId slot, const TakeTiming& timing);
@@ -38,8 +37,6 @@ public:
         SlotId slot,
         const SoundFontDefinition& soundfont
     );
-    void octaveDown(SlotId slot);
-    void octaveUp(SlotId slot);
 
     void recordNote(
         SlotId slot,

@@ -19,7 +19,7 @@ void MidiLoopSlot::recordNote(
     const MidiMessage& message,
     Milliseconds offset
 ) {
-    recorder_.record(kind, transpose(message), offset);
+    recorder_.record(kind, message, offset);
 }
 
 void MidiLoopSlot::complete(const TakeTiming& timing) {

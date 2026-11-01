@@ -653,11 +653,11 @@ With `zeta.example.yaml`, during a performance:
    twelve semitones.
 
 The octave range is three octaves down through four octaves up and does not
-wrap. Arming snapshots the live octave into that loop slot; changes while Armed
-affect live playing and the pending slot. Octave changes are ignored while
-Recording. Once a slot loops, later changes affect only live playing, so every
-recorded loop keeps its pitch. Notes whose shifted key would fall outside MIDI
-range 0 through 127 retain their original key.
+wrap. One octave applies to live playing and to the armed slot, so changes
+while Armed affect both. Octave changes are ignored while Recording. Once a
+slot loops, later changes affect only live playing, so every recorded loop
+keeps its pitch. Notes whose shifted key would fall outside MIDI range 0
+through 127 retain their original key.
 
 Both Octave LEDs remain on in MMC transport mode because shifting is performed
 by Zeta rather than by the controller. Press **Octave Down + Transpose Down**

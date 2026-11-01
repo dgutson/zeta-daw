@@ -109,6 +109,12 @@ All notable changes to Zeta DAW are documented in this file.
   `completeLoopSlotRecording` is renamed `completeMidiTake`. The group's
   pending take is discarded when a take completes instead of when a slot arms
   or cancels. Recording and playback behave as before.
+
+- `Application` transposes each note once, before it is monitored or
+  recorded, and loop slots keep no octave of their own. Octave controls
+  behave as before: while a slot is armed they change the octave of the
+  notes it records, and a looping slot keeps the pitch it was recorded at.
+
 - Each loop slot's take is handled by two classes the slot owns.
   `TakePlayer` (`take_player.{hpp,cpp}`) holds the committed take, the
   playback worker and MIDI dispatch, and implements the slot playback FSM's
@@ -132,6 +138,8 @@ All notable changes to Zeta DAW are documented in this file.
   `current_behavior_tests`.
 - Git ignores the `.serena/` directory that the Serena coding tool creates in
   the repository.
+- Git ignores the `.cache/` directory in which clangd, the C++ language
+  server that Serena runs, keeps its index.
 - Hegel properties are GoogleTest cases that run `hegel::test` and state their
   checks with GoogleTest assertions, so a failure report shows the compared
   values.
@@ -225,6 +233,11 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Fixed
 
+- clang-tidy checks the `.hpp` files in the repository root. Its header
+  filter used a lookahead, which clang-tidy's regular expressions do not
+  support, and so matched no file. The enums in those headers declare the
+  underlying type that `performance-enum-size` asks for: `std::uint8_t`, and
+  `std::int16_t` for `MidiMessageType`.
 - Eliminated cumulative phase drift between independently recorded slots by
   deriving every regular playback deadline from the guide's immutable absolute
   schedule instead of completion time or the previous worker wake-up.
@@ -235,6 +248,11 @@ All notable changes to Zeta DAW are documented in this file.
   its configured MIDI2 channel-16 CC20 event to Channel Volume CC7.
 - Restored MIDI input after hardware ports disconnect and reconnect by keeping
   libremidi's observed-port lifecycle synchronized with active connections.
+- A string value left blank, or written as `~` or an unquoted `null`, is
+  rejected where the configuration requires a non-empty string. yaml-cpp
+  converts those values to the string `null`, so `alsa_device:` with nothing
+  after it selected ALSA's `null` device, which plays silence. A quoted
+  `'null'` is still a string.
 
 ## [0.1.0] - 2026-07-14
 

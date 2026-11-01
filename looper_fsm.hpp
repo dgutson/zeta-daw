@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -12,12 +13,12 @@
 namespace zeta {
 
 using SlotId = std::size_t;
-enum class RecordedNoteKind {
+enum class RecordedNoteKind : std::uint8_t {
     NoteOn,
     NoteOff,
 };
 
-enum class StateId : std::size_t {
+enum class StateId : std::uint8_t {
     Ready,
     ReadySelectingLoopSlot,
     ReadySelectingSoundFont,
@@ -28,7 +29,7 @@ enum class StateId : std::size_t {
     Count,
 };
 
-enum class LoopSlotSelectionOutcome {
+enum class LoopSlotSelectionOutcome : std::uint8_t {
     Armed,
     Stopped,
     GuideRequired,
@@ -74,10 +75,8 @@ public:
     virtual void selectLiveSoundFontByNote(int key) = 0;
     virtual void selectLoopSlotSoundFontByNote(SlotId slot, int key) = 0;
 
-    virtual void octaveDownLive() = 0;
-    virtual void octaveUpLive() = 0;
-    virtual void octaveDownLoopSlot(SlotId slot) = 0;
-    virtual void octaveUpLoopSlot(SlotId slot) = 0;
+    virtual void octaveDown() = 0;
+    virtual void octaveUp() = 0;
 
     virtual void recordNote(
         SlotId slot,

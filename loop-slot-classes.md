@@ -12,13 +12,11 @@ classDiagram
         +LoopSlotGroup(definitions, synth_engine)
         +channel(slot) int
         +monitorMidi(slot, message) int
-        +requestSelection(key, soundfont, transposer) LoopSlotSelectionResult
+        +requestSelection(key, soundfont) LoopSlotSelectionResult
         +cancelRecording(slot)
         +completeMidiTake(slot, timing)
         +terminateAll()
         +selectSoundFont(slot, soundfont)
-        +octaveDown(slot)
-        +octaveUp(slot)
         +recordNote(slot, kind, message, offset)
         -stopDependentSlots()
     }
@@ -38,8 +36,6 @@ classDiagram
         +selectionRequested(context) LoopSlotSelectionOutcome
         +cancelRecording()
         +selectSoundFont(soundfont)
-        +octaveDown()
-        +octaveUp()
         +monitorMidi(message) int
         +deactivate()
         +terminationRequested()
@@ -47,7 +43,6 @@ classDiagram
         #onLoopingSelection()*
         #makeSchedule(timing, content_duration, guide) LoopPlaybackSchedule*
         #arm(context, guide) LoopSlotSelectionOutcome
-        #transpose(message) MidiMessage
         #completeTake(timing, take)
     }
 
@@ -119,12 +114,6 @@ classDiagram
         +contentDuration() Milliseconds
     }
 
-    class OctaveTransposer {
-        +octaveDown()
-        +octaveUp()
-        +transpose(message) MidiMessage
-    }
-
     class SynthEngine {
         +select(soundfont, channel)
         +send(message, channel) int
@@ -144,7 +133,6 @@ classDiagram
     MidiLoopSlot *-- MidiTakeRecorder : recorder_
     MidiTakeRecorder --> PendingTake : records into, finishes, resets
     MidiTakeRecorder ..> FinishedTake : returns
-    LoopSlot *-- OctaveTransposer : transposer_
     LoopSlot *-- LoopSlotPlaybackFsm : playback_fsm_
     LoopSlotPlaybackFsm --> LoopSlotPlaybackOutput : calls, bound to player_
     LoopSlotPlaybackOutput <|.. TakePlayer
