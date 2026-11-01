@@ -13,9 +13,15 @@
 #   tests/audio_evidence.sh check  fails unless that file records a pass on
 #                                  covered files identical to these
 #
-# files_hash is a SHA-256 over the SHA-256 and path of each covered file, so
-# a changed, added, removed or renamed covered file changes it, and a rebase
-# or a change to any other file does not.
+# The covered files are the repository files that the compiler read to build
+# audio_render_tests, as its dependency files list them, plus the build
+# files, the audio test's files and the fake MIDI input. run stores each
+# one's path and SHA-256, and check hashes exactly those files. The build can
+# start reading another file only through a change to a covered file, so the
+# stored list stays complete for as long as the evidence is valid, and a
+# rebase or a change to any other file leaves the evidence valid. files_hash
+# is a SHA-256 over the "SHA-256  path" line of each covered file, sorted by
+# path.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -26,39 +32,47 @@ readonly results="$PWD/$build_dir/audio_evidence"
 readonly run_count=20
 readonly tolerance_keys='["tau_ms", "level_delta_db", "peak_delta_db", "drift_limit_ms", "take_lateness_limit_ms"]'
 
-# Covered files under the current directory, sorted by path: the root
-# sources, the build files, the audio test's files and the fake MIDI input.
+# The repository files that the compiler read to build audio_render_tests,
+# from the dependency file of each of its objects in compile_commands.json.
+audio_build_inputs() {
+    local outputs output depfile
+    outputs=$(jq -r '.[].output // empty | select(startswith("CMakeFiles/audio_render_tests.dir/"))' \
+        "$build_dir/compile_commands.json")
+    if [[ -z $outputs ]]; then
+        echo "$build_dir/compile_commands.json lists no object of audio_render_tests." >&2
+        return 1
+    fi
+    while IFS= read -r output; do
+        depfile="$build_dir/$output.d"
+        if [[ ! -f $depfile ]]; then
+            echo "$depfile is missing." >&2
+            return 1
+        fi
+        # Make syntax: the object, a colon, then the files read, separated by
+        # spaces. A backslash ends each continued line and escapes a space or
+        # # in a path; $$ stands for $.
+        sed -e '1s/^[^:]*://' -e 's/\\$//' -e 's/\\ /\x1f/g' -e 's/\\#/#/g' -e 's/\$\$/$/g' "$depfile" |
+            tr -s ' \t' '\n' | tr '\037' ' '
+    done <<< "$outputs" | sed '/^$/d' | xargs -d '\n' realpath -m -s --relative-to=. -- |
+        grep -v -e '^\.\./' -e "^$build_dir/" | LC_ALL=C sort -u
+}
+
+# Covered files, sorted by path: the audio test's build inputs, the build
+# files, the audio test's files and the fake MIDI input.
 covered_files() {
+    local inputs
+    inputs=$(audio_build_inputs) || return 1
     {
-        find . -maxdepth 1 -type f \( -name '*.cpp' -o -name '*.hpp' -o -name CMakeLists.txt \)
+        echo "$inputs"
+        echo CMakeLists.txt
         find cmake -type f
         find tests -type f \( -path 'tests/audio_*' -o -path 'tests/fake_midi_input.*' \)
-    } | sed 's|^\./||' | grep -vxF "$evidence" | LC_ALL=C sort
+    } | grep -vxF "$evidence" | LC_ALL=C sort -u
 }
 
-# One line per covered file: its SHA-256 and its path.
-file_hashes() {
-    covered_files | xargs -d '\n' sha256sum --
-}
-
+# files_hash of the "SHA-256  path" lines $1.
 files_hash() {
-    file_hashes | sha256sum | cut -d ' ' -f 1
-}
-
-# Extracts the tree of commit $1 into a new temporary directory and prints
-# the directory.
-extract() {
-    local directory
-    directory=$(mktemp -d)
-    git archive "$1" | tar -x -C "$directory"
-    echo "$directory"
-}
-
-# Covered files that differ between the tree in directory $1 and the work
-# tree, added and removed ones included.
-changed_files() {
-    { diff <(cd "$1" && file_hashes) <(file_hashes) || true; } |
-        sed -n 's/^[<>] [0-9a-f]\{64\}  //p' | LC_ALL=C sort -u
+    sha256sum <<< "$1" | cut -d ' ' -f 1
 }
 
 # Busy and total time of all cores since boot, in clock ticks.
@@ -134,31 +148,36 @@ print_failure() {
 }
 
 run() {
-    local committed changed
-    committed=$(extract HEAD)
-    changed=$(changed_files "$committed")
-    rm -rf "$committed"
-    if [[ -n $changed ]]; then
-        printf 'These covered files differ from the last commit; commit or remove the changes first:\n%s\n' \
-            "$changed" >&2
-        exit 1
-    fi
-    local hash commit date
-    hash=$(files_hash)
-    commit=$(git rev-parse HEAD)
-    date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
     rm -rf "$results"
     mkdir -p "$results"
     progress "building audio_render_tests in $build_dir/, output in $build_dir/audio_evidence/build.log"
+    # The Makefile generator keeps each object's dependency file, which
+    # audio_build_inputs reads; Ninja deletes them.
     if ! {
-        cmake -S . -B "$build_dir" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON &&
+        cmake -S . -B "$build_dir" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON &&
             cmake --build "$build_dir" --target audio_render_tests hold_screen_unlocked --parallel
     } > "$results/build.log" 2>&1; then
         tail -n 40 "$results/build.log" >&2
         progress "the build failed; the end of its output is above" >&2
         exit 1
     fi
+
+    local list changed
+    local -a files
+    list=$(covered_files)
+    mapfile -t files <<< "$list"
+    changed=$(git --literal-pathspecs status --porcelain --untracked-files=all -- "${files[@]}")
+    if [[ -n $changed ]]; then
+        printf 'These covered files differ from the last commit; commit or remove the changes first:\n%s\n' \
+            "$changed" >&2
+        exit 1
+    fi
+    local hashes hash commit date
+    hashes=$(xargs -d '\n' sha256sum -- <<< "$list")
+    hash=$(files_hash "$hashes")
+    commit=$(git rev-parse HEAD)
+    date=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     # The helper holds the screen-saver inhibit, as zd does, until its
     # standard input closes when this script ends, and prints one line.
@@ -200,6 +219,7 @@ run() {
         --argjson cores "$(nproc)" \
         --arg kernel "$(uname -r)" \
         --arg compiler "$compiler" \
+        --argjson files "$(jq -Rn '[inputs | {key: .[66:], value: .[:64]}] | from_entries' <<< "$hashes")" \
         --argjson tolerance_keys "$tolerance_keys" '
         {
             result: $result,
@@ -211,7 +231,8 @@ run() {
             compiler: $compiler,
             build_type: "Debug",
             tolerances: (.[0] | with_entries(select(.key | IN($tolerance_keys[])))),
-            runs: map(with_entries(select(.key | IN($tolerance_keys[]) | not)))
+            runs: map(with_entries(select(.key | IN($tolerance_keys[]) | not))),
+            files: $files
         }' "$results/runs.jsonl" > "$evidence"
 
     if [[ $result == passed ]]; then
@@ -230,30 +251,32 @@ check() {
         echo "$evidence is missing. Run tests/audio_evidence.sh run on a quiet machine and commit the file." >&2
         exit 1
     fi
-    local result recorded commit current failed=false
+    if [[ $(jq -r '.files | type' "$evidence") != object ]]; then
+        echo "$evidence lists no covered files. Run tests/audio_evidence.sh run on a quiet machine and commit the file." >&2
+        exit 1
+    fi
+    local result recorded hashes current changed failed=false
     result=$(jq -r .result "$evidence")
     recorded=$(jq -r .files_hash "$evidence")
-    commit=$(jq -r .commit "$evidence")
-    current=$(files_hash)
+    hashes=$(jq -r '.files | to_entries | sort_by(.key)[] | "\(.value)  \(.key)"' "$evidence")
+    current=$(files_hash "$hashes")
     if [[ $result != passed ]]; then
         echo "$evidence records the result \"$result\", not \"passed\"." >&2
         failed=true
     fi
-    if [[ $recorded != "$current" ]]; then
-        echo "The covered files differ from those the evidence was recorded on." >&2
-        if git cat-file -e "$commit^{commit}" 2> /dev/null; then
-            local old
-            old=$(extract "$commit")
-            printf 'Covered files changed since %s:\n%s\n' "$commit" "$(changed_files "$old")" >&2
-            rm -rf "$old"
-        fi
+    if [[ $current != "$recorded" ]]; then
+        echo "The file list in $evidence does not match its files_hash." >&2
+        failed=true
+    fi
+    if ! changed=$(sha256sum --check --quiet <<< "$hashes" 2>&1); then
+        printf 'These covered files differ from those the evidence was recorded on:\n%s\n' "$changed" >&2
         failed=true
     fi
     if [[ $failed == true ]]; then
         echo "Run tests/audio_evidence.sh run on a quiet machine and commit $evidence." >&2
         exit 1
     fi
-    echo "$evidence records a pass on these covered files (files_hash $current)."
+    echo "$evidence records a pass on its $(jq '.files | length' "$evidence") covered files, all unchanged (files_hash $current)."
 }
 
 case ${1:-} in

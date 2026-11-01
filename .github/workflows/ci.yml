@@ -44,10 +44,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          # A failed check names the covered files changed since the commit
-          # the evidence was recorded on.
-          fetch-depth: 0
       # jq is preinstalled on GitHub's Ubuntu images.
       - name: Check the audio evidence
         run: tests/audio_evidence.sh check

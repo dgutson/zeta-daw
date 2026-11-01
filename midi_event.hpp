@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
-#include <span>
 
 namespace zeta {
 
@@ -38,6 +36,5 @@ struct MidiEvent {
 };
 
 MidiMessageType classifyMidiMessage(int raw_type) noexcept;
-std::optional<MidiEvent> decodeMidiEvent(std::span<const std::uint8_t> bytes) noexcept;
 
 } // namespace zeta

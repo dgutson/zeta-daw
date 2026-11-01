@@ -44,7 +44,8 @@ end note
 == Startup ==
 
 Main -> Inhibitor : construct: Inhibit("zd", "Live performance")\non the desktop's session bus, or print why not
-Main -> App : Application(config)
+Main -> MidiInput : construct through makeMidiInput()
+Main -> App : Application(config, MIDI input)
 activate App
 App -> Synth : construct; eagerly load configured SoundFonts
 App -> Group : construct ordered slots

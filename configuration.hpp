@@ -1,10 +1,9 @@
 #pragma once
 
+#include "midi_control_binding.hpp"
 #include "midi_control_change_mapping.hpp"
-#include "midi_event.hpp"
 
 #include <cstddef>
-#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
@@ -12,24 +11,6 @@
 #include <vector>
 
 namespace zeta {
-
-enum class MidiControlType : std::uint8_t {
-    Note,
-    ControlChange,
-    ProgramChange,
-    MachineControl,
-};
-
-struct MidiControlBinding {
-    MidiControlType type{};
-    int channel{};
-    int number{};
-    int value{};
-    bool match_any_program{};
-
-    bool matches(MidiMessageType message_type, const MidiMessage& message) const noexcept;
-    bool overlaps(const MidiControlBinding& other) const noexcept;
-};
 
 struct SoundFontDefinition {
     std::string id;

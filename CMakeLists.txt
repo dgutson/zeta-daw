@@ -179,26 +179,35 @@ else()
     set(ZETA_YAML_TARGET yaml-cpp)
 endif()
 
-add_executable(
-    zd
-    main.cpp
+# The audio path, from Application to FluidSynth. audio_render_tests
+# compiles only these, so its link fails if one of them calls code that
+# only zd's other sources define.
+set(ZETA_AUDIO_SOURCES
     application.cpp
-    configuration.cpp
     loop_slot.cpp
     loop_slot_fsm.cpp
     loop_slot_group.cpp
     loop_timing.cpp
     looper_fsm.cpp
-    midi_control_change_mapping.cpp
+    midi_control_binding.cpp
     midi_event.cpp
-    midi_input.cpp
     midi_take_recorder.cpp
     octave_transposer.cpp
     pending_take.cpp
-    screen_lock_inhibitor.cpp
     soundfont_selector.cpp
     synth_engine.cpp
     take_player.cpp
+)
+
+add_executable(
+    zd
+    main.cpp
+    configuration.cpp
+    midi_control_change_mapping.cpp
+    midi_decoder.cpp
+    midi_input.cpp
+    screen_lock_inhibitor.cpp
+    ${ZETA_AUDIO_SOURCES}
 )
 target_link_libraries(
     zd
@@ -227,7 +236,7 @@ if(ZETA_MIDI_TRACE)
     target_compile_definitions(zd PRIVATE ZETA_MIDI_TRACE)
 endif()
 
-add_executable(zfont zfont.cpp configuration.cpp)
+add_executable(zfont zfont.cpp configuration.cpp midi_control_binding.cpp)
 target_link_libraries(
     zfont
     PRIVATE
@@ -236,7 +245,7 @@ target_link_libraries(
 )
 target_compile_options(zfont PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(zsoundtest sound_test.cpp configuration.cpp)
+add_executable(zsoundtest sound_test.cpp configuration.cpp midi_control_binding.cpp)
 target_link_libraries(
     zsoundtest
     PRIVATE
@@ -302,7 +311,9 @@ if(BUILD_TESTING)
         loop_slot_group.cpp
         loop_timing.cpp
         looper_fsm.cpp
+        midi_control_binding.cpp
         midi_control_change_mapping.cpp
+        midi_decoder.cpp
         midi_event.cpp
         midi_input.cpp
         midi_take_recorder.cpp
@@ -367,6 +378,7 @@ if(BUILD_TESTING)
         configuration_tests
         tests/configuration_test.cpp
         configuration.cpp
+        midi_control_binding.cpp
     )
     target_compile_options(configuration_tests PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(
@@ -443,6 +455,7 @@ if(BUILD_TESTING)
     add_executable(
         midi_tests
         tests/midi_event_test.cpp
+        midi_decoder.cpp
         midi_event.cpp
     )
     target_compile_options(midi_tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -528,16 +541,14 @@ if(BUILD_TESTING)
         PRIVATE GTest::gmock_main PkgConfig::SNDFILE
     )
 
-    # Every production source of zd except main.cpp, with the real FluidSynth.
-    get_target_property(zeta_production_sources zd SOURCES)
-    list(REMOVE_ITEM zeta_production_sources main.cpp)
+    # The audio sources with the real FluidSynth and the fake MIDI input.
     add_executable(
         audio_render_tests
         tests/audio_render_test.cpp
         tests/audio_performance.cpp
         tests/audio_analysis.cpp
         tests/fake_midi_input.cpp
-        ${zeta_production_sources}
+        ${ZETA_AUDIO_SOURCES}
     )
     target_include_directories(
         audio_render_tests
@@ -559,10 +570,7 @@ if(BUILD_TESTING)
         PRIVATE
             GTest::gtest_main
             zeta_fluidsynth
-            PkgConfig::SYSTEMD
             Threads::Threads
-            ${ZETA_YAML_TARGET}
-            libremidi::libremidi
             PkgConfig::SNDFILE
     )
 

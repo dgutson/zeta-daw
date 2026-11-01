@@ -100,6 +100,17 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Changed
 
+- `audio_render_tests` compiles only `ZETA_AUDIO_SOURCES`, the sources on
+  the audio path from `Application` to FluidSynth. `tests/audio_evidence.sh`
+  covers the repository files that its build reads, plus `CMakeLists.txt`,
+  `cmake/`, `tests/audio_*` and `tests/fake_midi_input.*`, instead of every
+  `.cpp` and `.hpp` in the repository root, and `tests/audio_evidence.json`
+  stores each covered file's path and SHA-256. A change to `main.cpp`, the
+  YAML parsing, the hardware MIDI input or the screen-lock inhibitor no
+  longer needs an evidence run. `MidiControlBinding` moved to
+  `midi_control_binding.{hpp,cpp}` and `decodeMidiEvent` to
+  `midi_decoder.{hpp,cpp}`; `main.cpp` passes `makeMidiInput()` to
+  `Application`, whose constructor without a MIDI input is removed.
 - `Application` transposes each note once, before it is monitored or
   recorded, and loop slots keep no octave of their own. Octave controls
   behave as before: while a slot is armed they change the octave of the

@@ -68,21 +68,24 @@ classes own and call each other.
 The main layers and ownership boundaries are:
 
 - `main.cpp` loads configuration, owns process signal handling, holds the
-  screen-lock inhibitor, constructs the application, and waits for
-  termination.
+  screen-lock inhibitor, constructs the application with the hardware MIDI
+  input, and waits for termination.
 - `screen_lock_inhibitor.*` keeps the desktop from locking the screen while
   zd runs: it holds the freedesktop screen-saver inhibit through sd-bus, or
   prints one line saying why not.
 - `configuration.*` owns the strict YAML schema and converts it to
   project-owned configuration types.
+- `midi_control_binding.*` owns a configured control's binding: which MIDI
+  messages match it, and whether two bindings overlap.
 - `midi_control_change_mapping.*` owns exact, dependency-free Control Change
   mapping definitions and immutable per-port lookup state.
 - `midi_input.*` owns hardware MIDI discovery, connection, disconnection, and
   reconnection through libremidi's ALSA Sequencer backend. It associates
   configured mappings with a source port while the port name is available.
-- `midi_event.*` owns the library-independent MIDI event model and raw-byte
-  decoding, including channel-message data-byte validation and MMC SysEx
-  recognition.
+- `midi_event.*` owns the library-independent MIDI event model and message
+  classification.
+- `midi_decoder.*` decodes raw MIDI bytes into that model, including
+  channel-message data-byte validation and MMC SysEx recognition.
 - `looper_fsm.*` owns state-dependent decisions. It does not own FluidSynth,
   libremidi, configuration parsing, or the playback thread.
 - `application.*` composes the system, matches configured controls, implements
@@ -466,9 +469,12 @@ ctest --test-dir build -LE audio --output-on-failure
 command, because it plays for a minute in real time. Its result is recorded
 in `tests/audio_evidence.json`: `tests/audio_evidence.sh run` plays it 20
 times in `build-audio/`, holding the screen-saver inhibit so the screen does
-not lock, and writes the file, with a hash of the files it covers: the root
-sources, `CMakeLists.txt`, `cmake/`, `tests/audio_*` and
-`tests/fake_midi_input.*`. CI's `audio-evidence` job fails unless the file
+not lock, and writes the file, with the path and SHA-256 of each file it
+covers: the repository files that the compiler read to build the test, as
+its dependency files in `build-audio/` list them, `CMakeLists.txt`,
+`cmake/`, `tests/audio_*` and `tests/fake_midi_input.*`. A change can make
+the build read another file only by changing a covered one, so the list
+stays complete. CI's `audio-evidence` job fails unless the file
 records a pass on covered files identical to the checked-out ones. A pull
 request that changes a covered file therefore needs a new run, on an idle
 desktop (about 22 minutes), as its last step before merge and after updating

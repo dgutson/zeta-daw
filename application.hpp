@@ -11,7 +11,6 @@ namespace zeta {
 
 class Application final : private LooperOutput {
 public:
-    explicit Application(ApplicationConfig config);
     Application(ApplicationConfig config, std::unique_ptr<MidiInput> midi_input);
     ~Application();
 

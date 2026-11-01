@@ -96,7 +96,8 @@ git diff --check
 
 The full suite leaves out `audio_render_tests` (ctest label `audio`), which
 plays for a minute in real time. After a change to a file that
-`tests/audio_evidence.sh` covers, tell the owner before merge that an
+`tests/audio_evidence.sh` covers (`jq -r '.files | keys[]'
+tests/audio_evidence.json` lists them), tell the owner before merge that an
 evidence run (`tests/audio_evidence.sh run`, about 22 minutes on an idle
 desktop) is due.
 
@@ -151,13 +152,14 @@ Facts that involve several files:
   production source except `main.cpp`, and each unit-test executable compiles
   only its subject and that subject's dependencies, so a new production `.cpp`
   goes into `zd`, `current_behavior_tests`, and any unit-test target that uses
-  it. `audio_render_tests` takes `zd`'s sources except `main.cpp` from the
-  `zd` target, and `zd_with_fakes` takes them except `midi_input.cpp`.
-  `zfont` and `zsoundtest` compile `configuration.cpp`, so configuration
-  changes must keep them building too.
-- Tests replace MIDI input through the constructor
-  `Application(ApplicationConfig, std::unique_ptr<MidiInput>)`, using
-  `tests/fake_midi_input.*`. They replace FluidSynth at link time instead:
+  it. In `zd`, a source that the audio path from `Application` to FluidSynth
+  runs goes into `ZETA_AUDIO_SOURCES`, the only production sources
+  `audio_render_tests` compiles; any other goes into `zd`'s own list.
+  `zd_with_fakes` takes `zd`'s sources except `midi_input.cpp`. `zfont` and
+  `zsoundtest` compile `configuration.cpp`, so configuration changes must
+  keep them building too.
+- Tests pass `tests/fake_midi_input.*` to `Application`, where `main.cpp`
+  passes `makeMidiInput()`. They replace FluidSynth at link time instead:
   `current_behavior_tests` compiles the real `synth_engine.cpp` without linking
   FluidSynth, and `tests/fake_fluidsynth.cpp` defines the `fluid_*` functions
   it calls and records each call for assertions. `zd_with_fakes`, which
