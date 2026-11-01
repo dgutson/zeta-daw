@@ -395,6 +395,62 @@ TEST(ConfigurationTest, RejectsInvalidAudioConfiguration) {
     }
 }
 
+TEST(ConfigurationTest, RejectsNullStringValues) {
+    const auto base = configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    });
+
+    // yaml-cpp converts each of these values to the string "null".
+    for (const std::string value : {"", "~", "null"}) {
+        auto audio = base;
+        audio.insert(
+            audio.find('\n') + 1,
+            "audio: { driver: alsa, alsa_device: " + value + " }\n"
+        );
+        auto id = base;
+        id.replace(id.find("id: piano"), 9, "id: " + value);
+        auto file = base;
+        file.replace(file.find("file: piano.sf2"), 15, "file: " + value);
+
+        for (const auto& [contents, message] : {
+            std::pair{audio, "audio.alsa_device: must not be empty"},
+            std::pair{id, "soundfonts[0].id: must not be empty"},
+            std::pair{file, "soundfonts[0].file: must not be empty"},
+        }) {
+            SCOPED_TRACE(contents);
+            TemporaryConfig source{contents};
+            try {
+                zeta::loadConfiguration(source.path());
+                FAIL() << "Expected a null string value to be rejected";
+            } catch (const ConfigurationError& error) {
+                EXPECT_STREQ(error.what(), message);
+            }
+        }
+    }
+}
+
+TEST(ConfigurationTest, AcceptsQuotedNullAsAString) {
+    auto contents = configWithMmcCommands({
+        "rewind",
+        "stop",
+        "play",
+        "record_strobe",
+    });
+    contents.insert(
+        contents.find('\n') + 1,
+        "audio: { driver: alsa, alsa_device: 'null' }\n"
+    );
+    TemporaryConfig source{std::move(contents)};
+
+    const auto config = zeta::loadConfiguration(source.path());
+
+    ASSERT_TRUE(config.audio.alsa_device);
+    EXPECT_EQ(*config.audio.alsa_device, "null");
+}
+
 TEST(ConfigurationTest, RequiresOrderedNonEmptyLoopSlots) {
     auto missing_contents = configWithMmcCommands({
         "rewind",

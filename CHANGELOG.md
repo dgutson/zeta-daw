@@ -231,6 +231,11 @@ All notable changes to Zeta DAW are documented in this file.
   its configured MIDI2 channel-16 CC20 event to Channel Volume CC7.
 - Restored MIDI input after hardware ports disconnect and reconnect by keeping
   libremidi's observed-port lifecycle synchronized with active connections.
+- A string value left blank, or written as `~` or an unquoted `null`, is
+  rejected where the configuration requires a non-empty string. yaml-cpp
+  converts those values to the string `null`, so `alsa_device:` with nothing
+  after it selected ALSA's `null` device, which plays silence. A quoted
+  `'null'` is still a string.
 
 ## [0.1.0] - 2026-07-14
 
