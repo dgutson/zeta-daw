@@ -1,5 +1,6 @@
 #include "application.hpp"
 #include "configuration.hpp"
+#include "screen_lock_inhibitor.hpp"
 
 #include <exception>
 #include <iostream>
@@ -38,6 +39,9 @@ int main(int argc, char** argv) {
         const std::string config_path = argc == 2 ? argv[1] : default_config_path;
         auto config = zeta::loadConfiguration(config_path);
         const auto shutdown_signals = blockShutdownSignals();
+        // Declared before app, so the screen stays unlocked until app has
+        // silenced every note.
+        const zeta::ScreenLockInhibitor screen_lock{std::cerr};
 
         zeta::Application app{std::move(config)};
         std::jthread signal_waiter([&app, shutdown_signals](

@@ -67,8 +67,12 @@ classes own and call each other.
 
 The main layers and ownership boundaries are:
 
-- `main.cpp` loads configuration, owns process signal handling, constructs the
-  application, and waits for termination.
+- `main.cpp` loads configuration, owns process signal handling, holds the
+  screen-lock inhibitor, constructs the application, and waits for
+  termination.
+- `screen_lock_inhibitor.*` keeps the desktop from locking the screen while
+  zd runs: it holds the freedesktop screen-saver inhibit through sd-bus, or
+  prints one line saying why not.
 - `configuration.*` owns the strict YAML schema and converts it to
   project-owned configuration types.
 - `midi_control_change_mapping.*` owns exact, dependency-free Control Change
@@ -117,8 +121,9 @@ The main layers and ownership boundaries are:
 - `synth_engine.*` is the narrow RAII wrapper around the FluidSynth C API.
 
 Keep dependency-specific types at their adapters. libremidi types must not
-leak past `midi_input.*`, and FluidSynth types must not leak past
-`synth_engine.*`.
+leak past `midi_input.*`, FluidSynth types must not leak past
+`synth_engine.*`, and sd-bus types must not leak past
+`screen_lock_inhibitor.*`.
 
 ## FSM design contract
 
@@ -402,8 +407,8 @@ required version is 8.
 
 The current dependency strategy is intentional:
 
-- System packages provide the platform-facing ALSA, PulseAudio, and libsndfile
-  libraries.
+- System packages provide the platform-facing ALSA, PulseAudio, libsndfile,
+  and libsystemd (sd-bus) libraries.
 - CMake downloads checksum-verified FluidSynth 2.5.7, builds its ALSA,
   PulseAudio, file-output, SF2, and SF3 support, and links it statically into
   Zeta. The audio tests render through the file driver. This
@@ -460,8 +465,9 @@ ctest --test-dir build -LE audio --output-on-failure
 `audio_render_tests` has the ctest label `audio` and is left out of that
 command, because it plays for a minute in real time. Its result is recorded
 in `tests/audio_evidence.json`: `tests/audio_evidence.sh run` plays it 20
-times in `build-audio/` and writes the file, with a hash of the files it
-covers: the root sources, `CMakeLists.txt`, `cmake/`, `tests/audio_*` and
+times in `build-audio/`, holding the screen-saver inhibit so the screen does
+not lock, and writes the file, with a hash of the files it covers: the root
+sources, `CMakeLists.txt`, `cmake/`, `tests/audio_*` and
 `tests/fake_midi_input.*`. CI's `audio-evidence` job fails unless the file
 records a pass on covered files identical to the checked-out ones. A pull
 request that changes a covered file therefore needs a new run, on an idle
@@ -547,6 +553,10 @@ The test suites divide responsibilities as follows:
 - `pending_take_tests`: bounded event/held-note accounting, synthesized release,
   trailing-silence trimming, and reset behavior, plus a Hegel command-sequence
   property against an independent capacity model.
+- `screen_lock_inhibitor_tests`: on a private `dbus-daemon` (package
+  `dbus-daemon`) with a fake screen saver, the inhibit's name and reason, the
+  release of its cookie, and the one line printed without a session bus,
+  without the service, or when the service never answers.
 - `audio_analysis_tests`: the audio comparison on synthetic tones with planted
   faults (dropouts, shifted onsets, a click, clipping, extra, stuck and
   shifted notes, guide drift), each reported with its kind and time; reading
@@ -563,8 +573,10 @@ The test suites divide responsibilities as follows:
   performer MIDI from several threads and loop playback, and a sequential one
   in which slot commands race the playback workers and no stopped take sounds
   again. It also starts `zd_with_fakes`, `main.cpp` and the production
-  sources built with both fakes, as a child process, and checks that SIGINT
-  or SIGTERM after its ready line ends it with status 0.
+  sources built with both fakes, as a child process without the desktop's
+  session bus, and checks that SIGINT or SIGTERM after its ready line ends
+  it with status 0, and that it holds a fake screen saver's inhibit from
+  startup until exit.
 
 Every FSM stimulus should be tested in every state where its behavior differs.
 Test both the requested output action and the returned/installed `StateId`.

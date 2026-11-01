@@ -1,3 +1,5 @@
+#include "fake_screen_saver.hpp"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -18,6 +20,7 @@
 #include <system_error>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 extern char** environ;
 
@@ -77,9 +80,14 @@ private:
 
 // zd_with_fakes as a child process whose standard output and error arrive
 // through one pipe. Destruction kills and reaps a child still running.
+// Without a session bus address, the child has no session bus, as zd under
+// systemd on the Raspberry Pi, so no test holds the desktop's own inhibit.
 class ZdProcess final {
 public:
-    explicit ZdProcess(const std::filesystem::path& configuration_path) {
+    explicit ZdProcess(
+        const std::filesystem::path& configuration_path,
+        const std::string& session_bus_address = {}
+    ) {
         std::array<int, 2> pipe_ends{};
         if (pipe2(pipe_ends.data(), O_CLOEXEC) != 0) {
             throw std::system_error(errno, std::generic_category(), "pipe2");
@@ -114,13 +122,19 @@ public:
             argument.data(),
             nullptr,
         };
+        std::vector<std::string> variables = environment(session_bus_address);
+        std::vector<char*> variable_pointers;
+        for (auto& variable : variables) {
+            variable_pointers.push_back(variable.data());
+        }
+        variable_pointers.push_back(nullptr);
         const int error = posix_spawn(
             &pid_,
             program.c_str(),
             &actions,
             &attributes,
             arguments.data(),
-            environ
+            variable_pointers.data()
         );
         posix_spawnattr_destroy(&attributes);
         posix_spawn_file_actions_destroy(&actions);
@@ -189,6 +203,25 @@ private:
     pid_t pid_{};
     int output_{-1};
     std::string output_text_;
+
+    // This process's environment without the variables through which
+    // sd_bus_open_user finds the session bus, plus the given address.
+    static std::vector<std::string> environment(
+        const std::string& session_bus_address
+    ) {
+        std::vector<std::string> variables;
+        for (char** variable = environ; *variable != nullptr; ++variable) {
+            const std::string_view entry{*variable};
+            if (!entry.starts_with("DBUS_SESSION_BUS_ADDRESS=")
+                && !entry.starts_with("XDG_RUNTIME_DIR=")) {
+                variables.emplace_back(entry);
+            }
+        }
+        if (!session_bus_address.empty()) {
+            variables.push_back("DBUS_SESSION_BUS_ADDRESS=" + session_bus_address);
+        }
+        return variables;
+    }
 
     // False at the end of the child's output or at the deadline.
     bool readMore(Clock::time_point deadline) {
@@ -263,6 +296,47 @@ TEST(MainSignalTest, SigintShutsDownAndExitsWithStatusZero) {
 
 TEST(MainSignalTest, SigtermShutsDownAndExitsWithStatusZero) {
     expectStatusZeroAfter(SIGTERM);
+}
+
+// main.cpp holds the screen-saver inhibit from before Application exists
+// until after Application is destroyed.
+TEST(MainScreenLockTest, HoldsTheInhibitFromStartupUntilExit) {
+    const fake_screen_saver::PrivateSessionBus bus;
+    const fake_screen_saver::FakeScreenSaver screen_saver{bus.address()};
+    const ConfigurationFile configuration_file;
+    ZdProcess zd{configuration_file.path(), bus.address()};
+
+    ASSERT_TRUE(zd.readUntil(ready_line, Clock::now() + startup_timeout))
+        << "No ready line; zd's output:\n" << zd.output();
+    const auto held = screen_saver.calls();
+    ASSERT_EQ(held.size(), 1U) << "zd's output:\n" << zd.output();
+    EXPECT_EQ(held[0].method, "Inhibit");
+
+    zd.sendSignal(SIGTERM);
+    const auto status = zd.waitForExit(Clock::now() + exit_timeout);
+    ASSERT_TRUE(status.has_value())
+        << "zd still running " << exit_timeout.count()
+        << " s after the signal; its output:\n" << zd.output();
+    EXPECT_TRUE(WIFEXITED(*status) && WEXITSTATUS(*status) == 0)
+        << "zd " << describeWaitStatus(*status) << "; its output:\n"
+        << zd.output();
+    const auto calls = screen_saver.calls();
+    ASSERT_EQ(calls.size(), 2U) << "zd's output:\n" << zd.output();
+    EXPECT_EQ(calls[1].method, "UnInhibit");
+    EXPECT_EQ(calls[1].cookie, held[0].cookie);
+}
+
+// As zd under systemd on the Raspberry Pi: one line, and zd runs as before.
+TEST(MainScreenLockTest, WithoutASessionBusPrintsOneLineAndRuns) {
+    const ConfigurationFile configuration_file;
+    ZdProcess zd{configuration_file.path()};
+
+    ASSERT_TRUE(zd.readUntil(ready_line, Clock::now() + startup_timeout))
+        << "No ready line; zd's output:\n" << zd.output();
+    EXPECT_NE(
+        zd.output().find("[screen lock] not held: no desktop session bus\n"),
+        std::string::npos
+    ) << zd.output();
 }
 
 } // namespace

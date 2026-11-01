@@ -6,6 +6,13 @@ All notable changes to Zeta DAW are documented in this file.
 
 ### Added
 
+- Added the screen-lock inhibit: while zd runs, the desktop does not lock the
+  screen, which it otherwise does because it does not count MIDI input as
+  activity. zd holds the freedesktop screen-saver inhibit, which XFCE, GNOME
+  and KDE provide, through libsystemd's sd-bus, a new build dependency
+  (`libsystemd-dev`). Without a session bus or that service, as for the
+  Raspberry Pi's system service, zd prints one line and runs as before.
+  `tests/audio_evidence.sh` holds the same inhibit during its runs.
 - Added tests of shutdown by SIGINT and SIGTERM through `main.cpp`:
   `current_behavior_tests` starts `zd_with_fakes`, `zd` built with the fake
   MIDI input and fake FluidSynth, sends the signal after its ready line, and
